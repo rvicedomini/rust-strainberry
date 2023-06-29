@@ -6,16 +6,20 @@ use clap::Parser;
 pub struct Options {
     
     /// FASTA file of the input assembly
-    #[arg(short, long, value_name = "PATH")]
-    pub fasta: String,
+    #[arg(short = 'f', long = "fasta", value_name = "PATH")]
+    pub fasta_file: String,
 
     /// Long-read alignment in BAM format
-    #[arg(short, long, value_name = "PATH")]
-    pub bam: String,
+    #[arg(short = 'b', long = "bam", value_name = "PATH")]
+    pub bam_file: String,
 
     /// Output directory
-    #[arg(short, long = "out-dir", value_name = "PATH")]
+    #[arg(short = 'o', long = "out-dir", value_name = "PATH")]
     pub output_dir: String,
+
+    /// Minimum number of consecutive k-mers to define a marker
+    #[arg(long = "vcf", value_name = "PATH")]
+    pub vcf_file: Option<String>,
 
     /// Minimum number of consecutive k-mers to define a marker
     #[arg(short = 'q', long = "min-mapq", value_name = "NUM", default_value_t = 20)]
