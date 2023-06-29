@@ -5,7 +5,7 @@ use std::time::Instant;
 use clap::Parser;
 
 use rustc_hash::FxHashMap;
-use strainberry::opts;
+use strainberry::cli;
 use strainberry::utils;
 use strainberry::variant;
 
@@ -16,7 +16,7 @@ fn main() {
     
     let t_start = Instant::now();
 
-    let opts = opts::Options::parse();
+    let opts = cli::Options::parse();
 
     let fasta_path = Path::new(&opts.fasta_file);
     let bam_path = Path::new(&opts.bam_file);

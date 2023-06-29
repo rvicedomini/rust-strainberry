@@ -8,7 +8,7 @@ use rust_htslib::bam::Read;
 
 use tinyvec::ArrayVec;
 
-use crate::opts::Options;
+use crate::cli;
 use crate::utils;
 
 
@@ -24,9 +24,8 @@ pub struct Var {
 
 type VarPositions = FxHashSet<(u32,u32)>;
 
-// load and filter variants at given positions
-// if positions is empty, all pileups are scanned to find suitable variants
-fn load_variants_at_positions(bam_path:&Path, positions:Option<&VarPositions>, opts:&Options) -> Vec<Var> {
+// load and filter variants (possibly restricting to a limited set of positions)
+fn load_variants_at_positions(bam_path: &Path, positions: Option<&VarPositions>, opts: &cli::Options) -> Vec<Var> {
 
     let mut bam_reader = bam::IndexedReader::from_path(bam_path).unwrap();
     let header_view = bam_reader.header();
@@ -77,15 +76,14 @@ fn load_variants_at_positions(bam_path:&Path, positions:Option<&VarPositions>, o
             
             let depth = counts.iter().sum::<usize>();
             let min_depth = std::cmp::max(opts.min_alt_count, (opts.min_alt_frac * (depth as f64)) as usize);
-            
             let alleles: ArrayVec<[(char,usize);5]> = counts.iter()
                 .enumerate()
                 .filter(|&(_,cnt)| *cnt >= min_depth)
                 .map(|(b,&cnt)| (BASES[b],cnt))
                 .collect();
 
-            if alleles.len() == 2 && alleles.iter().all(|&(nuc,_)| nuc != 'N') {
-                variants.push(Var { tid, pos, depth, alleles });
+            if alleles.len() == 2 && alleles.iter().all(|&(base,_)| base != 'N') {
+                variants.push(Var{tid,pos,depth,alleles});
             }
         }
     }
@@ -94,7 +92,7 @@ fn load_variants_at_positions(bam_path:&Path, positions:Option<&VarPositions>, o
 }
 
 
-pub fn load_variants_from_bam(bam_path:&Path, opts:&Options) -> Vec<Var> {
+pub fn load_variants_from_bam(bam_path:&Path, opts:&cli::Options) -> Vec<Var> {
     load_variants_at_positions(bam_path, None, opts)
 }
 
@@ -109,7 +107,7 @@ fn chrom2tid(bam_path:&Path) -> FxHashMap<String,u32> {
 }
 
 
-pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, opts:&Options) -> Vec<Var> {
+pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, opts:&cli::Options) -> Vec<Var> {
 
     let chrom2tid = chrom2tid(bam_path);
 
