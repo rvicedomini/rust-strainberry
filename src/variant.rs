@@ -22,9 +22,11 @@ pub struct Var {
     pub alleles: ArrayVec<[(char,usize);5]>,
 }
 
+type VarPositions = FxHashSet<(u32,u32)>;
+
 // load and filter variants at given positions
 // if positions is empty, all pileups are scanned to find suitable variants
-fn load_variants_at_positions(bam_path:&Path, positions:&FxHashSet<(u32,u32)>, opts:&Options) -> Vec<Var> {
+fn load_variants_at_positions(bam_path:&Path, positions:Option<&VarPositions>, opts:&Options) -> Vec<Var> {
 
     let mut bam_reader = bam::IndexedReader::from_path(bam_path).unwrap();
     let header_view = bam_reader.header();
@@ -38,8 +40,10 @@ fn load_variants_at_positions(bam_path:&Path, positions:&FxHashSet<(u32,u32)>, o
             let pileup = pileup.unwrap();
             let pos = pileup.pos();
 
-            if !positions.is_empty() && !positions.contains(&(tid,pos)) {
-                continue;
+            if let Some(positions) = positions {
+                if !positions.contains(&(tid,pos)) {
+                    continue;
+                }
             }
 
             let mut counts = [0 as usize; 5]; // A,C,G,T,N
@@ -91,8 +95,7 @@ fn load_variants_at_positions(bam_path:&Path, positions:&FxHashSet<(u32,u32)>, o
 
 
 pub fn load_variants_from_bam(bam_path:&Path, opts:&Options) -> Vec<Var> {
-    let positions = FxHashSet::default();
-    load_variants_at_positions(bam_path, &positions, opts)
+    load_variants_at_positions(bam_path, None, opts)
 }
 
 
@@ -110,24 +113,20 @@ pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, opts:&Options) -> 
 
     let chrom2tid = chrom2tid(bam_path);
 
-    let mut positions: FxHashSet<(u32, u32)> = FxHashSet::default();
     let vcf_reader = utils::get_file_reader(vcf_path);
-    for line in vcf_reader.lines().flatten() {
-        
-        let line = line.trim();
-        if line.is_empty() || line.starts_with("#") {
-            continue
-        }
+    let positions: VarPositions = vcf_reader.lines().flatten()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty() && !line.starts_with("#"))
+        .map(|line| {
+            let mut record = line.split('\t');
+            let chrom = record.next().unwrap();
+            let tid = *chrom2tid.get(chrom).unwrap();
+            let pos = record.next().unwrap().parse::<u32>().unwrap();
+            (tid,pos-1)
+        })
+        .collect();
 
-        let mut record = line.split('\t');
-        let chrom = record.next().unwrap();
-        let tid = *chrom2tid.get(chrom).unwrap();
-        let pos = record.next().unwrap().parse::<u32>().unwrap();
-        assert!(pos > 0);
-        positions.insert((tid,pos-1));
-    }
-
-    load_variants_at_positions(bam_path, &positions, opts)
+    load_variants_at_positions(bam_path, Some(&positions), opts)
 }
 
 
