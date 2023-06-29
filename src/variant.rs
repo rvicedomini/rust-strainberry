@@ -123,7 +123,8 @@ pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, opts:&Options) -> 
         let chrom = record.next().unwrap();
         let tid = *chrom2tid.get(chrom).unwrap();
         let pos = record.next().unwrap().parse::<u32>().unwrap();
-        positions.insert((tid,pos));
+        assert!(pos > 0);
+        positions.insert((tid,pos-1));
     }
 
     load_variants_at_positions(bam_path, &positions, opts)
