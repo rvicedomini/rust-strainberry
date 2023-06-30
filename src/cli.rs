@@ -21,6 +21,10 @@ pub struct Options {
     #[arg(long = "vcf", value_name = "PATH")]
     pub vcf_file: Option<String>,
 
+    /// Lookback distance
+    #[arg(short = 'l', long = "lookback", value_name = "NUM")]
+    pub lookback: Option<usize>,
+
     /// Minimum number of consecutive k-mers to define a marker
     #[arg(short = 'q', long = "min-mapq", value_name = "NUM", default_value_t = 20)]
     pub min_mapq: u8,

@@ -1,7 +1,7 @@
 use std::io::BufRead;
 use std::path::Path;
 
-use rustc_hash::{FxHashMap,FxHashSet};
+use rustc_hash::FxHashSet;
 
 use rust_htslib::bam;
 use rust_htslib::bam::Read;
@@ -16,13 +16,13 @@ const BASES: [char;5] = ['A', 'C', 'G', 'T', 'N'];
 
 #[derive(Debug, Clone)]
 pub struct Var {
-    pub tid: u32,
-    pub pos: u32,
+    pub tid: usize,
+    pub pos: usize,
     pub depth: usize,
     pub alleles: ArrayVec<[(char,usize);5]>,
 }
 
-type VarPositions = FxHashSet<(u32,u32)>;
+type VarPositions = FxHashSet<(usize,usize)>;
 
 // load and filter variants (possibly restricting to a limited set of positions)
 fn load_variants_at_positions(bam_path: &Path, positions: Option<&VarPositions>, opts: &cli::Options) -> Vec<Var> {
@@ -37,10 +37,10 @@ fn load_variants_at_positions(bam_path: &Path, positions: Option<&VarPositions>,
 
         for pileup in bam_reader.pileup() {
             let pileup = pileup.unwrap();
-            let pos = pileup.pos();
+            let pos = pileup.pos() as usize;
 
             if let Some(positions) = positions {
-                if !positions.contains(&(tid,pos)) {
+                if !positions.contains(&(tid as usize,pos)) {
                     continue;
                 }
             }
@@ -83,6 +83,7 @@ fn load_variants_at_positions(bam_path: &Path, positions: Option<&VarPositions>,
                 .collect();
 
             if alleles.len() == 2 && alleles.iter().all(|&(base,_)| base != 'N') {
+                let tid = tid as usize;
                 variants.push(Var{tid,pos,depth,alleles});
             }
         }
@@ -97,19 +98,9 @@ pub fn load_variants_from_bam(bam_path:&Path, opts:&cli::Options) -> Vec<Var> {
 }
 
 
-fn chrom2tid(bam_path:&Path) -> FxHashMap<String,u32> {
-    let bam_reader = bam::IndexedReader::from_path(bam_path).unwrap();
-    bam_reader.header()
-        .target_names().iter()
-        .enumerate()
-        .map(|(tid,&name)| (String::from_utf8_lossy(name).to_string(),tid as u32))
-        .collect()
-}
-
-
 pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, opts:&cli::Options) -> Vec<Var> {
 
-    let chrom2tid = chrom2tid(bam_path);
+    let chrom2tid = utils::chrom2tid(bam_path);
 
     let vcf_reader = utils::get_file_reader(vcf_path);
     let positions: VarPositions = vcf_reader.lines().flatten()
@@ -119,7 +110,7 @@ pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, opts:&cli::Options
             let mut record = line.split('\t');
             let chrom = record.next().unwrap();
             let tid = *chrom2tid.get(chrom).unwrap();
-            let pos = record.next().unwrap().parse::<u32>().unwrap();
+            let pos = record.next().unwrap().parse::<usize>().unwrap();
             (tid,pos-1)
         })
         .collect();
