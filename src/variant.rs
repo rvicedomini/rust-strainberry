@@ -1,7 +1,7 @@
 use std::io::BufRead;
 use std::path::Path;
 
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap,FxHashSet};
 
 use rust_htslib::bam;
 use rust_htslib::bam::Read;
@@ -22,15 +22,17 @@ pub struct Var {
     pub alleles: ArrayVec<[(char,usize);5]>,
 }
 
+pub type VarDict = FxHashMap<usize,Vec<Var>>;
+
 type VarPositions = FxHashSet<(usize,usize)>;
 
 // load and filter variants (possibly restricting to a limited set of positions)
-fn load_variants_at_positions(bam_path: &Path, positions: Option<&VarPositions>, opts: &cli::Options) -> Vec<Var> {
+fn load_variants_at_positions(bam_path: &Path, positions: Option<&VarPositions>, opts: &cli::Options) -> VarDict {
 
     let mut bam_reader = bam::IndexedReader::from_path(bam_path).unwrap();
     let header_view = bam_reader.header();
 
-    let mut variants: Vec<Var> = Vec::new();
+    let mut variants: VarDict = VarDict::default();
     
     for tid in 0..header_view.target_count() {
         bam_reader.fetch(tid).unwrap();
@@ -84,22 +86,27 @@ fn load_variants_at_positions(bam_path: &Path, positions: Option<&VarPositions>,
 
             if alleles.len() == 2 && alleles.iter().all(|&(base,_)| base != 'N') {
                 let tid = tid as usize;
-                variants.push(Var{tid,pos,depth,alleles});
+                let var = Var{tid,pos,depth,alleles};
+                variants.entry(tid)
+                    .or_insert(vec![])
+                    .push(var);
             }
         }
     }
 
-    variants.sort_unstable_by_key(|v| (v.tid,v.pos));
+    variants.values_mut()
+        .for_each(|vars| vars.sort_unstable_by_key(|v| v.pos));
+
     variants
 }
 
 
-pub fn load_variants_from_bam(bam_path:&Path, opts:&cli::Options) -> Vec<Var> {
+pub fn load_variants_from_bam(bam_path:&Path, opts:&cli::Options) -> VarDict {
     load_variants_at_positions(bam_path, None, opts)
 }
 
 
-pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, opts:&cli::Options) -> Vec<Var> {
+pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, opts:&cli::Options) -> VarDict {
 
     let chrom2tid = utils::chrom2tid(bam_path);
 

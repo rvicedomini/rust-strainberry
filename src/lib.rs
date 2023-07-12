@@ -1,4 +1,4 @@
 pub mod cli;
-pub mod phasing;
+pub mod phase;
 pub mod utils;
 pub mod variant;

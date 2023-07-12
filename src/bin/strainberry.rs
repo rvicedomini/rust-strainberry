@@ -5,6 +5,7 @@ use std::time::Instant;
 use clap::Parser;
 
 use strainberry::cli;
+use strainberry::phase;
 use strainberry::utils;
 use strainberry::variant;
 
@@ -19,6 +20,8 @@ fn main() {
     let bam_path = Path::new(&opts.bam_file);
     let output_dir = Path::new(&opts.output_dir);
 
+    // TODO?
+    // create output directory in cli module, after option validation
     if fs::create_dir_all(output_dir).is_err() {
         println!("Cannot create output directory: \"{}\"", output_dir.display());
         std::process::exit(1);
@@ -31,18 +34,31 @@ fn main() {
         println!("Looking for potential variants");
         variant::load_variants_from_bam(bam_path, &opts)
     };
-
-    println!("Found {} variants", variants.len());
+    println!("Loaded {} variants", variants.values().map(|vars| vars.len()).sum::<usize>());
 
     println!("Loading sequences from: {}", fasta_path.canonicalize().unwrap().display());
-    let target_sequences = utils::load_sequences(fasta_path, bam_path);
+    let target_sequences: Vec<Vec<u8>> = utils::load_sequences(fasta_path, bam_path);
     println!("Loaded {} sequences", target_sequences.len());
     
-    if let Some(lookup) = utils::estimate_lookup(bam_path, 1000) {
-        println!("Estimated lookup: {lookup}");
-    }
+    // TODO:
+    // Consider estimating lookback length when lookup equals the keyword "auto"
+    // Also allow user to set a custom number of reads for estimation
+    // utils::estimate_lookback(bam_path, 1000)
+    println!("Lookback {} bp", opts.lookback);
 
-    println!("Phasing and read separation");
+    // TODO: implement the following python-strainberry code
+    // me_finder = MisassemblyFinder2(read_alignments, opt.BAM, partition_workdir, min_reads=opt.min_read_obs, min_frac=opt.min_read_frac, max_overhang=opt.overhang, max_indel=opt.aln_max_indel, window=opt.event_window)
+    // me_finder.partition_references(reference_lengths)
+
+    println!("Phasing strains");
+    let mut phaser = phase::Phaser::new(&bam_path, &target_sequences, &output_dir, &opts);
+    phaser.run(&variants);
+
+    // separate_workdir = os.path.join(opt.outdir,'20-separate')
+    // separator = HifiReadSeparator(reference_lengths, opt.BAM, read_dict, variant_positions, reference_alignments, reference_intervals, separate_workdir,
+    //     mapq=opt.min_mapq, lookback=opt.lookback, min_obs=opt.min_read_obs, min_frac=opt.min_read_frac,
+    //     graph_only=opt.graph_only, phase_only=opt.phase_only, debug=opt.debug)
+    // separator.separate_references()
 
 
 

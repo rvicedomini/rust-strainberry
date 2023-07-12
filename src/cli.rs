@@ -17,23 +17,34 @@ pub struct Options {
     #[arg(short = 'o', long = "out-dir", value_name = "PATH")]
     pub output_dir: String,
 
-    /// Minimum number of consecutive k-mers to define a marker
+    /// User provided vcf file of SNV positions to consider
     #[arg(long = "vcf", value_name = "PATH")]
     pub vcf_file: Option<String>,
 
     /// Lookback distance
-    #[arg(short = 'l', long = "lookback", value_name = "NUM")]
-    pub lookback: Option<usize>,
+    #[arg(short = 'l', long = "lookback", value_name = "NUM", default_value_t = 3000)]
+    pub lookback: usize,
 
-    /// Minimum number of consecutive k-mers to define a marker
+    /// Minimum MAPQ value to consider a read alignment
     #[arg(short = 'q', long = "min-mapq", value_name = "NUM", default_value_t = 20)]
     pub min_mapq: u8,
 
-    /// Minimum number of consecutive k-mers to define a marker
+    /// Minimum number of alternative-allele observations
     #[arg(long = "min-alt-count", value_name = "NUM", default_value_t = 5)]
     pub min_alt_count: usize,
 
-    /// Relative difference between the distance of a k-mer on the reference/query to be included in a marker
+    /// Minimum fraction of alternative-allele observations
     #[arg(long = "min-alt-frac", value_name = "FLOAT", default_value_t = 0.125)]
     pub min_alt_frac: f64,
+}
+
+
+// TODO: validate parsed options and possibly estimate other parameters
+pub struct Config;
+
+impl Config {
+
+    pub fn from_options(opts:Options) -> Config {
+        todo!()
+    }
 }

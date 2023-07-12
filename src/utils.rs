@@ -63,7 +63,7 @@ pub fn parse_cigar_bytes(cigar: &[u8]) -> CigarString {
 }
 
 
-pub fn estimate_lookup(bam_path: &Path, n: usize) -> Option<usize> {
+pub fn estimate_lookback(bam_path: &Path, n: usize) -> Option<usize> {
     let mut bam_reader = bam::Reader::from_path(bam_path).unwrap();
 
     let mut read_lengths = Vec::with_capacity(n);

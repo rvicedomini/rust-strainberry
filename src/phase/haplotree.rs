@@ -2,7 +2,7 @@ use tinyvec::{tiny_vec,TinyVec};
 
 type SNV = usize;
 
-struct HaploNode {
+struct Node {
     snv: Option<SNV>,
     parent: usize,
     successors: TinyVec<[usize;10]>,
@@ -10,9 +10,9 @@ struct HaploNode {
     complete: bool,
 }
 
-impl HaploNode {
-    fn default() -> HaploNode {
-        HaploNode {
+impl Node {
+    fn default() -> Node {
+        Node {
             snv: None,
             parent: 0,
             successors: tiny_vec!(),
@@ -24,13 +24,13 @@ impl HaploNode {
 
 pub struct HaploTree {
     root: usize,
-    nodes: Vec<HaploNode>,
+    nodes: Vec<Node>,
 }
 
 impl HaploTree {
 
     pub fn new() -> HaploTree {
-        let root_node = HaploNode::default();
+        let root_node = Node::default();
         HaploTree { root: 0, nodes: vec![root_node] }
     }
 
@@ -38,7 +38,7 @@ impl HaploTree {
 
     pub fn clear(&mut self) {
         self.nodes.clear();
-        self.nodes.push(HaploNode::default());
+        self.nodes.push(Node::default());
     }
 
     pub fn get_parent(&self, node:usize) -> usize { self.nodes[node].parent }
@@ -70,7 +70,7 @@ impl HaploTree {
         }
 
         let succ = self.nodes.len();
-        self.nodes.push( HaploNode {
+        self.nodes.push(Node {
             snv: Some(snv),
             parent: node,
             successors: tiny_vec!(),
