@@ -89,6 +89,7 @@ fn load_variants_at_positions(bam_path: &Path, positions: Option<&VarPositions>,
         }
     }
 
+    variants.sort_unstable_by_key(|v| (v.tid,v.pos));
     variants
 }
 
