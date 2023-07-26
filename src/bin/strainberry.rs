@@ -41,8 +41,7 @@ fn main() {
     println!("Loaded {} sequences", target_sequences.len());
     
     // TODO:
-    // Consider estimating lookback length when lookup equals the keyword "auto"
-    // Also allow user to set a custom number of reads for estimation
+    // Consider estimating lookback length when a flag "--auto-lookback" is provided
     // utils::estimate_lookback(bam_path, 1000)
     println!("Lookback {} bp", opts.lookback);
 
