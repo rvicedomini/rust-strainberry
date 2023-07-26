@@ -6,8 +6,16 @@ use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path,PathBuf};
 
+use itertools::Itertools;
+use rustc_hash::FxHashMap;
+
+use rust_htslib::bam;
+use rust_htslib::bam::Read;
+
 use crate::cli::Options;
-use crate::utils::seq::SeqInterval;
+use crate::utils;
+use crate::utils::BamRecordId;
+use crate::utils::seq::{SeqInterval,SuccinctSeq};
 use crate::variant::{Var,VarDict};
 
 use phasedblock::PhasedBlock;
@@ -58,61 +66,142 @@ impl<'a> Phaser<'a> {
     }
 
     fn phase_interval(&self, target_interval:&SeqInterval, variants: &[Var]) {
-        eprintln!("------ Phasing {target_interval} -------");
+        eprintln!("----- Phasing {target_interval}");
         let haplotypes = self.phase_variants(target_interval,variants);
     }
 
     fn phase_variants(&self, target_interval:&SeqInterval, variants: &[Var]) {
+
+        if variants.len() == 0 {
+            return;
+        }
+
+        let mut succinct_records: FxHashMap<BamRecordId,SuccinctSeq> = FxHashMap::default();
         let mut lookback_positions: VecDeque<usize> = VecDeque::new();
         let mut var_iter = variants.iter();
-        let mut var_position = var_iter.next().unwrap().pos;
         let mut phasedblock = PhasedBlock::new(target_interval.tid);
+
+        let mut bam_reader = bam::IndexedReader::from_path(self.bam).unwrap();
+        bam_reader.fetch((target_interval.tid as i32, target_interval.beg as i64, target_interval.end as i64)).expect(&format!("Cannot fetch target interval: {}",target_interval));
+
+        let mut var = var_iter.next();
+
+        for pileup in bam_reader.pileup().flatten() {
+            
+            if var.is_none() {
+                break 
+            };
+
+            let target_pos = pileup.pos() as usize;
+            let mut var_position = var.unwrap().pos;
+            if var_position < target_pos {
+                var = var_iter.next();
+                if var.is_none() { break; }
+                var_position = var.unwrap().pos;
+            }
+
+            if target_pos < var_position {
+                continue;
+            }
+
+            // eprintln!("-----> SNV position = {var_position}");
+            debug_assert_eq!(target_pos, var_position);
+
+            // TODO: keep a list of "in-scope" succinct reads
+            let (nucleotides, edges) = self.process_pileup(&pileup, &mut succinct_records);
+            lookback_positions.push_back(var_position);
+
+            // filter lookback positions too far away
+            while var_position - lookback_positions[0] + 1 > self.opts.lookback {
+                lookback_positions.pop_front();
+            }
+
+            debug_assert!(lookback_positions.len() > 0);
+
+            // if this is the start a new phased block or there is no edge to extend current one
+            // FIXME: if there is no edge, why did I not save haplotypes ? Check old python code!!!
+            if lookback_positions.len() == 1 || edges.len() == 0 {
+                // phasedblock.init_haplotypes(var_position, nucleotides);
+                continue
+            }
+
+//             # remove/save haplotypes that cannot be extended
+//             unsupported_haplotypes = [ht_id for ht_id in phased_block.haplotypes if phased_block.haplotypes[ht_id].sequence[-1] not in map(operator.itemgetter(0),edges)]
+//             if len(unsupported_haplotypes) > 0 and phased_block.haplotypes[unsupported_haplotypes[0]].size() >= 3 and (snv_position-phased_block.hap_begin+1 > self.lookback):
+//                 # logger.debug(f'Saved haplotypes after impossible extension:')
+//                 # for ht_id, ht in phased_block.haplotypes.items():
+//                 #     logger.debug(f'{ht_id}\t{ht.seqstr()}\t[{ht.positions[ht.start_idx]}-{ht.positions[-1]}]')
+//                 self._save_haplotypes(phased_block.haplotypes.values())
+//                 phased_block.init_haplotypes(snv_position, nucleotides)
+//                 lookback_positions = deque([snv_position])
+//                 continue
+//             for ht_id in unsupported_haplotypes:
+//                 phased_block.remove_haplotype(ht_id)
+
+        }
+    }
+
+
+    fn process_pileup(&self, pileup: &bam::pileup::Pileup, succinct_records: &mut FxHashMap<BamRecordId,SuccinctSeq>) -> (Vec<u8>,Vec<(u8,u8)>) {
+
+        let position = pileup.pos() as usize;
+        let mut nuc_counter: FxHashMap<u8,usize> = FxHashMap::default();
+        let mut edge_counter: FxHashMap<(u8,u8),usize> = FxHashMap::default();
+        let mut total_obs: usize = 0;
+
+        for alignment in pileup.alignments() {
+            let record = alignment.record();
+            if record.mapq() < self.opts.min_mapq {
+                continue;
+            }
+
+            total_obs += 1;
+            
+            let record_id = utils::bam_record_id(&record);
+            let record_nuc = if !alignment.is_del() && !alignment.is_refskip() { 
+                alignment.record().seq()[alignment.qpos().unwrap()] 
+            } else { 
+                b'-' 
+            };
+
+            *nuc_counter.entry(record_nuc).or_default() += 1;
+
+            let srec = succinct_records.entry(record_id.clone())
+                .or_insert(SuccinctSeq::build(&record_id.0, pileup.tid() as usize));
+            srec.push(position, record_nuc);
+            
+            let srec_positions = srec.positions();
+            let srec_len = srec.len();
+            if srec_len > 1 && srec_positions[srec_len-1] - srec_positions[srec_len-2] + 1 <= self.opts.lookback {
+                let srec_nucleotides = srec.nucleotides();
+                let edge = (srec_nucleotides[srec_len-2], srec_nucleotides[srec_len-1]);
+                edge_counter.entry(edge)
+                    .and_modify(|cnt| *cnt += 1)
+                    .or_insert(1);
+            }
+        }
+
+        // eprintln!("pileup at {}: {} >={}MAPQ", position, total_obs, self.opts.min_mapq);
+
+        let nucleotides = nuc_counter.iter()
+            .filter(|&(_nuc,&cnt)| cnt >= self.opts.min_alt_count && (cnt as f64) >= self.opts.min_alt_frac * (total_obs as f64))
+            .map(|(nuc,_cnt)| *nuc)
+            .collect_vec();
+
+        let edge_total_obs = edge_counter.values().sum::<usize>() as f64;
+        let edges = edge_counter.iter()
+            .filter(|&(_edge,&cnt)| cnt >= self.opts.min_alt_count && (cnt as f64) >= self.opts.min_alt_frac * edge_total_obs)
+            .map(|(&edge,_cnt)| edge)
+            .collect_vec();
+
+        (nucleotides,edges)
     }
     
 }
 
 
 // def _phase_snv_cluster(self, reference_id, reference_positions, supporting_sreads):
-    
-//     if len(reference_positions) == 0:
-//         return self.haplotypes
-
-//     logger.debug(f'## Phasing region: {reference_id}:{reference_positions[0]}-{reference_positions[-1]} ({len(reference_positions)} SNVs)')
-    
-//     lookback_positions = deque()
-//     snv_position_iter = iter(reference_positions)
-//     snv_position = next(snv_position_iter,None)
-//     phased_block = PhasedBlock(reference_id)
-
-//     with pysam.AlignmentFile(self.bamfile,'rb') as bam_handle:
-//         for pileupcol in bam_handle.pileup(contig=reference_id, start=reference_positions[0], stop=reference_positions[-1]+1, stepper='all', min_base_quality=0):
             
-//             # possibly update snv_position
-//             if snv_position is None:
-//                 break
-//             if snv_position < pileupcol.reference_pos:
-//                 snv_position = next(snv_position_iter,None)
-//                 if snv_position is None:
-//                     break
-//             if pileupcol.reference_pos < snv_position:
-//                 continue
-            
-//             # logger.debug(f'-----> SNV position = {snv_position}')
-//             assert(pileupcol.reference_pos == snv_position)
-
-//             # load pileup column
-//             nucleotides, edges, supporting_sreads = self._process_column_pileup(pileupcol,supporting_sreads)
-//             lookback_positions.append(snv_position)
-
-//             # while snv_position-lookback_positions[0]+1 > self.lookback:
-//             #     lookback_positions.popleft()
-//             # assert(len(lookback_positions) > 0)
-
-//             # start of a new phaseset or no available edge to extend current one
-//             if len(lookback_positions) == 1 or len(edges) == 0:
-//                 phased_block.init_haplotypes(snv_position, nucleotides)
-//                 continue
-
 //             # remove/save haplotypes that cannot be extended
 //             unsupported_haplotypes = [ht_id for ht_id in phased_block.haplotypes if phased_block.haplotypes[ht_id].sequence[-1] not in map(operator.itemgetter(0),edges)]
 //             if len(unsupported_haplotypes) > 0 and phased_block.haplotypes[unsupported_haplotypes[0]].size() >= 3 and (snv_position-phased_block.hap_begin+1 > self.lookback):
@@ -181,7 +270,9 @@ impl<'a> Phaser<'a> {
 //             # logger.debug(f'Validated haplotypes:')
 //             # for ht_id, ht in phased_block.haplotypes.items():
 //             #     logger.debug(f'{ht_id}\t{ht.seqstr()}\t{ht.positions}')
-        
+
+
+//     ## after pileupcol loop        
 //     # save remaning haplotypes
 //     # logger.debug(f'Saving remaining haplotypes:')
 //     # for ht_id, ht in phased_block.haplotypes.items():

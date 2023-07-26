@@ -6,9 +6,11 @@ use std::path::Path;
 use flate2::read::MultiGzDecoder;
 use needletail::Sequence;
 use rustc_hash::FxHashMap;
+
 use rust_htslib::bam;
 use rust_htslib::bam::Read;
-use rust_htslib::bam::record::CigarString;
+use rust_htslib::bam::ext::BamRecordExtensions;
+use rust_htslib::bam::record::{Cigar,CigarString};
 
 pub mod seq;
 
@@ -60,6 +62,35 @@ pub fn load_sequences(fasta_path: &Path, bam_path: &Path) -> Vec<Vec<u8>> {
 pub fn parse_cigar_bytes(cigar: &[u8]) -> CigarString {
     CigarString::try_from(cigar)
         .expect("Unable to parse cigar string.")
+}
+
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct BamRecordId(pub String, pub usize, pub usize);
+
+pub fn bam_record_id(record: &bam::record::Record) -> BamRecordId {
+    let cigar = record.cigar();
+    
+    let query_name = String::from_utf8(record.qname().to_vec()).unwrap();
+    let query_length = record.seq_len_from_cigar(true);
+
+    let mut query_start = match *cigar.first().unwrap() {
+        Cigar::HardClip(len) => len as usize,
+        Cigar::SoftClip(len) => len as usize,
+        _ => 0,
+    };
+
+    let mut query_end = query_length - match *cigar.last().unwrap() {
+        Cigar::HardClip(len) => len as usize,
+        Cigar::SoftClip(len) => len as usize,
+        _ => 0,
+    };
+
+    if record.is_reverse() {
+        (query_start, query_end) = (query_length-query_end, query_length-query_start);
+    }
+
+    BamRecordId(query_name, query_start, query_end)
 }
 
 
