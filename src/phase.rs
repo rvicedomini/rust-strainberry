@@ -108,7 +108,7 @@ impl<'a> Phaser<'a> {
                 continue;
             }
 
-            // eprintln!("-----> SNV position = {var_position}");
+            eprintln!("-----> SNV position = {var_position}");
             debug_assert_eq!(target_pos, var_position);
 
             // TODO: keep a list of "in-scope" succinct reads
@@ -269,7 +269,14 @@ impl<'a> Phaser<'a> {
 
         for alignment in pileup.alignments() {
             let record = alignment.record();
-            if record.mapq() < self.opts.min_mapq {
+
+            if record.mapq() < self.opts.min_mapq
+                ||record.is_unmapped() 
+                || record.is_secondary() 
+                || record.is_quality_check_failed() 
+                || record.is_duplicate() 
+                || record.is_supplementary()
+            {
                 continue;
             }
 
