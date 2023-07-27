@@ -52,6 +52,15 @@ impl PhasedBlock {
         self.haplotype_node.remove(&hid);
     }
 
+    fn drain(&mut self) -> Vec<Haplotype> {
+        let mut haplotypes = Vec::with_capacity(self.haplotypes.len());
+        for (i,mut ht) in self.haplotypes_mut().drain().map(|(_,ht)| ht).enumerate() {
+            ht.set_hid(i);
+            haplotypes.push(ht);
+        }
+        haplotypes
+    }
+
     pub fn extend(&mut self, pos:usize, edges:Vec<(u8,u8)>) -> bool {
         let mut is_ambiguous = false;
         // self.end = pos;
