@@ -1,21 +1,118 @@
-use super::haplotree::HaploTree;
+use itertools::Itertools;
+use rustc_hash::FxHashMap;
+
+use super::haplotree::{HaploTree,SNV};
+use super::haplotype::Haplotype;
 
 pub struct PhasedBlock {
     tid: usize,
     haplotree: HaploTree,
-    haplotypes: Vec<usize>, // placeholder
-
+    haplotypes: FxHashMap<usize,Haplotype>,
+    haplotype_node: FxHashMap<usize,usize>,
+    hap_begin: usize,
 }
 
 impl PhasedBlock {
+
     pub fn new(tid:usize) -> PhasedBlock {
         PhasedBlock { 
             tid: tid,
             haplotree: HaploTree::new(),
-            haplotypes: vec![]
+            haplotypes: FxHashMap::default(),
+            haplotype_node: FxHashMap::default(),
+            hap_begin: 0,
         }
     }
+
+    pub fn init(&mut self, pos:usize, nucleotides:Vec<u8>) {
+        
+        self.haplotree.clear();
+        self.haplotypes.clear();
+        self.haplotype_node.clear();
+        self.hap_begin = pos;
+        
+        let htree_root = self.haplotree.get_root();
+        for nuc in nucleotides {
+            let snv = SNV{pos,nuc};
+            let htree_node = self.haplotree.extend(htree_root, snv);
+            self.haplotypes.insert(htree_node, Haplotype::new(htree_node, self.tid, vec![snv]));
+            self.haplotype_node.insert(htree_node, htree_node);
+        }
+    }
+
+    pub fn haplotypes(&self) -> &FxHashMap<usize,Haplotype> { &self.haplotypes }
+    pub fn haplotypes_mut(&mut self) -> &mut FxHashMap<usize,Haplotype> { &mut self.haplotypes }
+
+    pub fn get(&self, hid:usize) -> &Haplotype { &self.haplotypes[&hid] }
+
+    pub fn hap_begin(&self) -> usize { self.hap_begin }
+
+    pub fn remove_haplotype(&mut self, hid:usize) {
+        self.haplotypes.remove(&hid);
+        self.haplotype_node.remove(&hid);
+    }
+
+    pub fn extend(&mut self, pos:usize, edges:Vec<(u8,u8)>) -> bool {
+        let mut is_ambiguous = false;
+        // self.end = pos;
+        for hid in self.haplotypes.keys().cloned().collect_vec() {
+            let ht = self.haplotypes.get_mut(&hid).unwrap();
+            let ht_parent = self.haplotype_node[&hid];
+            let ht_nuc = ht.last_nuc();
+            let mut successors = edges.iter().filter(|(s,_)| *s == ht_nuc).map(|(_,t)| t);
+            let snv = SNV{ pos, nuc: *successors.next().unwrap() };
+            ht.push(snv);
+            self.haplotype_node.insert(hid, self.haplotree.extend(ht_parent,snv));
+            let mut new_haplotypes = vec![];
+            while let Some(&nuc) = successors.next() {
+                is_ambiguous = true;
+                let snv = SNV{pos,nuc};
+                let new_node = self.haplotree.extend(ht_parent,snv);
+                let mut new_ht = ht.clone();
+                new_ht.set_hid(new_node);
+                new_ht.last_mut().nuc = nuc;
+                new_haplotypes.push((new_node,new_ht));
+            }
+            for (new_node, new_ht) in new_haplotypes {
+                self.haplotypes.insert(new_node,new_ht);
+                self.haplotype_node.insert(new_node, new_node);
+            }
+        }
+        is_ambiguous
+    }
+
+    pub fn split_and_init(&mut self, pos:usize, lookback:Option<usize>) -> PhasedBlock {
+
+        todo!()
+
+    }
+
+//     def split_and_init(self, snv_position, lookback=0) -> PhasedBlock:
+//         out_edges = defaultdict(list)
+//         for ht_id in self.haplotypes:
+//             key = self.haplotree.get_parent(self.haplotype_node[ht_id])
+//             out_edges[key].append(ht_id)
+//         phased_block = PhasedBlock(self.reference_id, snv_position)
+//         new_root = phased_block.haplotree.get_root()
+        
+//         for ht_list in out_edges.values():
+//             while len(ht_list) > 0:
+//                 ht_id = ht_list.pop()
+//                 ht = self.haplotypes[ht_id]
+//                 new_ht = ht.split_at(len(ht.positions)-1, 0, lookback)
+//                 new_ht.id = phased_block.haplotree.path_extend(new_root,zip(new_ht.positions,new_ht.sequence))
+//                 phased_block.haplotypes[new_ht.id] = new_ht
+//                 phased_block.haplotype_node[new_ht.id] = new_ht.id
+//                 phased_block.hap_begin = new_ht.positions[0]
+//                 if len(ht_list) != 0:
+//                     self.haplotypes.pop(ht_id,None)
+
 }
+
+
+
+
+
 
 // class PhasedBlock:
     
@@ -41,34 +138,6 @@ impl PhasedBlock {
 //             htree_node = self.haplotree.extend(htree_root,snv)
 //             self.haplotypes[htree_node] = NextHaplotype(htree_node,self.reference_id,[snv])
 //             self.haplotype_node[htree_node] = htree_node
-
-//     def remove_haplotype(self, ht_id):
-//         self.haplotypes.pop(ht_id,None)
-//         self.haplotype_node.pop(ht_id,None)
-
-//     def extend(self, snv_position, edges) -> bool:
-//         is_ambiguous = False
-//         self.end = snv_position
-//         for ht_id in list(self.haplotypes.keys()): # TODO: use .items() ?
-//             ht = self.haplotypes[ht_id]
-//             ht_parent = self.haplotype_node[ht_id]
-//             ht_nucleotide = ht.sequence[-1]
-//             successors = (nuc_to for nuc_from,nuc_to in edges if nuc_from == ht_nucleotide)
-//             snv = (snv_position,next(successors))
-//             ht.append(snv)
-//             self.haplotype_node[ht_id] = self.haplotree.extend(ht_parent,snv)
-//             nuc_to = next(successors,None)
-//             while nuc_to:
-//                 is_ambiguous = True
-//                 snv = (snv_position,nuc_to)
-//                 new_node = self.haplotree.extend(ht_parent,snv)
-//                 new_ht = copy.deepcopy(ht)
-//                 new_ht.id = new_node
-//                 new_ht.sequence = ht.sequence[:-1] + snv[1]
-//                 self.haplotypes[new_node] = new_ht
-//                 self.haplotype_node[new_node] = new_node
-//                 nuc_to = next(successors,None)
-//         return is_ambiguous
 
 //     def split_and_init(self, snv_position, lookback=0) -> PhasedBlock:
 //         out_edges = defaultdict(list)

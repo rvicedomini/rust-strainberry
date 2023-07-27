@@ -123,3 +123,8 @@ pub fn estimate_lookback(bam_path: &Path, n: usize) -> Option<usize> {
     let lookup = read_lengths[read_lengths.len()/10];
     Some(lookup)
 }
+
+// def hamming_distance(a_seq:str, b_seq:str) -> int:
+//     assert(len(a_seq)==len(b_seq))
+//     ndiff = sum(a!=b for a,b in zip(a_seq,b_seq))
+//     return ndiff

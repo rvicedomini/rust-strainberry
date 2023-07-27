@@ -1,6 +1,10 @@
 use tinyvec::{tiny_vec,TinyVec};
 
-type SNV = usize;
+#[derive(Clone,Copy)]
+pub struct SNV {
+    pub pos: usize,
+    pub nuc: u8,
+}
 
 struct Node {
     snv: Option<SNV>,
