@@ -52,7 +52,7 @@ impl PhasedBlock {
         self.haplotype_node.remove(&hid);
     }
 
-    fn drain(&mut self) -> Vec<Haplotype> {
+    pub fn drain(&mut self) -> Vec<Haplotype> {
         let mut haplotypes = Vec::with_capacity(self.haplotypes.len());
         for (i,mut ht) in self.haplotypes_mut().drain().map(|(_,ht)| ht).enumerate() {
             ht.set_hid(i);

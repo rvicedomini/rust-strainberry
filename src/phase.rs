@@ -37,7 +37,6 @@ pub struct Phaser<'a> {
     target_sequences: &'a Vec<Vec<u8>>,
     work_dir: PathBuf,
     opts: &'a Options,
-    haplotypes: Vec<Haplotype>
 }
 
 impl<'a> Phaser<'a> {
@@ -51,11 +50,11 @@ impl<'a> Phaser<'a> {
         };
         eprintln!("Phasing work directory: {}", work_dir.display());
 
-        Phaser { bam, target_sequences, work_dir, opts, haplotypes:vec![] }
+        Phaser { bam, target_sequences, work_dir, opts }
     }
 
     // TODO: split variants at positions that are too distant
-    pub fn run(&mut self, variants: &VarDict) {
+    pub fn run(&self, variants: &VarDict) {
 
         for (&tid, target_variants) in variants {
             if target_variants.len() > 0 {
@@ -68,15 +67,17 @@ impl<'a> Phaser<'a> {
 
     }
 
-    fn phase_interval(&mut self, target_interval:&SeqInterval, variants: &[Var]) {
+    fn phase_interval(&self, target_interval:&SeqInterval, variants: &[Var]) {
         eprintln!("----- Phasing {target_interval}");
         let haplotypes = self.phase_variants(target_interval,variants);
     }
 
-    fn phase_variants(&mut self, target_interval:&SeqInterval, variants: &[Var]) {
+    fn phase_variants(&self, target_interval:&SeqInterval, variants: &[Var]) -> Vec<Haplotype> {
+
+        let mut haplotypes = vec![];
 
         if variants.len() == 0 {
-            return;
+            return haplotypes;
         }
 
         let mut succinct_records: FxHashMap<BamRecordId,SuccinctSeq> = FxHashMap::default();
@@ -140,7 +141,7 @@ impl<'a> Phaser<'a> {
                 // for ht in phasedblock.haplotypes().values() {
                 //     eprintln!("{ht}");
                 // }
-                self.save_haplotypes(&mut phasedblock);
+                haplotypes.append(&mut phasedblock.drain());
                 phasedblock.init(var_position, nucleotides);
                 lookback_positions.clear();
                 lookback_positions.push_back(var_position);
@@ -186,7 +187,7 @@ impl<'a> Phaser<'a> {
                 // for ht in phasedblock.haplotypes().values() {
                 //     eprintln!("{ht}");
                 // }
-                self.save_haplotypes(&mut phasedblock);
+                haplotypes.append(&mut phasedblock.drain());
                 phasedblock.init(var_position, nucleotides);
                 lookback_positions.clear();
                 lookback_positions.push_back(var_position);
@@ -194,6 +195,8 @@ impl<'a> Phaser<'a> {
             }
 
         }
+
+        haplotypes
     }
 
     fn validate_haplotypes(&self, succinct_records: &FxHashMap<BamRecordId,SuccinctSeq>, candidate_records: &Vec<&BamRecordId>, phasedblock: &PhasedBlock, min_position: usize) -> (Vec<usize>,Vec<usize>) {
@@ -254,14 +257,6 @@ impl<'a> Phaser<'a> {
             .collect_vec();
 
         (unsupported_haplotypes, ambiguous_haplotypes)
-    }
-
-    
-    fn save_haplotypes(&mut self, phasedblock: &mut PhasedBlock) {
-        for (i,mut ht) in phasedblock.haplotypes_mut().drain().map(|(_,ht)| ht).enumerate() {
-            ht.set_hid(i);
-            self.haplotypes.push(ht);
-        }
     }
 
 
