@@ -41,6 +41,7 @@ impl Haplotype {
     pub fn end(&self) -> usize { self.vars.last().unwrap().pos + 1 }
 
     pub fn size(&self) -> usize { self.vars.len() - self.offset }
+    pub fn raw_size(&self) -> usize { self.vars.len() }
 
     pub fn get(&self, idx:usize) -> &SNV {
         let idx = self.offset + idx;
@@ -77,8 +78,11 @@ impl Haplotype {
 
     pub fn split_off(&mut self, idx:usize, hid:usize, dist:usize) -> Haplotype {
         assert!(self.offset < idx && idx < self.vars.len());
-        let vars = self.vars.split_off(idx);
-        let offset = idx - self.vars.partition_point(|snv| snv.pos < self.vars[idx].pos-dist);
+        let target_pos = self.vars[idx].pos;
+        let p = self.vars.partition_point(|snv| snv.pos < target_pos.checked_sub(dist).unwrap_or(0));
+        let vars = (&self.vars[p..]).to_vec();
+        let offset = idx-p;
+        self.vars.truncate(idx);
         Haplotype::with_offset(hid, self.tid, vars, offset)
     }
 
@@ -107,7 +111,7 @@ impl Haplotype {
 
 impl fmt::Display for Haplotype {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}: {} ({}:{}-{})", self.hid(), self.seq_string(), self.tid(), self.first_pos(), self.last_pos())
+        write!(f, "{}: {} ({}:{}..={})", self.hid(), self.seq_string(), self.tid(), self.first_pos(), self.last_pos())
     }
 }
 

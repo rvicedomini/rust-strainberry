@@ -1,6 +1,8 @@
 use itertools::Itertools;
 use rustc_hash::FxHashMap;
 
+use crate::phase;
+
 use super::haplotree::{HaploTree,SNV};
 use super::haplotype::Haplotype;
 
@@ -9,7 +11,7 @@ pub struct PhasedBlock {
     haplotree: HaploTree,
     haplotypes: FxHashMap<usize,Haplotype>,
     haplotype_node: FxHashMap<usize,usize>,
-    hap_begin: usize,
+    begin: usize,
 }
 
 impl PhasedBlock {
@@ -20,7 +22,7 @@ impl PhasedBlock {
             haplotree: HaploTree::new(),
             haplotypes: FxHashMap::default(),
             haplotype_node: FxHashMap::default(),
-            hap_begin: 0,
+            begin: 0,
         }
     }
 
@@ -29,7 +31,7 @@ impl PhasedBlock {
         self.haplotree.clear();
         self.haplotypes.clear();
         self.haplotype_node.clear();
-        self.hap_begin = pos;
+        self.begin = pos;
         
         let htree_root = self.haplotree.get_root();
         for nuc in nucleotides {
@@ -45,7 +47,7 @@ impl PhasedBlock {
 
     pub fn get(&self, hid:usize) -> &Haplotype { &self.haplotypes[&hid] }
 
-    pub fn hap_begin(&self) -> usize { self.hap_begin }
+    pub fn begin(&self) -> usize { self.begin }
 
     pub fn remove_haplotype(&mut self, hid:usize) {
         self.haplotypes.remove(&hid);
@@ -92,8 +94,31 @@ impl PhasedBlock {
 
     pub fn split_and_init(&mut self, pos:usize, lookback:Option<usize>) -> PhasedBlock {
 
-        todo!()
+        let mut out_edges: FxHashMap<usize,Vec<usize>> = FxHashMap::default();
+        for hid in self.haplotypes.keys() {
+            let key = self.haplotree.get_parent(self.haplotype_node[hid]);
+            out_edges.entry(key).or_default().push(*hid);
+        }
 
+        let mut phasedblock = PhasedBlock::new(self.tid);
+        let new_root = phasedblock.haplotree.get_root();
+
+        for mut ht_ids in out_edges.into_values() {
+            while let Some(hid) = ht_ids.pop() {
+                let ht = self.haplotypes.get_mut(&hid).unwrap();
+                let mut new_ht = ht.split_off(ht.raw_size()-1, 0, lookback.unwrap_or(0));
+                let new_hid = phasedblock.haplotree.path_extend(new_root, new_ht.raw_variants());
+                new_ht.set_hid(new_hid);
+                phasedblock.begin = new_ht.first_pos();
+                phasedblock.haplotype_node.insert(new_hid, new_hid);
+                phasedblock.haplotypes.insert(new_hid, new_ht);
+                if ht_ids.len() > 0 {
+                    self.haplotypes.remove(&hid);
+                }
+            }
+        }
+
+        phasedblock
     }
 
 //     def split_and_init(self, snv_position, lookback=0) -> PhasedBlock:

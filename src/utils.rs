@@ -52,6 +52,7 @@ pub fn load_sequences(fasta_path: &Path, bam_path: &Path) -> Vec<Vec<u8>> {
     while let Some(record) = fasta_reader.next() {
         let record = record.unwrap();
         let tid = header_view.tid(record.id()).unwrap() as usize;
+        // eprintln!("{tid} -> {}", String::from_utf8_lossy(record.id()));
         target_sequences[tid] = record.normalize(false).to_vec();
     }
 

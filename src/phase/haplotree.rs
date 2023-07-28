@@ -1,6 +1,6 @@
 use tinyvec::{tiny_vec,TinyVec};
 
-#[derive(Clone,Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct SNV {
     pub pos: usize,
     pub nuc: u8,
@@ -60,7 +60,7 @@ impl HaploTree {
     pub fn peek(&self, node:Option<usize>, snv:SNV) -> Option<usize> {
 
         if let Some(node) = node {
-            if let Some(succ) = self.nodes[node].successors.iter().filter(|&succ| matches!(self.nodes[*succ].snv,snv)).next() {
+            if let Some(succ) = self.nodes[node].successors.iter().filter(|&succ| self.nodes[*succ].snv == Some(snv)).next() {
                 return Some(*succ)
             }
         }
@@ -69,7 +69,7 @@ impl HaploTree {
 
     pub fn extend(&mut self, node:usize, snv:SNV) -> usize {
 
-        if let Some(succ) = self.nodes[node].successors.iter().filter(|&succ| matches!(self.nodes[*succ].snv,snv)).next() {
+        if let Some(succ) = self.nodes[node].successors.iter().filter(|&succ| self.nodes[*succ].snv == Some(snv)).next() {
             return *succ
         }
 
@@ -90,9 +90,7 @@ impl HaploTree {
         succ
     }
 
-    pub fn path_extend(&mut self, node:usize, path:Vec<SNV>) -> usize {
+    pub fn path_extend(&mut self, node:usize, path:&Vec<SNV>) -> usize {
         path.iter().fold(node, |node,&snv| self.extend(node,snv))
     }
-
-    // pub fn write_dot(&self, path:Path) { todo!() }
 }
