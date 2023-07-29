@@ -75,7 +75,6 @@ impl HaploTree {
 
         let succ = self.nodes.len();
         self.nodes.push(Node::new(Some(snv), node));
-        assert!(!self.nodes[node].successors.contains(&succ));
         self.nodes[node].successors.push(succ);
 
         succ
