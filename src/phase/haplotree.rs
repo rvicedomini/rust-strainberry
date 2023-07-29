@@ -10,19 +10,19 @@ struct Node {
     snv: Option<SNV>,
     parent: usize,
     successors: TinyVec<[usize;10]>,
-    leaf: bool,
-    complete: bool,
+    // leaf: bool,
+    // complete: bool,
 }
 
 impl Node {
-    fn default() -> Node {
-        Node {
-            snv: None,
-            parent: 0,
-            successors: tiny_vec!(),
-            leaf: false,
-            complete: false
-        }
+    fn new(snv:Option<SNV>, parent:usize) -> Self {
+        Self { snv, parent, successors: tiny_vec!() }
+    }
+}
+
+impl Default for Node {
+    fn default() -> Self {
+        Self::new(None, 0)
     }
 }
 
@@ -34,58 +34,49 @@ pub struct HaploTree {
 impl HaploTree {
 
     pub fn new() -> HaploTree {
-        let root_node = Node::default();
-        HaploTree { root: 0, nodes: vec![root_node] }
+        HaploTree { root: 0, nodes: vec![Node::default()] }
     }
 
-    pub fn get_root(&self) -> usize { self.root }
+    pub fn get_root(&self) -> usize {
+        self.root
+    }
 
     pub fn clear(&mut self) {
         self.nodes.clear();
         self.nodes.push(Node::default());
     }
 
-    pub fn get_parent(&self, node:usize) -> usize { self.nodes[node].parent }
-
-    pub fn get_snv(&self, node:usize) -> Option<SNV> { self.nodes[node].snv }
-
-    pub fn is_leaf(&self, node:usize) -> bool { self.nodes[node].leaf }
-
-    pub fn is_complete(&self, node:usize) -> bool { self.nodes[node].complete }
-
-    pub fn set_leaf(&mut self, node:usize, value:bool) { self.nodes[node].leaf = value; }
-
-    pub fn set_complete(&mut self, node:usize, value:bool) { self.nodes[node].complete = value; }
-
-    pub fn peek(&self, node:Option<usize>, snv:SNV) -> Option<usize> {
-
-        if let Some(node) = node {
-            if let Some(succ) = self.nodes[node].successors.iter().filter(|&succ| self.nodes[*succ].snv == Some(snv)).next() {
-                return Some(*succ)
-            }
-        }
-        None
+    pub fn get_parent(&self, node:usize) -> usize {
+        self.nodes[node].parent 
     }
+
+    // pub fn get_snv(&self, node:usize) -> Option<SNV> { self.nodes[node].snv }
+
+    // pub fn is_leaf(&self, node:usize) -> bool { self.nodes[node].leaf }
+
+    // pub fn is_complete(&self, node:usize) -> bool { self.nodes[node].complete }
+
+    // pub fn set_leaf(&mut self, node:usize, value:bool) { self.nodes[node].leaf = value; }
+
+    // pub fn set_complete(&mut self, node:usize, value:bool) { self.nodes[node].complete = value; }
+
+    // pub fn peek(&self, node:Option<usize>, snv:SNV) -> Option<usize> {
+    //     let succ = self.nodes[node?].successors.iter()
+    //         .filter(|&&succ| self.nodes[succ].snv == Some(snv))
+    //         .next()?;
+    //     Some(*succ)
+    // }
 
     pub fn extend(&mut self, node:usize, snv:SNV) -> usize {
 
-        if let Some(succ) = self.nodes[node].successors.iter().filter(|&succ| self.nodes[*succ].snv == Some(snv)).next() {
-            return *succ
+        if let Some(&succ) = self.nodes[node].successors.iter().filter(|&&succ| self.nodes[succ].snv == Some(snv)).next() {
+            return succ;
         }
 
         let succ = self.nodes.len();
-        self.nodes.push(Node {
-            snv: Some(snv),
-            parent: node,
-            successors: tiny_vec!(),
-            leaf: false,
-            complete: false 
-        });
-        
-        let node_successors = &mut self.nodes[node].successors;
-        if !node_successors.contains(&succ) { // I do not expect node_successor to be big
-            node_successors.push(succ);
-        }
+        self.nodes.push(Node::new(Some(snv), node));
+        assert!(!self.nodes[node].successors.contains(&succ));
+        self.nodes[node].successors.push(succ);
 
         succ
     }

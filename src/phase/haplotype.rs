@@ -3,15 +3,15 @@ use std::fmt;
 use super::haplotree::SNV;
 
 
-pub struct PhasesetRegion {
-    tid: usize,
-    beg: usize,
-    end: usize,
-}
+// pub struct PhasesetRegion {
+//     tid: usize,
+//     beg: usize,
+//     end: usize,
+// }
 
-impl PhasesetRegion {
-    fn length(&self) -> usize { self.end - self.beg }
-}
+// impl PhasesetRegion {
+//     fn length(&self) -> usize { self.end - self.beg }
+// }
 
 #[derive(Clone)]
 pub struct Haplotype {
@@ -36,41 +36,41 @@ impl Haplotype {
 
     pub fn tid(&self) -> usize { self.tid }
 
-    pub fn beg(&self) -> usize { self.vars[self.offset].pos }
+    // pub fn beg(&self) -> usize { self.vars[self.offset].pos }
 
-    pub fn end(&self) -> usize { self.vars.last().unwrap().pos + 1 }
+    // pub fn end(&self) -> usize { self.vars.last().unwrap().pos + 1 }
 
     pub fn size(&self) -> usize { self.vars.len() - self.offset }
     pub fn raw_size(&self) -> usize { self.vars.len() }
 
-    pub fn get(&self, idx:usize) -> &SNV {
-        let idx = self.offset + idx;
-        &self.vars[idx]
-    }
+    // pub fn get(&self, idx:usize) -> &SNV {
+    //     let idx = self.offset + idx;
+    //     &self.vars[idx]
+    // }
 
-    pub fn get_mut(&mut self, idx:usize) -> &mut SNV {
-        let idx = self.offset + idx;
-        &mut self.vars[idx]
-    }
+    // pub fn get_mut(&mut self, idx:usize) -> &mut SNV {
+    //     let idx = self.offset + idx;
+    //     &mut self.vars[idx]
+    // }
 
     pub fn raw_variants(&self) -> &Vec<SNV> { &self.vars }
 
     pub fn first(&self) -> &SNV { &self.vars[self.offset] }
     pub fn first_pos(&self) -> usize { self.first().pos }
-    pub fn first_nuc(&self) -> u8 { self.first().nuc }
+    // pub fn first_nuc(&self) -> u8 { self.first().nuc }
 
     pub fn last(&self) -> &SNV { &self.vars[self.vars.len()-1] }
     pub fn last_mut(&mut self) -> &mut SNV { self.vars.last_mut().unwrap() }
     pub fn last_pos(&self) -> usize { self.last().pos }
     pub fn last_nuc(&self) -> u8 { self.last().nuc }
 
-    pub fn phaseset_region(&self) -> PhasesetRegion {
-        PhasesetRegion{ tid:self.tid, beg:self.beg(), end:self.end() }
-    }
+    // pub fn phaseset_region(&self) -> PhasesetRegion {
+    //     PhasesetRegion{ tid:self.tid, beg:self.beg(), end:self.end() }
+    // }
 
-    pub fn append(&mut self, mut other: Haplotype) {
-        self.vars.extend(other.vars.drain(other.offset..));
-    }
+    // pub fn append(&mut self, mut other: Haplotype) {
+    //     self.vars.extend(other.vars.drain(other.offset..));
+    // }
 
     pub fn push(&mut self, snv:SNV) {
         self.vars.push(snv);
@@ -86,19 +86,19 @@ impl Haplotype {
         Haplotype::with_offset(hid, self.tid, vars, offset)
     }
 
-    pub fn split_from_position(&mut self, pos:usize, hid:usize, dist:usize) -> Haplotype {
-        let idx = self.vars.partition_point(|snv| snv.pos < pos);
-        self.split_off(idx, hid, dist)
-    }
+    // pub fn split_from_position(&mut self, pos:usize, hid:usize, dist:usize) -> Haplotype {
+    //     let idx = self.vars.partition_point(|snv| snv.pos < pos);
+    //     self.split_off(idx, hid, dist)
+    // }
 
-    pub fn split_until_position(&mut self, pos:usize, hid:usize, dist:usize) -> Haplotype {
-        let idx = self.vars.partition_point(|snv| snv.pos <= pos);
-        self.split_off(idx, hid, dist)
-    }
+    // pub fn split_until_position(&mut self, pos:usize, hid:usize, dist:usize) -> Haplotype {
+    //     let idx = self.vars.partition_point(|snv| snv.pos <= pos);
+    //     self.split_off(idx, hid, dist)
+    // }
 
-    pub fn trim(&mut self) {
-        todo!()
-    }
+    // pub fn trim(&mut self) {
+    //     todo!()
+    // }
 
     pub fn seq_string(&self) -> String {
         let context_str = String::from_iter((&self.vars[..self.offset]).iter().map(|snv| snv.nuc as char));
