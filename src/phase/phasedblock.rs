@@ -1,8 +1,6 @@
 use itertools::Itertools;
 use rustc_hash::FxHashMap;
 
-use crate::phase;
-
 use super::haplotree::{HaploTree,SNV};
 use super::haplotype::Haplotype;
 
@@ -92,7 +90,7 @@ impl PhasedBlock {
         is_ambiguous
     }
 
-    pub fn split_and_init(&mut self, pos:usize, lookback:Option<usize>) -> PhasedBlock {
+    pub fn split_and_init(&mut self, lookback:usize) -> PhasedBlock {
 
         let mut out_edges: FxHashMap<usize,Vec<usize>> = FxHashMap::default();
         for hid in self.haplotypes.keys() {
@@ -106,7 +104,7 @@ impl PhasedBlock {
         for mut ht_ids in out_edges.into_values() {
             while let Some(hid) = ht_ids.pop() {
                 let ht = self.haplotypes.get_mut(&hid).unwrap();
-                let mut new_ht = ht.split_off(ht.raw_size()-1, 0, lookback.unwrap_or(0));
+                let mut new_ht = ht.split_off(ht.raw_size()-1, 0, lookback);
                 let new_hid = phasedblock.haplotree.path_extend(new_root, new_ht.raw_variants());
                 new_ht.set_hid(new_hid);
                 phasedblock.begin = new_ht.first_pos();

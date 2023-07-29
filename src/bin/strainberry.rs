@@ -50,7 +50,7 @@ fn main() {
     // me_finder.partition_references(reference_lengths)
 
     println!("Phasing strains");
-    let mut phaser = phase::Phaser::new(&bam_path, &target_sequences, &output_dir, &opts);
+    let phaser = phase::Phaser::new(&bam_path, &target_sequences, &output_dir, &opts);
     phaser.run(&variants);
 
     // separate_workdir = os.path.join(opt.outdir,'20-separate')
@@ -58,8 +58,6 @@ fn main() {
     //     mapq=opt.min_mapq, lookback=opt.lookback, min_obs=opt.min_read_obs, min_frac=opt.min_read_frac,
     //     graph_only=opt.graph_only, phase_only=opt.phase_only, debug=opt.debug)
     // separator.separate_references()
-
-
 
     println!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
 }

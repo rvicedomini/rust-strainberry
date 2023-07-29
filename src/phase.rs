@@ -34,7 +34,7 @@ use self::haplotype::Haplotype;
 
 pub struct Phaser<'a> {
     bam: &'a Path,
-    target_sequences: &'a Vec<Vec<u8>>,
+    _target_sequences: &'a Vec<Vec<u8>>,
     work_dir: PathBuf,
     opts: &'a Options,
 }
@@ -50,7 +50,16 @@ impl<'a> Phaser<'a> {
         };
         eprintln!("Phasing work directory: {}", work_dir.display());
 
-        Phaser { bam, target_sequences, work_dir, opts }
+        Phaser {
+            bam,
+            _target_sequences: target_sequences,
+            work_dir,
+            opts
+        }
+    }
+
+    pub fn work_dir(&self) -> &Path {
+        self.work_dir.as_path()
     }
 
     // TODO: split variants at positions that are too distant
@@ -69,7 +78,7 @@ impl<'a> Phaser<'a> {
 
     fn phase_interval(&self, target_interval:&SeqInterval, variants: &[Var]) {
         eprintln!("----- Phasing {target_interval}");
-        let haplotypes = self.phase_variants(target_interval,variants);
+        let _haplotypes = self.phase_variants(target_interval,variants);
     }
 
     fn phase_variants(&self, target_interval:&SeqInterval, variants: &[Var]) -> Vec<Haplotype> {
@@ -193,7 +202,7 @@ impl<'a> Phaser<'a> {
             let (unsupported_haplotypes, ambiguous_haplotypes) = self.validate_haplotypes(&succinct_records, &candidate_records, &phasedblock, min_position);
 
             if unsupported_haplotypes.len() > 0 && phasedblock.haplotypes().values().next().unwrap().size() >= 3 && (var_position - phasedblock.begin() + 1 > self.opts.lookback) {
-                phasedblock.split_and_init(var_position, None);
+                phasedblock.split_and_init(0);
                 // eprintln!("Saved haplotypes after finding unsupported ones:");
                 // for ht in phasedblock.haplotypes().values() {
                 //     eprintln!("{ht}");
@@ -216,7 +225,7 @@ impl<'a> Phaser<'a> {
 
             // if ambiguous extension, create a new phaseset (should a minimum of 3 SNVs be requested here too?)
             if is_ambiguous && (var_position - phasedblock.begin() + 1 > self.opts.lookback) {
-                let mut new_phasedblock = phasedblock.split_and_init(var_position, Some(self.opts.lookback));
+                let mut new_phasedblock = phasedblock.split_and_init(self.opts.lookback);
                 haplotypes.append(&mut phasedblock.drain());
                 std::mem::swap(&mut phasedblock, &mut new_phasedblock);
             } else { // discard ambiguous haplotypes if phased region was too short
@@ -372,7 +381,7 @@ impl<'a> Phaser<'a> {
 
         edges
     }
-    
+
 }
 
 

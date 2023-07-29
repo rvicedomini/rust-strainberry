@@ -31,13 +31,13 @@ impl SuccinctSeq {
         }
     }
 
-    pub fn positions(&self) -> &Vec<usize> {
-        &self.positions
-    }
+    pub fn name(&self) -> &str { self.name.as_str() }
 
-    pub fn nucleotides(&self) -> &Vec<u8> {
-        &self.nucleotides
-    }
+    pub fn tid(&self) -> usize { self.tid }
+
+    pub fn positions(&self) -> &Vec<usize> { &self.positions }
+
+    pub fn nucleotides(&self) -> &Vec<u8> { &self.nucleotides }
 
     pub fn len(&self) -> usize {
         self.positions.len()

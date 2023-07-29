@@ -44,7 +44,7 @@ pub struct Config;
 
 impl Config {
 
-    pub fn from_options(opts:Options) -> Config {
+    pub fn from_options(_opts:Options) -> Config {
         todo!()
     }
 }
