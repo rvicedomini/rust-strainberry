@@ -4,6 +4,7 @@ use std::mem::MaybeUninit;
 use std::path::Path;
 
 use flate2::read::MultiGzDecoder;
+use itertools::Itertools;
 use needletail::Sequence;
 use rustc_hash::FxHashMap;
 
@@ -12,7 +13,8 @@ use rust_htslib::bam::Read;
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Cigar,CigarString};
 
-pub mod seq;
+use crate::seq::SeqInterval;
+
 
 pub fn get_maxrss() -> f64 {
     let usage = unsafe {
@@ -33,6 +35,32 @@ pub fn get_file_reader(path: &Path) -> Box<dyn BufRead> {
 }
 
 
+pub fn bam_target_names(bam_path:&Path) -> Vec<String> {
+    let bam_reader = bam::IndexedReader::from_path(bam_path).unwrap();
+    bam_reader
+        .header()
+        .target_names()
+        .iter()
+        .map(|&name| String::from_utf8_lossy(name).to_string())
+        .map(|x| x)
+        .collect_vec()
+}
+
+
+pub fn bam_target_intervals(bam_path:&Path) -> Vec<SeqInterval> {
+    
+    let bam_reader = bam::Reader::from_path(bam_path).unwrap();
+    let bam_header = bam_reader.header();
+
+    (0..bam_header.target_count())
+        .map(|tid| SeqInterval {
+            tid: tid as usize,
+            beg: 0,
+            end: bam_header.target_len(tid).unwrap() as usize
+        }).collect_vec()
+}
+
+
 pub fn chrom2tid(bam_path:&Path) -> FxHashMap<String,usize> {
     let bam_reader = bam::IndexedReader::from_path(bam_path).unwrap();
     bam_reader.header()
@@ -41,6 +69,7 @@ pub fn chrom2tid(bam_path:&Path) -> FxHashMap<String,usize> {
         .map(|(tid,&name)| (String::from_utf8_lossy(name).to_string(),tid as usize))
         .collect()
 }
+
 
 pub fn load_sequences(fasta_path: &Path, bam_path: &Path) -> Vec<Vec<u8>> {
     let bam_reader = bam::Reader::from_path(bam_path).unwrap();
@@ -63,6 +92,59 @@ pub fn load_sequences(fasta_path: &Path, bam_path: &Path) -> Vec<Vec<u8>> {
 pub fn parse_cigar_bytes(cigar: &[u8]) -> CigarString {
     CigarString::try_from(cigar)
         .expect("Unable to parse cigar string.")
+}
+
+
+pub fn intervals_from_cigar(cigarstring: &CigarString, pos:usize) -> [usize;4] {
+    
+    let mut first_query_pos = None;
+    let mut last_query_pos = None;
+    let mut first_target_pos = None;
+    let mut last_target_pos = None;
+    
+    let mut query_pos = 0;
+    let mut target_pos = pos;
+
+    for &cigar in cigarstring.iter() {
+        match cigar {
+            Cigar::Match(len) | Cigar::Equal(len) | Cigar::Diff(len) => {
+                if first_query_pos.is_none() {
+                    first_query_pos = Some(query_pos);
+                    first_target_pos = Some(target_pos);
+                }
+                query_pos += len as usize;
+                target_pos += len as usize;
+                last_query_pos = Some(query_pos);
+                last_target_pos = Some(target_pos);
+            },
+            Cigar::Ins(len) | Cigar::SoftClip(len) | Cigar::HardClip(len) => {
+                query_pos += len as usize;
+            },
+            Cigar::Del(len) | Cigar::RefSkip(len) => {
+                target_pos += len as usize;
+            }
+            Cigar::Pad(_) => panic!("Cigar should not contain padding operations!")
+        }
+    }
+
+    [ first_query_pos.unwrap(), last_query_pos.unwrap(), first_target_pos.unwrap(), last_target_pos.unwrap() ]
+}
+
+
+pub fn seq_length_from_cigar(cigarstring: &CigarString, include_hard_clip: bool) -> usize {
+    let mut length = 0;
+    for &cigar in cigarstring.iter() {
+        match cigar {
+            Cigar::Match(len) | Cigar::Ins(len) | Cigar::SoftClip(len) | Cigar::Equal(len) | Cigar::Diff(len) => {
+                length += len as usize;
+            }
+            Cigar::HardClip(len) if include_hard_clip => {
+                length += len as usize;
+            }
+            _ => {}
+        }
+    }
+    length
 }
 
 
@@ -124,6 +206,7 @@ pub fn estimate_lookback(bam_path: &Path, n: usize) -> Option<usize> {
     let lookup = read_lengths[read_lengths.len()/10];
     Some(lookup)
 }
+
 
 // def hamming_distance(a_seq:str, b_seq:str) -> int:
 //     assert(len(a_seq)==len(b_seq))

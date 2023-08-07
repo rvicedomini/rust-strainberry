@@ -1,3 +1,5 @@
+pub mod alignment;
+
 use std::fmt;
 
 #[derive(Debug)]

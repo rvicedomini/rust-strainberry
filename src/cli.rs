@@ -36,6 +36,14 @@ pub struct Options {
     /// Minimum fraction of alternative-allele observations
     #[arg(long = "min-alt-frac", value_name = "FLOAT", default_value_t = 0.125)]
     pub min_alt_frac: f64,
+
+    /// Minimum indel length
+    #[arg(long = "min-indel", value_name = "NUM", default_value_t = 100)]
+    pub min_indel: usize,
+
+    /// Minimum overhang length
+    #[arg(long = "min-overhang", value_name = "NUM", default_value_t = 1000)]
+    pub min_overhang: usize,
 }
 
 

@@ -15,7 +15,7 @@ use rust_htslib::bam::Read;
 use crate::cli::Options;
 use crate::utils;
 use crate::utils::BamRecordId;
-use crate::utils::seq::{SeqInterval,SuccinctSeq};
+use crate::seq::{SeqInterval,SuccinctSeq};
 use crate::variant::{Var,VarDict};
 
 use phasedblock::PhasedBlock;

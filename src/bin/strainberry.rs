@@ -5,6 +5,7 @@ use std::time::Instant;
 use clap::Parser;
 
 use strainberry::cli;
+use strainberry::misassembly;
 use strainberry::phase;
 use strainberry::utils;
 use strainberry::variant;
@@ -45,13 +46,11 @@ fn main() {
     // utils::estimate_lookback(bam_path, 1000)
     println!("Lookback {} bp", opts.lookback);
 
-    // TODO: implement the following python-strainberry code
-    // me_finder = MisassemblyFinder2(read_alignments, opt.BAM, partition_workdir, min_reads=opt.min_read_obs, min_frac=opt.min_read_frac, max_overhang=opt.overhang, max_indel=opt.aln_max_indel, window=opt.event_window)
-    // me_finder.partition_references(reference_lengths)
+    misassembly::find_misassemblies(bam_path, &opts);
 
-    println!("Phasing strains");
-    let phaser = phase::Phaser::new(&bam_path, &target_sequences, &output_dir, &opts);
-    phaser.run(&variants);
+    // println!("Phasing strains");
+    // let phaser = phase::Phaser::new(&bam_path, &target_sequences, &output_dir, &opts);
+    // phaser.run(&variants);
 
     // separate_workdir = os.path.join(opt.outdir,'20-separate')
     // separator = HifiReadSeparator(reference_lengths, opt.BAM, read_dict, variant_positions, reference_alignments, reference_intervals, separate_workdir,
