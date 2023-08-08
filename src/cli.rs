@@ -29,6 +29,10 @@ pub struct Options {
     #[arg(short = 'q', long = "min-mapq", value_name = "NUM", default_value_t = 20)]
     pub min_mapq: u8,
 
+    /// Minimum overhang length
+    #[arg(short = 't', long = "threads", value_name = "NUM", default_value_t = 1)]
+    pub nb_threads: usize,
+
     /// Minimum number of alternative-allele observations
     #[arg(long = "min-alt-count", value_name = "NUM", default_value_t = 5)]
     pub min_alt_count: usize,
@@ -44,6 +48,11 @@ pub struct Options {
     /// Minimum overhang length
     #[arg(long = "min-overhang", value_name = "NUM", default_value_t = 1000)]
     pub min_overhang: usize,
+
+    /// Minimum aware-contig length
+    #[arg(long = "min-aware-ctg-len", value_name = "NUM", default_value_t = 3000)]
+    pub min_aware_ctg_len: usize,
+
 }
 
 

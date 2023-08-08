@@ -1,16 +1,21 @@
+use std::sync::mpsc;
+use std::thread;
 use std::path::Path;
 
 use itertools::Itertools;
-use rust_htslib::bam;
-use rust_htslib::bam::{Read, Record, IndexedReader};
+use rust_htslib::bam::HeaderView;
+use rust_htslib::bam::{Reader, Read, IndexedReader};
 use rust_htslib::bam::record::Aux;
 
 use crate::cli::Options;
+use crate::seq::SeqInterval;
 use crate::seq::alignment::{Strand,SeqAlignment};
 use crate::utils;
 
+
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Misassembly(String,usize);
+
 
 #[derive(Debug)]
 struct AlignedBlock {
@@ -23,16 +28,49 @@ struct AlignedBlock {
 }
 
 
-pub fn find_misassemblies(bam_path: &Path, opts: &Options) {
+pub fn partition_reference(bam_path: &Path, opts: &Options) -> Vec<SeqInterval> {
+
+    let (tx, rx) = mpsc::channel();
+    
+    let target_intervals = utils::bam_target_intervals(bam_path)
+        .into_iter()
+        .sorted_unstable_by_key(|iv| iv.end-iv.beg)
+        .collect_vec();
+
+    thread::scope(|scope| {
+        for thread_id in 0..opts.nb_threads {
+            let sender = tx.clone();
+            let target_intervals_ref = &target_intervals;
+            scope.spawn(move || {
+                let mut bam_reader = IndexedReader::from_path(bam_path).unwrap();
+                for i in (thread_id..target_intervals_ref.len()).step_by(opts.nb_threads) {
+                    let intervals = find_misassemblies(&mut bam_reader, &target_intervals_ref[i], &opts);
+                    sender.send(intervals).unwrap();
+                }
+            });
+        }
+    });
+
+    let candidates = (0..target_intervals.len())
+        .flat_map(|_| rx.recv().unwrap())
+        .collect_vec();
+
+    let bam_reader = Reader::from_path(bam_path).unwrap();
+    let bam_header = bam_reader.header();
+    cluster_misassemblies(candidates, &bam_header, opts)
+    
+}
+
+
+fn find_misassemblies(bam_reader: &mut IndexedReader, region: &SeqInterval, opts: &Options) -> Vec<Misassembly> {
 
     let mut candidates = vec![];
-    let mut bam_reader = IndexedReader::from_path(bam_path).unwrap();
     let bam_header = bam_reader.header().clone();
 
-    let mut record = Record::new();
-    bam_reader.fetch(".").unwrap();
-    while let Some(Ok(())) = bam_reader.read(&mut record) {
-
+    let fetch_definition = (region.tid as u32, region.beg as i64, region.end as i64);
+    bam_reader.fetch(fetch_definition).expect("Failed fetching records from BAM");
+    for record in bam_reader.rc_records() {
+        let record = record.expect("Failed processing BAM file");
         if record.mapq() < opts.min_mapq
             || record.is_unmapped()
             || record.is_secondary()
@@ -48,22 +86,25 @@ pub fn find_misassemblies(bam_path: &Path, opts: &Options) {
         for w in aligned_blocks.windows(2) {
             let [_a_query_beg,a_query_end,_a_target_beg,a_target_end] = w[0];
             let [b_query_beg,_b_query_end,b_target_beg,_b_target_end] = w[1];
-            if b_target_beg - a_target_end >= opts.min_indel || b_query_beg - a_query_end >= opts.min_indel {
+            if b_target_beg - a_target_end >= opts.min_indel {
                 candidates.push(Misassembly(seqalign.target_name().to_string(),a_target_end));
                 candidates.push(Misassembly(seqalign.target_name().to_string(),b_target_beg));
-            }        
+            } else if b_query_beg - a_query_end >= opts.min_indel {
+                candidates.push(Misassembly(seqalign.target_name().to_string(),b_target_beg));
+            }
         }
 
-        let mut read_alignments = vec![AlignedBlock{
-            query_beg: seqalign.query_beg(),
-            query_end: seqalign.query_end(),
-            strand: seqalign.strand(),
-            target_name: seqalign.target_name().to_string(), 
-            target_beg: seqalign.target_beg(),
-            target_end: seqalign.target_end(),
-        }];
-
         if !record.is_supplementary() {
+
+            let mut read_alignments = vec![AlignedBlock{
+                query_beg: seqalign.query_beg(),
+                query_end: seqalign.query_end(),
+                strand: seqalign.strand(),
+                target_name: seqalign.target_name().to_string(), 
+                target_beg: seqalign.target_beg(),
+                target_end: seqalign.target_end(),
+            }];
+
             if let Some(Aux::String(supplementary_alignments)) = record.aux(b"SA").ok() {
 
                 let supplementary_alignments = supplementary_alignments
@@ -86,45 +127,13 @@ pub fn find_misassemblies(bam_path: &Path, opts: &Options) {
                     read_alignments.push(AlignedBlock{ query_beg, query_end, strand, target_name, target_beg, target_end });
                 }
             }
-        }
 
-        read_alignments.sort_unstable_by_key(|t| t.query_beg);
-        candidates.append(&mut misassemblies_from_alignments(&read_alignments, seqalign.query_length(), opts));
-    }
-
-    cluster_misassemblies(candidates, bam_path, opts)
-}
-
-
-fn cluster_misassemblies(mut candidates: Vec<Misassembly>, bam_path: &Path, opts: &Options) {
-
-    candidates.sort_unstable();
-
-    let mut clusters = vec![];
-    for ma in candidates {
-        if clusters.len() == 0 {
-            clusters.push(vec![ma]);
-            continue
-        }
-
-        let cluster = clusters.last_mut().unwrap();
-        
-        if cluster[0].0 != ma.0 || cluster.iter().all(|x| ma.1 - x.1 > 50) { // TODO: get the "50" as parameter from opts
-            clusters.push(vec![ma]);
-        } else {
-            cluster.push(ma);
+            read_alignments.sort_unstable_by_key(|t| t.query_beg);
+            candidates.append(&mut misassemblies_from_alignments(&read_alignments, seqalign.query_length(), opts));
         }
     }
 
-    let mut bam_reader = bam::IndexedReader::from_path(bam_path).unwrap();
-
-    // let mut intervals = vec![];
-    for cluster in clusters.into_iter().filter(|c| c.len() >= opts.min_alt_count) {
-        let Misassembly(target_name,target_pos) = &cluster[cluster.len()/2];        
-        bam_reader.fetch((target_name.as_str(), (*target_pos as i64) - 1, *target_pos as i64)).unwrap();
-        let depth = bam_reader.records().count();
-        println!("{target_name}:{target_pos} => {}", cluster.len());
-    }
+    candidates
 }
 
 
@@ -168,4 +177,47 @@ fn misassemblies_from_alignments(alignments: &Vec<AlignedBlock>, read_length: us
     }
     
     candidates
+}
+
+
+fn cluster_misassemblies(mut candidates: Vec<Misassembly>, bam_header: &HeaderView, opts: &Options) -> Vec<SeqInterval> {
+
+    candidates.sort_unstable();
+
+    let mut clusters = vec![];
+    for ma in candidates {
+        if clusters.len() == 0 {
+            clusters.push(vec![ma]);
+            continue
+        }
+
+        let cluster = clusters.last_mut().unwrap();
+        
+        if cluster[0].0 != ma.0 || cluster.iter().all(|x| ma.1 - x.1 > 30) { // TODO: get the "30" as parameter from opts
+            clusters.push(vec![ma]);
+        } else {
+            cluster.push(ma);
+        }
+    }
+
+    
+    let chrom2tid = utils::chrom2tid(bam_header);
+
+    let mut intervals = vec![];
+    for (tid, target_clusters) in &clusters.into_iter().filter(|clust| clust.len() >= opts.min_alt_count).group_by(|clust| chrom2tid[&clust[0].0]) {
+        let target_length = bam_header.target_len(tid as u32).unwrap() as usize;
+        let mut target_pos = 0;
+        for clust in target_clusters {
+            let Misassembly(_, me_beg) = clust.first().unwrap();
+            let Misassembly(_, me_end) = clust.last().unwrap();
+            let Misassembly(_, me_median_pos) = &clust[clust.len()/2];
+            if *me_median_pos >= opts.min_overhang && target_length-me_median_pos >= opts.min_overhang {
+                intervals.push(SeqInterval{ tid, beg: target_pos, end: *me_beg });
+                target_pos = *me_end;
+            }
+        }
+        intervals.push(SeqInterval { tid, beg: target_pos, end: target_length });
+    }
+
+    intervals
 }

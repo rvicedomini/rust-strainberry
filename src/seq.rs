@@ -2,7 +2,7 @@ pub mod alignment;
 
 use std::fmt;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct SeqInterval {
     pub tid: usize,
     pub beg: usize,

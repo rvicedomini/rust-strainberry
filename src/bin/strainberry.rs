@@ -46,7 +46,7 @@ fn main() {
     // utils::estimate_lookback(bam_path, 1000)
     println!("Lookback {} bp", opts.lookback);
 
-    misassembly::find_misassemblies(bam_path, &opts);
+    let target_intervals = misassembly::partition_reference(bam_path, &opts);
 
     // println!("Phasing strains");
     // let phaser = phase::Phaser::new(&bam_path, &target_sequences, &output_dir, &opts);

@@ -8,7 +8,7 @@ use itertools::Itertools;
 use needletail::Sequence;
 use rustc_hash::FxHashMap;
 
-use rust_htslib::bam;
+use rust_htslib::bam::{self, HeaderView};
 use rust_htslib::bam::Read;
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Cigar,CigarString};
@@ -61,9 +61,8 @@ pub fn bam_target_intervals(bam_path:&Path) -> Vec<SeqInterval> {
 }
 
 
-pub fn chrom2tid(bam_path:&Path) -> FxHashMap<String,usize> {
-    let bam_reader = bam::IndexedReader::from_path(bam_path).unwrap();
-    bam_reader.header()
+pub fn chrom2tid(bam_header:&HeaderView) -> FxHashMap<String,usize> {
+    bam_header
         .target_names().iter()
         .enumerate()
         .map(|(tid,&name)| (String::from_utf8_lossy(name).to_string(),tid as usize))
@@ -96,38 +95,33 @@ pub fn parse_cigar_bytes(cigar: &[u8]) -> CigarString {
 
 
 pub fn intervals_from_cigar(cigarstring: &CigarString, pos:usize) -> [usize;4] {
-    
-    let mut first_query_pos = None;
-    let mut last_query_pos = None;
-    let mut first_target_pos = None;
-    let mut last_target_pos = None;
-    
-    let mut query_pos = 0;
-    let mut target_pos = pos;
 
-    for &cigar in cigarstring.iter() {
+    let (target_beg, mut target_end) = (pos,pos);
+    let (mut query_beg, mut query_end) = (0,0);
+    for (i,&cigar) in cigarstring.iter().enumerate() {
         match cigar {
             Cigar::Match(len) | Cigar::Equal(len) | Cigar::Diff(len) => {
-                if first_query_pos.is_none() {
-                    first_query_pos = Some(query_pos);
-                    first_target_pos = Some(target_pos);
-                }
-                query_pos += len as usize;
-                target_pos += len as usize;
-                last_query_pos = Some(query_pos);
-                last_target_pos = Some(target_pos);
+                target_end += len as usize;
+                query_end += len as usize;
             },
-            Cigar::Ins(len) | Cigar::SoftClip(len) | Cigar::HardClip(len) => {
-                query_pos += len as usize;
-            },
+            Cigar::Ins(len) => {
+                query_end += len as usize;
+            }
             Cigar::Del(len) | Cigar::RefSkip(len) => {
-                target_pos += len as usize;
+                target_end += len as usize;
+            }
+            Cigar::SoftClip(len) | Cigar::HardClip(len) if i == 0 => {
+                query_beg += len as usize;
+                query_end += len as usize;
+            }
+            Cigar::SoftClip(_) | Cigar::HardClip(_) => {
+                break;
             }
             Cigar::Pad(_) => panic!("Cigar should not contain padding operations!")
         }
     }
 
-    [ first_query_pos.unwrap(), last_query_pos.unwrap(), first_target_pos.unwrap(), last_target_pos.unwrap() ]
+    [ query_beg, query_end, target_beg, target_end ]
 }
 
 

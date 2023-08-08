@@ -108,7 +108,9 @@ pub fn load_variants_from_bam(bam_path:&Path, opts:&cli::Options) -> VarDict {
 
 pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, opts:&cli::Options) -> VarDict {
 
-    let chrom2tid = utils::chrom2tid(bam_path);
+    let bam_reader = bam::Reader::from_path(bam_path).unwrap();
+    let bam_header = bam_reader.header();
+    let chrom2tid = utils::chrom2tid(bam_header);
 
     let vcf_reader = utils::get_file_reader(vcf_path);
     let positions: VarPositions = vcf_reader.lines().flatten()
