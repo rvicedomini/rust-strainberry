@@ -1,6 +1,7 @@
 pub mod alignment;
 
 use std::fmt;
+use std::ops::Range;
 
 #[derive(Debug, Clone, Copy)]
 pub struct SeqInterval {
@@ -34,15 +35,18 @@ impl SuccinctSeq {
     }
 
     pub fn name(&self) -> &str { self.name.as_str() }
-
     pub fn tid(&self) -> usize { self.tid }
-
     pub fn positions(&self) -> &Vec<usize> { &self.positions }
-
     pub fn nucleotides(&self) -> &Vec<u8> { &self.nucleotides }
 
     pub fn len(&self) -> usize {
         self.positions.len()
+    }
+
+    pub fn range(&self) -> Range<usize> {
+        let beg = *self.positions.first().unwrap();
+        let end = *self.positions.last().unwrap();
+        beg..end
     }
 
     pub fn seq_interval(&self) -> SeqInterval {

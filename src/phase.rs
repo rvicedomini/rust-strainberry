@@ -4,12 +4,16 @@ mod phasedblock;
 
 use std::collections::VecDeque;
 use std::fs;
+use std::ops::Deref;
 use std::sync::mpsc;
 use std::thread;
 use std::path::{Path,PathBuf};
 
-use itertools::Itertools;
-use rustc_hash::FxHashMap;
+use bio::data_structures::interval_tree::{IntervalTree};
+use bio::utils::Interval;
+
+use itertools::{Itertools, cloned};
+use rustc_hash::{FxHashSet,FxHashMap};
 
 use rust_htslib::bam;
 use rust_htslib::bam::Read;
@@ -22,6 +26,7 @@ use crate::variant::{Var,VarDict};
 
 use phasedblock::PhasedBlock;
 
+use self::haplotree::SNV;
 use self::haplotype::Haplotype;
 
 // input: 
@@ -101,19 +106,130 @@ impl<'a> Phaser<'a> {
     }
 
     fn phase_interval(&self, target_interval:&SeqInterval, variants: &[Var]) -> Vec<Haplotype> {
-        eprintln!("  -> Phasing {target_interval} ({} variants)", variants.len());
-        self.phase_variants(target_interval,variants)
+        // eprintln!("  -> Phasing {target_interval} ({} variants)", variants.len());
+        let (haplotypes, succinct_records) = self.phase_variants(target_interval,variants);
+        // eprintln!("  -> Haplotypes in {target_interval}: {}", haplotypes.len());
+        let variant_positions = self.variant_positions(&haplotypes);
+        let haplotypes = self.remove_false_haplotypes(haplotypes, &variant_positions);
+        // eprintln!("  -> Filtered Haplotypes in {target_interval}: {}", haplotypes.len());
+        
+        let haplotype_intervals = IntervalTree::from_iter(
+            haplotypes.iter().map(|ht| (ht.beg()..ht.end(), ht))
+        );
+
+        let (sread_haplotypes,ambiguous_reads) = self.separate_reads(&succinct_records, &haplotype_intervals, &variant_positions);
+        
+        haplotypes
     }
 
-    pub fn phase_variants(&self, target_interval:&SeqInterval, variants: &[Var]) -> Vec<Haplotype> {
+    fn separate_reads(&self, succinct_records: &FxHashMap<BamRecordId,SuccinctSeq>, haplotype_intervals: &IntervalTree<usize,&Haplotype>, variant_positions: &FxHashSet<usize>)
+        ->  (FxHashMap<String,Vec<usize>>, FxHashSet<String>) {
 
-        let mut haplotypes = vec![];
+        let mut sread_haplotypes = FxHashMap::default();
+        let mut ambiguous = FxHashSet::default();
+        for sread in succinct_records.values() {
+            let best_hits = self.best_sread_haplotypes(sread, haplotype_intervals, variant_positions);
+            if best_hits.iter().any(|(_hid,_ht_dist,alt_hits)| *alt_hits > 1) {
+                ambiguous.insert(sread.name().to_string());
+                continue
+            }
+            sread_haplotypes.entry(sread.name().to_string())
+                .or_insert(vec![])
+                .extend(best_hits.into_iter().map(|(hid,_,_)| hid));
+        }
+        (sread_haplotypes,ambiguous)
+    }
 
-        if variants.len() == 0 {
-            return haplotypes;
+
+    fn best_sread_haplotypes(&self, sread: &SuccinctSeq, haplotype_intervals: &IntervalTree<usize,&Haplotype>, variant_positions: &FxHashSet<usize>) -> Vec<(usize,usize,usize)> {
+        
+        let mut candidates = FxHashMap::default();
+        let sread_positions: FxHashSet<usize> = sread.positions().iter().cloned().collect();
+        for &ht in haplotype_intervals.find(sread.range()).map(|iv| iv.data()) {
+            let ht_left = ht.variants().partition_point(|snv| snv.pos < *sread.positions().first().unwrap());
+            let ht_right = ht.variants().partition_point(|snv| snv.pos < *sread.positions().last().unwrap());
+            let ht_positions: FxHashSet<usize> = ht.variants().get(ht_left..ht_right).unwrap().iter().map(|snv| snv.pos).collect();
+            let shared_positions: FxHashSet<usize> = ht_positions.intersection(&sread_positions).cloned().collect();
+            if variant_positions.intersection(&shared_positions).count() >= self.opts.min_shared_snv {
+                let sread_nucleotides = sread.positions().iter()
+                    .enumerate()
+                    .filter(|&(i,pos)| shared_positions.contains(pos))
+                    .map(|(i,_)| *sread.nucleotides().get(i).unwrap())
+                    .collect_vec();
+                let ht_nucleotides = ht.variants().iter()
+                    .filter(|&snv| shared_positions.contains(&snv.pos))
+                    .map(|snv| snv.nuc)
+                    .collect_vec();
+                let hamming_dist = sread_nucleotides.into_iter()
+                    .zip_eq(ht_nucleotides.iter())
+                    .filter(|&(a,b)| a != *b)
+                    .count();
+                // hamming distance should not exceed 1/3 of the sequence length
+                if 3 * hamming_dist <= ht_nucleotides.len() {
+                    let range = ht.beg()..ht.end();
+                    candidates.entry(range)
+                        .or_insert(vec![])
+                        .push((ht.hid(),hamming_dist));
+                }
+            }
         }
 
+        let mut best_hits = vec![];
+        for hits in candidates.into_values() {
+            let best_dist = hits.iter().min_by_key(|&(_,ht_dist)| ht_dist).unwrap().1;
+            let region_best_hits = hits.iter()
+                .filter(|&(_,ht_dist)| *ht_dist == best_dist)
+                .cloned()
+                .collect_vec();
+            // println!("sread:{}, dist:{}, hits:{:?}", sread.name(), best_dist, region_best_hits);
+            best_hits.push((
+                region_best_hits.last().unwrap().0,
+                region_best_hits.last().unwrap().1,
+                region_best_hits.len()
+            ));
+        }
+        best_hits
+    }
+
+
+    fn remove_false_haplotypes(&self, mut haplotypes: Vec<Haplotype>, positions: &FxHashSet<usize>) -> Vec<Haplotype> {
+        haplotypes.retain(|ht| ht.variants().iter().map(|snv| snv.pos).any(|ht_pos| positions.contains(&ht_pos)));
+        haplotypes
+    }
+
+
+    fn variant_positions(&self, haplotypes: &Vec<Haplotype>) -> FxHashSet<usize> {
+        
+        let haplo_nodes: FxHashSet<SNV> = haplotypes.iter()
+            .flat_map(|ht| ht.variants())
+            .cloned()
+            .collect();
+
+        let mut counter: FxHashMap<usize,usize> = FxHashMap::default();
+        for snv in &haplo_nodes {
+            counter.entry(snv.pos)
+                .and_modify(|cnt| *cnt+=1)
+                .or_insert(1);
+        }
+
+        counter.into_iter()
+            .filter(|&(_pos,cnt)| cnt > 1)
+            .map(|(pos,_cnt)| pos)
+            // .sorted_unstable()
+            .collect()
+    }
+
+
+    pub fn phase_variants(&self, target_interval:&SeqInterval, variants: &[Var]) -> (Vec<Haplotype>,FxHashMap<BamRecordId,SuccinctSeq>)  {
+
+        let mut haplotypes = vec![];
         let mut succinct_records: FxHashMap<BamRecordId,SuccinctSeq> = FxHashMap::default();
+
+        if variants.len() == 0 {
+            return (haplotypes,succinct_records);
+        }
+
+        let mut supporting_sreads: FxHashSet<BamRecordId> = FxHashSet::default();
         let mut lookback_positions: VecDeque<usize> = VecDeque::new();
         let mut var_iter = variants.iter();
         let mut phasedblock = PhasedBlock::new(target_interval.tid);
@@ -122,7 +238,6 @@ impl<'a> Phaser<'a> {
         bam_reader.fetch((target_interval.tid as i32, target_interval.beg as i64, target_interval.end as i64)).expect(&format!("Cannot fetch target interval: {}",target_interval));
 
         let mut var = var_iter.next();
-
         for pileup in bam_reader.pileup().flatten() {
             
             if var.is_none() {
@@ -149,7 +264,7 @@ impl<'a> Phaser<'a> {
             debug_assert_eq!(target_pos, var_position);
 
             // TODO: keep a list of "in-scope" succinct reads
-            let edges = self.process_pileup(&pileup, &mut succinct_records, &var_nucleotides);
+            let edges = self.process_pileup(&pileup, &mut succinct_records, &mut supporting_sreads, &var_nucleotides);
             lookback_positions.push_back(var_position);
 
             // eprintln!("Nucleotides: {}, Edges: {:?}", String::from_utf8(var_nucleotides.clone()).unwrap(), edges.iter().map(|&(u,v)| (u as char, v as char)).collect_vec());
@@ -209,15 +324,15 @@ impl<'a> Phaser<'a> {
             let back_i = lookback_positions.partition_point(|&pos| pos < back_pos);
             let min_position = lookback_positions[back_i];
             
-            // the following line could be slow -> consider the same approach in python version,
-            // that is, use a "supporting_records" vector that stores the IDs of the last supporting succinct records
-            // and to be updated within the process_pileup function
-            succinct_records.retain(|_,sr_seq| sr_seq.positions().last().unwrap() == &var_position);
-            
-            let candidate_records = succinct_records.iter()
-                .filter(|&(_,sr_seq)| sr_seq.positions()[0] <= min_position)
-                .map(|(sr_id,_)| sr_id)
+            supporting_sreads.retain(|sr_id| succinct_records[sr_id].positions().last().unwrap() == &var_position);
+            let candidate_records = supporting_sreads.iter()
+                .filter(|&sr_id| succinct_records[sr_id].positions()[0] <= min_position)
                 .collect_vec();
+            
+            // let candidate_records = succinct_records.iter()
+            //     .filter(|&(_,sr_seq)| sr_seq.positions()[0] <= min_position)
+            //     .map(|(sr_id,_)| sr_id)
+            //     .collect_vec();
 
             // eprintln!("min_position: {}", min_position);
             // eprintln!("supporting_records: {}", succinct_records.len());
@@ -273,7 +388,7 @@ impl<'a> Phaser<'a> {
         // }
         haplotypes.append(&mut phasedblock.drain());
         
-        haplotypes
+        (haplotypes, succinct_records)
     }
 
     fn validate_haplotypes(&self, succinct_records: &FxHashMap<BamRecordId,SuccinctSeq>, candidate_records: &Vec<&BamRecordId>, phasedblock: &PhasedBlock, min_position: usize) -> (Vec<usize>,Vec<usize>) {
@@ -337,7 +452,7 @@ impl<'a> Phaser<'a> {
     }
 
 
-    fn process_pileup(&self, pileup: &bam::pileup::Pileup, succinct_records: &mut FxHashMap<BamRecordId,SuccinctSeq>, var_nucleotides: &Vec<u8>) -> Vec<(u8,u8)> {
+    fn process_pileup(&self, pileup: &bam::pileup::Pileup, succinct_records: &mut FxHashMap<BamRecordId,SuccinctSeq>, supporting_sreads: &mut FxHashSet<BamRecordId>, var_nucleotides: &Vec<u8>) -> Vec<(u8,u8)> {
 
         let position = pileup.pos() as usize;
         // let mut nuc_counter: FxHashMap<u8,usize> = FxHashMap::default();
@@ -370,10 +485,15 @@ impl<'a> Phaser<'a> {
 
             // *nuc_counter.entry(record_nuc).or_default() += 1;
 
-            let srec = succinct_records.entry(record_id.clone())
-                .or_insert(SuccinctSeq::build(&record_id.0, pileup.tid() as usize));
+            if !succinct_records.contains_key(&record_id) {
+                let srec = SuccinctSeq::build(&record_id.0, pileup.tid() as usize);
+                succinct_records.insert(record_id.clone(), srec);
+                supporting_sreads.insert(record_id.clone());
+            }
+
+            let srec = succinct_records.get_mut(&record_id).unwrap();
             srec.push(position, record_nuc);
-            
+
             let srec_positions = srec.positions();
             let srec_len = srec.len();
             if srec_len > 1 && srec_positions[srec_len-1] - srec_positions[srec_len-2] + 1 <= self.opts.lookback {

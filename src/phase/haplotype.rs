@@ -2,7 +2,6 @@ use std::fmt;
 
 use super::haplotree::SNV;
 
-
 // pub struct PhasesetRegion {
 //     tid: usize,
 //     beg: usize,
@@ -36,9 +35,8 @@ impl Haplotype {
 
     pub fn tid(&self) -> usize { self.tid }
 
-    // pub fn beg(&self) -> usize { self.vars[self.offset].pos }
-
-    // pub fn end(&self) -> usize { self.vars.last().unwrap().pos + 1 }
+    pub fn beg(&self) -> usize { self.vars[self.offset].pos }
+    pub fn end(&self) -> usize { self.vars.last().unwrap().pos + 1 }
 
     pub fn size(&self) -> usize { self.vars.len() - self.offset }
     pub fn raw_size(&self) -> usize { self.vars.len() }
@@ -53,6 +51,7 @@ impl Haplotype {
     //     &mut self.vars[idx]
     // }
 
+    pub fn variants(&self) -> &[SNV] { &self.vars[self.offset..] }
     pub fn raw_variants(&self) -> &Vec<SNV> { &self.vars }
 
     pub fn first(&self) -> &SNV { &self.vars[self.offset] }

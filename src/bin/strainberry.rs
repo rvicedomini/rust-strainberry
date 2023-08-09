@@ -46,6 +46,7 @@ fn main() {
     // utils::estimate_lookback(bam_path, 1000)
     println!("Lookback {} bp", opts.lookback);
 
+    println!("Splitting reference at putative misjoins");
     let target_intervals = misassembly::partition_reference(bam_path, &opts);
 
     println!("Phasing strains");

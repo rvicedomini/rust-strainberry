@@ -37,6 +37,10 @@ pub struct Options {
     #[arg(long = "min-snv", value_name = "NUM", default_value_t = 3)]
     pub min_snv: usize,
 
+    /// Minimum number of shared positions between a sequence and a haplotype to consider a match
+    #[arg(long = "min-shared-snv", value_name = "NUM", default_value_t = 1)]
+    pub min_shared_snv: usize,
+
     /// Minimum number of alternative-allele observations
     #[arg(long = "min-alt-count", value_name = "NUM", default_value_t = 5)]
     pub min_alt_count: usize,
