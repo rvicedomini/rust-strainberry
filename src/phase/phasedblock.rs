@@ -43,7 +43,7 @@ impl PhasedBlock {
     pub fn haplotypes(&self) -> &FxHashMap<usize,Haplotype> { &self.haplotypes }
     pub fn haplotypes_mut(&mut self) -> &mut FxHashMap<usize,Haplotype> { &mut self.haplotypes }
 
-    pub fn get(&self, hid:usize) -> &Haplotype { &self.haplotypes[&hid] }
+    // pub fn get(&self, hid:usize) -> &Haplotype { &self.haplotypes[&hid] }
 
     pub fn begin(&self) -> usize { self.begin }
 

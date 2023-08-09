@@ -34,7 +34,7 @@ pub fn partition_reference(bam_path: &Path, opts: &Options) -> Vec<SeqInterval> 
     
     let target_intervals = utils::bam_target_intervals(bam_path)
         .into_iter()
-        .sorted_unstable_by_key(|iv| iv.end-iv.beg)
+        .sorted_unstable_by_key(|iv| -((iv.end-iv.beg) as isize))
         .collect_vec();
 
     thread::scope(|scope| {

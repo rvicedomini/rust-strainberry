@@ -29,9 +29,13 @@ pub struct Options {
     #[arg(short = 'q', long = "min-mapq", value_name = "NUM", default_value_t = 20)]
     pub min_mapq: u8,
 
-    /// Minimum overhang length
+    /// Maximum number of theads
     #[arg(short = 't', long = "threads", value_name = "NUM", default_value_t = 1)]
     pub nb_threads: usize,
+
+    /// Minimum number of phased variants to retain a haplotype
+    #[arg(long = "min-snv", value_name = "NUM", default_value_t = 3)]
+    pub min_snv: usize,
 
     /// Minimum number of alternative-allele observations
     #[arg(long = "min-alt-count", value_name = "NUM", default_value_t = 5)]

@@ -22,7 +22,7 @@ fn main() {
     let output_dir = Path::new(&opts.output_dir);
 
     // TODO?
-    // create output directory in cli module, after option validation
+    // create output directory in cli module ? (after option validation)
     if fs::create_dir_all(output_dir).is_err() {
         println!("Cannot create output directory: \"{}\"", output_dir.display());
         std::process::exit(1);
@@ -48,9 +48,10 @@ fn main() {
 
     let target_intervals = misassembly::partition_reference(bam_path, &opts);
 
-    // println!("Phasing strains");
-    // let phaser = phase::Phaser::new(&bam_path, &target_sequences, &output_dir, &opts);
-    // phaser.run(&variants);
+    println!("Phasing strains");
+    let phaser = phase::Phaser::new(&bam_path, &target_sequences, &output_dir, &opts);
+    let haplotypes = phaser.phase(&target_intervals, &variants);
+    println!("Haplotypes: {}", haplotypes.len());
 
     // separate_workdir = os.path.join(opt.outdir,'20-separate')
     // separator = HifiReadSeparator(reference_lengths, opt.BAM, read_dict, variant_positions, reference_alignments, reference_intervals, separate_workdir,

@@ -4,6 +4,8 @@ mod phasedblock;
 
 use std::collections::VecDeque;
 use std::fs;
+use std::sync::mpsc;
+use std::thread;
 use std::path::{Path,PathBuf};
 
 use itertools::Itertools;
@@ -34,14 +36,14 @@ use self::haplotype::Haplotype;
 
 pub struct Phaser<'a> {
     bam: &'a Path,
-    _target_sequences: &'a Vec<Vec<u8>>,
+    // target_sequences: &'a Vec<Vec<u8>>,
     work_dir: PathBuf,
     opts: &'a Options,
 }
 
 impl<'a> Phaser<'a> {
 
-    pub fn new(bam: &'a Path, target_sequences: &'a Vec<Vec<u8>>, output_dir: &Path, opts: &'a Options) -> Phaser<'a> {
+    pub fn new(bam: &'a Path, _target_sequences: &'a Vec<Vec<u8>>, output_dir: &Path, opts: &'a Options) -> Phaser<'a> {
 
         let work_dir = output_dir.join("20-separate");
         if fs::create_dir_all(work_dir.as_path()).is_err() {
@@ -52,36 +54,58 @@ impl<'a> Phaser<'a> {
 
         Phaser {
             bam,
-            _target_sequences: target_sequences,
+            // target_sequences,
             work_dir,
             opts
         }
     }
 
+
     pub fn work_dir(&self) -> &Path {
         self.work_dir.as_path()
     }
 
-    // TODO: split variants at positions that are too distant
-    pub fn run(&self, variants: &VarDict) {
+    
+    pub fn phase(&self, target_intervals: &Vec<SeqInterval>, variants: &VarDict) -> Vec<Haplotype> {
 
-        for (&tid, target_variants) in variants {
-            if target_variants.len() > 0 {
-                let beg = target_variants.first().unwrap().pos;
-                let end = target_variants.last().unwrap().pos + 1;
-                let target_interval = SeqInterval{tid,beg,end};
-                self.phase_interval(&target_interval, target_variants);
+        let mut target_variants = vec![];
+        for siv in target_intervals {
+            if let Some(vars) = variants.get(&siv.tid) {
+                let left = vars.partition_point(|v| v.pos < siv.beg);
+                let right = vars.partition_point(|v| v.pos < siv.end);
+                if right - left >= self.opts.min_snv {
+                    target_variants.push((siv, &vars[left..right]));
+                }
             }
         }
+        target_variants.sort_unstable_by_key(|(_,vars)| -(vars.len() as isize));
 
+        let nb_threads = std::cmp::min(self.opts.nb_threads, target_variants.len());
+        let (tx, rx) = mpsc::channel();
+        thread::scope(|scope| {
+            for thread_id in 0..nb_threads {
+                let sender = tx.clone();
+                let target_variants_ref = &target_variants;
+                scope.spawn(move || {
+                    for &(target_interval, variants) in (&target_variants_ref[thread_id..]).iter().step_by(nb_threads) {
+                        let haplotypes = self.phase_interval(target_interval, variants);
+                        sender.send(haplotypes).unwrap();
+                    }
+                });
+            }
+        });
+
+        (0..target_variants.len())
+            .flat_map(|_| rx.recv().unwrap())
+            .collect_vec()
     }
 
-    fn phase_interval(&self, target_interval:&SeqInterval, variants: &[Var]) {
-        eprintln!("----- Phasing {target_interval}");
-        let _haplotypes = self.phase_variants(target_interval,variants);
+    fn phase_interval(&self, target_interval:&SeqInterval, variants: &[Var]) -> Vec<Haplotype> {
+        eprintln!("  -> Phasing {target_interval} ({} variants)", variants.len());
+        self.phase_variants(target_interval,variants)
     }
 
-    fn phase_variants(&self, target_interval:&SeqInterval, variants: &[Var]) -> Vec<Haplotype> {
+    pub fn phase_variants(&self, target_interval:&SeqInterval, variants: &[Var]) -> Vec<Haplotype> {
 
         let mut haplotypes = vec![];
 
@@ -121,14 +145,14 @@ impl<'a> Phaser<'a> {
                 continue;
             }
 
-            eprintln!("-----> SNV position = {var_position}");
+            // eprintln!("-----> SNV position = {var_position}");
             debug_assert_eq!(target_pos, var_position);
 
             // TODO: keep a list of "in-scope" succinct reads
             let edges = self.process_pileup(&pileup, &mut succinct_records, &var_nucleotides);
             lookback_positions.push_back(var_position);
 
-            eprintln!("Nucleotides: {}, Edges: {:?}", String::from_utf8(var_nucleotides.clone()).unwrap(), edges.iter().map(|&(u,v)| (u as char, v as char)).collect_vec());
+            // eprintln!("Nucleotides: {}, Edges: {:?}", String::from_utf8(var_nucleotides.clone()).unwrap(), edges.iter().map(|&(u,v)| (u as char, v as char)).collect_vec());
 
             // filter lookback positions too far away
             while var_position - lookback_positions[0] + 1 > self.opts.lookback {
@@ -157,10 +181,10 @@ impl<'a> Phaser<'a> {
 
             // possibly save haplotypes and start a new phased block
             if unsupported_haplotypes.len() > 0 && phasedblock.haplotypes().values().next().unwrap().size() >= 3 && (var_position - phasedblock.begin() + 1 > self.opts.lookback) {
-                eprintln!("Saving haplotypes after impossible extension");
-                for ht in phasedblock.haplotypes().values() {
-                    eprintln!("{ht}");
-                }
+                // eprintln!("Saving haplotypes after impossible extension");
+                // for ht in phasedblock.haplotypes().values() {
+                //     eprintln!("{ht}");
+                // }
                 haplotypes.append(&mut phasedblock.drain());
                 phasedblock.init(var_position, var_nucleotides);
                 lookback_positions.clear();
@@ -195,9 +219,9 @@ impl<'a> Phaser<'a> {
                 .map(|(sr_id,_)| sr_id)
                 .collect_vec();
 
-            eprintln!("min_position: {}", min_position);
-            eprintln!("supporting_records: {}", succinct_records.len());
-            eprintln!("candidate_records: {}", candidate_records.len());
+            // eprintln!("min_position: {}", min_position);
+            // eprintln!("supporting_records: {}", succinct_records.len());
+            // eprintln!("candidate_records: {}", candidate_records.len());
 
             let (unsupported_haplotypes, ambiguous_haplotypes) = self.validate_haplotypes(&succinct_records, &candidate_records, &phasedblock, min_position);
 
@@ -372,8 +396,8 @@ impl<'a> Phaser<'a> {
         //     .collect_vec();
 
         // let edge_total_obs = edge_counter.values().sum::<usize>() as f64;
-        let x = edge_counter.iter().map(|(&(u,v),&cnt)| (format!("{}{}",u as char, v as char),cnt)).collect_vec();
-        eprintln!("|E|:{edge_total_obs}, Edge: {x:?}");
+        let _x = edge_counter.iter().map(|(&(u,v),&cnt)| (format!("{}{}",u as char, v as char),cnt)).collect_vec();
+        // eprintln!("|E|:{edge_total_obs}, Edge: {_x:?}");
         let edges = edge_counter.iter()
             .filter(|&(_edge,&cnt)| cnt >= self.opts.min_alt_count && (cnt as f64) >= self.opts.min_alt_frac * (edge_total_obs as f64))
             .map(|(&edge,_cnt)| edge)
