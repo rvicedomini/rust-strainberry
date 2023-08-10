@@ -3,10 +3,12 @@ use std::path::Path;
 use std::time::Instant;
 
 use clap::Parser;
+use rustc_hash::FxHashMap;
 
 use strainberry::cli;
 use strainberry::misassembly;
 use strainberry::phase;
+use strainberry::seq::read::load_bam_sequences;
 use strainberry::utils;
 use strainberry::variant;
 
@@ -38,7 +40,8 @@ fn main() {
     println!("Loaded {} variants", variants.values().map(|vars| vars.len()).sum::<usize>());
 
     println!("Loading sequences from: {}", fasta_path.canonicalize().unwrap().display());
-    let target_sequences: Vec<Vec<u8>> = utils::load_sequences(fasta_path, bam_path);
+    let target_names = utils::bam_target_names(bam_path);
+    let target_sequences = utils::load_sequences(fasta_path, bam_path);
     println!("Loaded {} sequences", target_sequences.len());
     
     // TODO:
@@ -49,10 +52,14 @@ fn main() {
     println!("Splitting reference at putative misjoins");
     let target_intervals = misassembly::partition_reference(bam_path, &opts);
 
+    println!("Loading reads from BAM");
+    let read_sequences: FxHashMap<String, Vec<u8>> = load_bam_sequences(bam_path, &opts);
+    println!("{} reads loaded", read_sequences.len());
+
     println!("Phasing strains");
-    let phaser = phase::Phaser::new(&bam_path, &target_sequences, &output_dir, &opts);
-    let haplotypes = phaser.phase(&target_intervals, &variants);
-    println!("Haplotypes: {}", haplotypes.len());
+    let phaser = phase::Phaser::new(&bam_path, &target_names, &target_intervals, &read_sequences, &output_dir, &opts);
+    let haplotypes = phaser.phase(&variants);
+    println!("{} haplotypes phased", haplotypes.len());
 
     // separate_workdir = os.path.join(opt.outdir,'20-separate')
     // separator = HifiReadSeparator(reference_lengths, opt.BAM, read_dict, variant_positions, reference_alignments, reference_intervals, separate_workdir,

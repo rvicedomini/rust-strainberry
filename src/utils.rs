@@ -1,9 +1,11 @@
 use std::fs::File;
-use std::io::{BufRead,BufReader};
+use std::io::{BufRead,BufReader,Write,BufWriter};
 use std::mem::MaybeUninit;
 use std::path::Path;
 
+use flate2::Compression;
 use flate2::read::MultiGzDecoder;
+use flate2::write::GzEncoder;
 use itertools::Itertools;
 use needletail::Sequence;
 use rustc_hash::FxHashMap;
@@ -27,10 +29,27 @@ pub fn get_maxrss() -> f64 {
 
 
 pub fn get_file_reader(path: &Path) -> Box<dyn BufRead> {
-    let file = File::open(path).unwrap();
+    let file = match File::open(path) {
+        Err(err) => panic!("Could not open file \"{}\": {}", path.display(), err),
+        Ok(file) => file,
+    };
     match path.extension() {
         Some(ext) if ext == "gz" => Box::new(BufReader::new(MultiGzDecoder::new(file))),
         _ => Box::new(BufReader::new(file)),
+    }
+}
+
+
+pub fn get_file_writer(path: &Path) -> Box<dyn Write> {
+    let file = match File::create(&path) {
+        Err(err) => panic!("Could not open/create file \"{}\": {}", path.display(), err),
+        Ok(file) => file,
+    };
+    match path.extension() {
+        Some(ext) if ext == "gz" => Box::new(
+            BufWriter::new(GzEncoder::new(file, Compression::default()))
+        ),
+        _ => Box::new(BufWriter::new(file)),
     }
 }
 

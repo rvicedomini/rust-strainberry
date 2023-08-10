@@ -1,9 +1,10 @@
 pub mod alignment;
+pub mod read;
 
 use std::fmt;
 use std::ops::Range;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SeqInterval {
     pub tid: usize,
     pub beg: usize,
@@ -61,7 +62,13 @@ impl SuccinctSeq {
         self.positions.push(pos);
         self.nucleotides.push(nuc);
     }
+}
 
+impl fmt::Display for SuccinctSeq {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let seq_string = String::from_utf8_lossy(self.nucleotides()).to_string();
+        write!(f, "{}: {} ({}:{}..={})", self.name(), seq_string, self.tid(), self.positions().first().unwrap(), self.positions().last().unwrap())
+    }
 }
 
 

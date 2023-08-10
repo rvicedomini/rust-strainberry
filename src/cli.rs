@@ -50,11 +50,11 @@ pub struct Options {
     pub min_alt_frac: f64,
 
     /// Minimum indel length
-    #[arg(long = "min-indel", value_name = "NUM", default_value_t = 100)]
+    #[arg(long = "min-indel", value_name = "NUM", default_value_t = 50)]
     pub min_indel: usize,
 
     /// Minimum overhang length
-    #[arg(long = "min-overhang", value_name = "NUM", default_value_t = 1000)]
+    #[arg(long = "min-overhang", value_name = "NUM", default_value_t = 500)]
     pub min_overhang: usize,
 
     /// Minimum aware-contig length

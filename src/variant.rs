@@ -89,8 +89,7 @@ fn load_variants_at_positions(bam_reader: &mut IndexedReader, tid: usize, positi
                 || record.is_unmapped() 
                 || record.is_secondary() 
                 || record.is_quality_check_failed() 
-                || record.is_duplicate() 
-                || record.is_supplementary()
+                || record.is_duplicate()
             {
                 continue;
             }

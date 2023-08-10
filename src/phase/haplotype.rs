@@ -1,5 +1,7 @@
 use std::fmt;
 
+use crate::seq::SeqInterval;
+
 use super::haplotree::SNV;
 
 // pub struct PhasesetRegion {
@@ -11,6 +13,14 @@ use super::haplotree::SNV;
 // impl PhasesetRegion {
 //     fn length(&self) -> usize { self.end - self.beg }
 // }
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct HaplotypeId {
+    pub tid: usize,
+    pub beg: usize,
+    pub end: usize,
+    pub hid: usize
+}
 
 #[derive(Clone)]
 pub struct Haplotype {
@@ -38,6 +48,10 @@ impl Haplotype {
     pub fn beg(&self) -> usize { self.vars[self.offset].pos }
     pub fn end(&self) -> usize { self.vars.last().unwrap().pos + 1 }
 
+    pub fn uid(&self) -> HaplotypeId {
+        HaplotypeId { tid:self.tid(), beg:self.beg(), end:self.end(), hid:self.hid() }
+    }
+
     pub fn size(&self) -> usize { self.vars.len() - self.offset }
     pub fn raw_size(&self) -> usize { self.vars.len() }
 
@@ -63,9 +77,9 @@ impl Haplotype {
     pub fn last_pos(&self) -> usize { self.last().pos }
     pub fn last_nuc(&self) -> u8 { self.last().nuc }
 
-    // pub fn phaseset_region(&self) -> PhasesetRegion {
-    //     PhasesetRegion{ tid:self.tid, beg:self.beg(), end:self.end() }
-    // }
+    pub fn region(&self) -> SeqInterval {
+        SeqInterval{ tid:self.tid, beg:self.beg(), end:self.end() }
+    }
 
     // pub fn append(&mut self, mut other: Haplotype) {
     //     self.vars.extend(other.vars.drain(other.offset..));
@@ -110,7 +124,7 @@ impl Haplotype {
 
 impl fmt::Display for Haplotype {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}: {} ({}:{}..={})", self.hid(), self.seq_string(), self.tid(), self.first_pos(), self.last_pos())
+        write!(f, "h{}: {} ({}:{}..={})", self.hid(), self.seq_string(), self.tid(), self.first_pos(), self.last_pos())
     }
 }
 

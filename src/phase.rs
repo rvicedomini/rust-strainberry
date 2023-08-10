@@ -1,18 +1,17 @@
+mod haplograph;
 mod haplotree;
 mod haplotype;
 mod phasedblock;
 
 use std::collections::VecDeque;
 use std::fs;
-use std::ops::Deref;
 use std::sync::mpsc;
 use std::thread;
 use std::path::{Path,PathBuf};
 
-use bio::data_structures::interval_tree::{IntervalTree};
-use bio::utils::Interval;
+use bio::data_structures::interval_tree::IntervalTree;
 
-use itertools::{Itertools, cloned};
+use itertools::Itertools;
 use rustc_hash::{FxHashSet,FxHashMap};
 
 use rust_htslib::bam;
@@ -26,8 +25,9 @@ use crate::variant::{Var,VarDict};
 
 use phasedblock::PhasedBlock;
 
+// use self::haplograph::HaploGraph;
 use self::haplotree::SNV;
-use self::haplotype::Haplotype;
+use self::haplotype::{Haplotype, HaplotypeId};
 
 // input: 
 //   - read-alignment (bam)
@@ -40,15 +40,17 @@ use self::haplotype::Haplotype;
 //   - filtered variant positions
 
 pub struct Phaser<'a> {
-    bam: &'a Path,
-    // target_sequences: &'a Vec<Vec<u8>>,
+    bam_path: &'a Path,
+    target_names: &'a Vec<String>,
+    target_intervals: &'a Vec<SeqInterval>,
+    read_sequences: &'a FxHashMap<String,Vec<u8>>,
     work_dir: PathBuf,
     opts: &'a Options,
 }
 
 impl<'a> Phaser<'a> {
 
-    pub fn new(bam: &'a Path, _target_sequences: &'a Vec<Vec<u8>>, output_dir: &Path, opts: &'a Options) -> Phaser<'a> {
+    pub fn new(bam_path: &'a Path, target_names: &'a Vec<String>, target_intervals: &'a Vec<SeqInterval>, read_sequences: &'a FxHashMap<String, Vec<u8>>, output_dir: &Path, opts: &'a Options) -> Phaser<'a> {
 
         let work_dir = output_dir.join("20-separate");
         if fs::create_dir_all(work_dir.as_path()).is_err() {
@@ -58,8 +60,10 @@ impl<'a> Phaser<'a> {
         eprintln!("Phasing work directory: {}", work_dir.display());
 
         Phaser {
-            bam,
-            // target_sequences,
+            bam_path,
+            target_names,
+            target_intervals,
+            read_sequences,
             work_dir,
             opts
         }
@@ -71,19 +75,19 @@ impl<'a> Phaser<'a> {
     }
 
     
-    pub fn phase(&self, target_intervals: &Vec<SeqInterval>, variants: &VarDict) -> Vec<Haplotype> {
+    pub fn phase(&self, variants: &VarDict) -> FxHashMap<SeqInterval,Vec<Haplotype>> {
 
         let mut target_variants = vec![];
-        for siv in target_intervals {
+        for siv in self.target_intervals {
             if let Some(vars) = variants.get(&siv.tid) {
                 let left = vars.partition_point(|v| v.pos < siv.beg);
-                let right = vars.partition_point(|v| v.pos < siv.end);
+                let right = vars.partition_point(|v: &Var| v.pos < siv.end);
                 if right - left >= self.opts.min_snv {
                     target_variants.push((siv, &vars[left..right]));
                 }
             }
         }
-        target_variants.sort_unstable_by_key(|(_,vars)| -(vars.len() as isize));
+        target_variants.sort_unstable_by_key(|(_,vars)| vars.len());
 
         let nb_threads = std::cmp::min(self.opts.nb_threads, target_variants.len());
         let (tx, rx) = mpsc::channel();
@@ -102,10 +106,10 @@ impl<'a> Phaser<'a> {
 
         (0..target_variants.len())
             .flat_map(|_| rx.recv().unwrap())
-            .collect_vec()
+            .collect()
     }
 
-    fn phase_interval(&self, target_interval:&SeqInterval, variants: &[Var]) -> Vec<Haplotype> {
+    fn phase_interval(&self, target_interval:&SeqInterval, variants: &[Var]) -> FxHashMap<SeqInterval,Vec<Haplotype>> {
         // eprintln!("  -> Phasing {target_interval} ({} variants)", variants.len());
         let (haplotypes, succinct_records) = self.phase_variants(target_interval,variants);
         // eprintln!("  -> Haplotypes in {target_interval}: {}", haplotypes.len());
@@ -114,16 +118,54 @@ impl<'a> Phaser<'a> {
         // eprintln!("  -> Filtered Haplotypes in {target_interval}: {}", haplotypes.len());
         
         let haplotype_intervals = IntervalTree::from_iter(
-            haplotypes.iter().map(|ht| (ht.beg()..ht.end(), ht))
+            haplotypes.values().map(|ht| (ht.beg()..ht.end(), ht))
         );
 
         let (sread_haplotypes,ambiguous_reads) = self.separate_reads(&succinct_records, &haplotype_intervals, &variant_positions);
+
+        // TODO: Merge contiguous haplotypes when it is not ambiguous to do so
+        // let mut haplograph = HaploGraph::new(&haplotypes, &sread_haplotypes);
+        // let dot_file = format!("{}_{}-{}.dot", target_interval.tid, target_interval.beg, target_interval.end);
+        // let dot_path = self.work_dir().join(dot_file.as_str());
+        // let _ = haplograph.write_dot(&dot_path);
+
+        let mut phasesets: FxHashMap<SeqInterval,Vec<Haplotype>> = FxHashMap::default();
+        for ht in haplotypes.into_values() {
+            phasesets.entry(ht.region())
+                .or_insert(vec![])
+                .push(ht);
+        }
         
-        haplotypes
+        self.write_reads(&phasesets, &sread_haplotypes).unwrap();
+        
+        phasesets
     }
 
+
+    fn write_reads(&self, phasesets: &FxHashMap<SeqInterval,Vec<Haplotype>>, read_haplotypes: &FxHashMap<String,Vec<HaplotypeId>>) -> std::io::Result<()> {
+        for (_, haplotypes) in phasesets.iter() {
+            let mut read_files = FxHashMap::default();
+            for ht in haplotypes {
+                let ht_id = ht.uid();
+                let ht_file_gz = format!("{}_{}-{}_h{}.fa.gz", self.target_names[ht_id.tid], ht_id.beg, ht_id.end, ht_id.hid);
+                let ht_file_path = self.work_dir().join(ht_file_gz.as_str());
+                read_files.insert(ht_id, utils::get_file_writer(&ht_file_path));
+            }
+            for (read_name, ht_list) in read_haplotypes.iter() {
+                if let Some(ht_id) = ht_list.iter().filter(|&ht_id| read_files.contains_key(ht_id)).next() {
+                    let out = read_files.get_mut(ht_id).unwrap();
+                    out.write_all(format!(">{read_name}\n").as_bytes())?;
+                    out.write_all(self.read_sequences[read_name].as_slice())?;
+                    out.write_all(b"\n")?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+
     fn separate_reads(&self, succinct_records: &FxHashMap<BamRecordId,SuccinctSeq>, haplotype_intervals: &IntervalTree<usize,&Haplotype>, variant_positions: &FxHashSet<usize>)
-        ->  (FxHashMap<String,Vec<usize>>, FxHashSet<String>) {
+        ->  (FxHashMap<String,Vec<HaplotypeId>>, FxHashSet<String>) {
 
         let mut sread_haplotypes = FxHashMap::default();
         let mut ambiguous = FxHashSet::default();
@@ -141,7 +183,7 @@ impl<'a> Phaser<'a> {
     }
 
 
-    fn best_sread_haplotypes(&self, sread: &SuccinctSeq, haplotype_intervals: &IntervalTree<usize,&Haplotype>, variant_positions: &FxHashSet<usize>) -> Vec<(usize,usize,usize)> {
+    fn best_sread_haplotypes(&self, sread: &SuccinctSeq, haplotype_intervals: &IntervalTree<usize,&Haplotype>, variant_positions: &FxHashSet<usize>) -> Vec<(HaplotypeId,usize,usize)> {
         
         let mut candidates = FxHashMap::default();
         let sread_positions: FxHashSet<usize> = sread.positions().iter().cloned().collect();
@@ -169,7 +211,7 @@ impl<'a> Phaser<'a> {
                     let range = ht.beg()..ht.end();
                     candidates.entry(range)
                         .or_insert(vec![])
-                        .push((ht.hid(),hamming_dist));
+                        .push((ht.uid(),hamming_dist));
                 }
             }
         }
@@ -192,15 +234,15 @@ impl<'a> Phaser<'a> {
     }
 
 
-    fn remove_false_haplotypes(&self, mut haplotypes: Vec<Haplotype>, positions: &FxHashSet<usize>) -> Vec<Haplotype> {
-        haplotypes.retain(|ht| ht.variants().iter().map(|snv| snv.pos).any(|ht_pos| positions.contains(&ht_pos)));
+    fn remove_false_haplotypes(&self, mut haplotypes: FxHashMap<HaplotypeId,Haplotype>, positions: &FxHashSet<usize>) -> FxHashMap<HaplotypeId,Haplotype> {
+        haplotypes.retain(|hid, ht| ht.variants().iter().map(|snv| snv.pos).any(|ht_pos| positions.contains(&ht_pos)));
         haplotypes
     }
 
 
-    fn variant_positions(&self, haplotypes: &Vec<Haplotype>) -> FxHashSet<usize> {
+    fn variant_positions(&self, haplotypes: &FxHashMap<HaplotypeId,Haplotype>) -> FxHashSet<usize> {
         
-        let haplo_nodes: FxHashSet<SNV> = haplotypes.iter()
+        let haplo_nodes: FxHashSet<SNV> = haplotypes.values()
             .flat_map(|ht| ht.variants())
             .cloned()
             .collect();
@@ -220,9 +262,9 @@ impl<'a> Phaser<'a> {
     }
 
 
-    pub fn phase_variants(&self, target_interval:&SeqInterval, variants: &[Var]) -> (Vec<Haplotype>,FxHashMap<BamRecordId,SuccinctSeq>)  {
+    pub fn phase_variants(&self, target_interval:&SeqInterval, variants: &[Var]) -> (FxHashMap<HaplotypeId,Haplotype>,FxHashMap<BamRecordId,SuccinctSeq>)  {
 
-        let mut haplotypes = vec![];
+        let mut haplotypes = FxHashMap::default();
         let mut succinct_records: FxHashMap<BamRecordId,SuccinctSeq> = FxHashMap::default();
 
         if variants.len() == 0 {
@@ -234,7 +276,7 @@ impl<'a> Phaser<'a> {
         let mut var_iter = variants.iter();
         let mut phasedblock = PhasedBlock::new(target_interval.tid);
 
-        let mut bam_reader = bam::IndexedReader::from_path(self.bam).unwrap();
+        let mut bam_reader = bam::IndexedReader::from_path(self.bam_path).unwrap();
         bam_reader.fetch((target_interval.tid as i32, target_interval.beg as i64, target_interval.end as i64)).expect(&format!("Cannot fetch target interval: {}",target_interval));
 
         let mut var = var_iter.next();
@@ -270,16 +312,26 @@ impl<'a> Phaser<'a> {
             // eprintln!("Nucleotides: {}, Edges: {:?}", String::from_utf8(var_nucleotides.clone()).unwrap(), edges.iter().map(|&(u,v)| (u as char, v as char)).collect_vec());
 
             // filter lookback positions too far away
-            while var_position - lookback_positions[0] + 1 > self.opts.lookback {
-                lookback_positions.pop_front();
-            }
+            // while var_position - lookback_positions[0] + 1 > self.opts.lookback {
+            //     lookback_positions.pop_front();
+            // }
 
             debug_assert!(lookback_positions.len() > 0);
 
-            // if this is the start a new phased block or there is no edge to extend current one
-            if lookback_positions.len() == 1 || edges.len() == 0 {
-                // FIXME? if there is no edge, why did I not save haplotypes ? Check old python code!!!
+            // if this is the start a new phased block
+            if lookback_positions.len() == 1 {
                 phasedblock.init(var_position, var_nucleotides);
+                continue
+            }
+
+            // if no edge within lookback bases, possibly save haplotypes
+            if edges.len() == 0 && phasedblock.haplotypes().values().next().unwrap().raw_size() >= self.opts.min_snv && (var_position - phasedblock.begin() + 1 > self.opts.lookback) {
+                for ht in phasedblock.drain() {
+                    haplotypes.insert(ht.uid(), ht);
+                }
+                phasedblock.init(var_position, var_nucleotides);
+                lookback_positions.clear();
+                lookback_positions.push_back(var_position);
                 continue
             }
 
@@ -295,12 +347,14 @@ impl<'a> Phaser<'a> {
                 .collect_vec();
 
             // possibly save haplotypes and start a new phased block
-            if unsupported_haplotypes.len() > 0 && phasedblock.haplotypes().values().next().unwrap().size() >= 3 && (var_position - phasedblock.begin() + 1 > self.opts.lookback) {
+            if unsupported_haplotypes.len() > 0 && phasedblock.haplotypes().values().next().unwrap().raw_size() >= self.opts.min_snv && (var_position - phasedblock.begin() + 1 > self.opts.lookback) {
                 // eprintln!("Saving haplotypes after impossible extension");
                 // for ht in phasedblock.haplotypes().values() {
                 //     eprintln!("{ht}");
                 // }
-                haplotypes.append(&mut phasedblock.drain());
+                for ht in phasedblock.drain() {
+                    haplotypes.insert(ht.uid(), ht);
+                }
                 phasedblock.init(var_position, var_nucleotides);
                 lookback_positions.clear();
                 lookback_positions.push_back(var_position);
@@ -340,13 +394,15 @@ impl<'a> Phaser<'a> {
 
             let (unsupported_haplotypes, ambiguous_haplotypes) = self.validate_haplotypes(&succinct_records, &candidate_records, &phasedblock, min_position);
 
-            if unsupported_haplotypes.len() > 0 && phasedblock.haplotypes().values().next().unwrap().size() >= 3 && (var_position - phasedblock.begin() + 1 > self.opts.lookback) {
+            if unsupported_haplotypes.len() > 0 && phasedblock.haplotypes().values().next().unwrap().raw_size() >= self.opts.min_snv && (var_position - phasedblock.begin() + 1 > self.opts.lookback) {
                 phasedblock.split_and_init(0);
                 // eprintln!("Saved haplotypes after finding unsupported ones:");
                 // for ht in phasedblock.haplotypes().values() {
                 //     eprintln!("{ht}");
                 // }
-                haplotypes.append(&mut phasedblock.drain());
+                for ht in phasedblock.drain() {
+                    haplotypes.insert(ht.uid(), ht);
+                }
                 phasedblock.init(var_position, var_nucleotides);
                 lookback_positions.clear();
                 lookback_positions.push_back(var_position);
@@ -363,9 +419,11 @@ impl<'a> Phaser<'a> {
             is_ambiguous |= ambiguous_haplotypes.len() > 0;
 
             // if ambiguous extension, create a new phaseset (should a minimum of 3 SNVs be requested here too?)
-            if is_ambiguous && (var_position - phasedblock.begin() + 1 > self.opts.lookback) {
+            if is_ambiguous && phasedblock.haplotypes().values().next().unwrap().raw_size() >= self.opts.min_snv && (var_position - phasedblock.begin() + 1 > self.opts.lookback) {
                 let mut new_phasedblock = phasedblock.split_and_init(self.opts.lookback);
-                haplotypes.append(&mut phasedblock.drain());
+                for ht in phasedblock.drain() {
+                    haplotypes.insert(ht.uid(), ht);
+                }
                 std::mem::swap(&mut phasedblock, &mut new_phasedblock);
             } else { // discard ambiguous haplotypes if phased region was too short
                 // eprintln!("Discarding short \"ambiguous\" haplotypes:");
@@ -386,7 +444,11 @@ impl<'a> Phaser<'a> {
         // for ht in phasedblock.haplotypes().values() {
         //     eprintln!("{ht}");
         // }
-        haplotypes.append(&mut phasedblock.drain());
+        if phasedblock.haplotypes().values().next().unwrap().raw_size() >= self.opts.min_snv {
+            for ht in phasedblock.drain() {
+                haplotypes.insert(ht.uid(), ht);
+            }
+        }
         
         (haplotypes, succinct_records)
     }
@@ -468,8 +530,7 @@ impl<'a> Phaser<'a> {
                 || record.is_unmapped() 
                 || record.is_secondary() 
                 || record.is_quality_check_failed() 
-                || record.is_duplicate() 
-                || record.is_supplementary()
+                || record.is_duplicate()
             {
                 continue;
             }
