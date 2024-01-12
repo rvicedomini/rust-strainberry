@@ -1,13 +1,13 @@
 use tinyvec::{tiny_vec,TinyVec};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SNV {
+pub struct Snv {
     pub pos: usize,
     pub nuc: u8,
 }
 
 struct Node {
-    snv: Option<SNV>,
+    snv: Option<Snv>,
     parent: usize,
     successors: TinyVec<[usize;10]>,
     // leaf: bool,
@@ -15,7 +15,7 @@ struct Node {
 }
 
 impl Node {
-    fn new(snv:Option<SNV>, parent:usize) -> Self {
+    fn new(snv:Option<Snv>, parent:usize) -> Self {
         Self { snv, parent, successors: tiny_vec!() }
     }
 }
@@ -50,7 +50,7 @@ impl HaploTree {
         self.nodes[node].parent 
     }
 
-    // pub fn get_snv(&self, node:usize) -> Option<SNV> { self.nodes[node].snv }
+    // pub fn get_snv(&self, node:usize) -> Option<Snv> { self.nodes[node].snv }
 
     // pub fn is_leaf(&self, node:usize) -> bool { self.nodes[node].leaf }
 
@@ -60,16 +60,16 @@ impl HaploTree {
 
     // pub fn set_complete(&mut self, node:usize, value:bool) { self.nodes[node].complete = value; }
 
-    // pub fn peek(&self, node:Option<usize>, snv:SNV) -> Option<usize> {
+    // pub fn peek(&self, node:Option<usize>, snv:Snv) -> Option<usize> {
     //     let succ = self.nodes[node?].successors.iter()
     //         .filter(|&&succ| self.nodes[succ].snv == Some(snv))
     //         .next()?;
     //     Some(*succ)
     // }
 
-    pub fn extend(&mut self, node:usize, snv:SNV) -> usize {
+    pub fn extend(&mut self, node:usize, snv:Snv) -> usize {
 
-        if let Some(&succ) = self.nodes[node].successors.iter().filter(|&&succ| self.nodes[succ].snv == Some(snv)).next() {
+        if let Some(&succ) = self.nodes[node].successors.iter().find(|&&succ| self.nodes[succ].snv == Some(snv)) {
             return succ;
         }
 
@@ -80,7 +80,7 @@ impl HaploTree {
         succ
     }
 
-    pub fn path_extend(&mut self, node:usize, path:&Vec<SNV>) -> usize {
+    pub fn path_extend(&mut self, node:usize, path:&[Snv]) -> usize {
         path.iter().fold(node, |node,&snv| self.extend(node,snv))
     }
 }

@@ -40,9 +40,8 @@ impl SuccinctSeq {
     pub fn positions(&self) -> &Vec<usize> { &self.positions }
     pub fn nucleotides(&self) -> &Vec<u8> { &self.nucleotides }
 
-    pub fn len(&self) -> usize {
-        self.positions.len()
-    }
+    pub fn len(&self) -> usize { self.positions.len() }
+    pub fn is_empty(&self) -> bool { self.len() == 0 }
 
     pub fn range(&self) -> Range<usize> {
         let beg = *self.positions.first().unwrap();

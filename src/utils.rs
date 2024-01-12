@@ -41,7 +41,7 @@ pub fn get_file_reader(path: &Path) -> Box<dyn BufRead> {
 
 
 pub fn get_file_writer(path: &Path) -> Box<dyn Write> {
-    let file = match File::create(&path) {
+    let file = match File::create(path) {
         Err(err) => panic!("Could not open/create file \"{}\": {}", path.display(), err),
         Ok(file) => file,
     };
@@ -61,7 +61,6 @@ pub fn bam_target_names(bam_path:&Path) -> Vec<String> {
         .target_names()
         .iter()
         .map(|&name| String::from_utf8_lossy(name).to_string())
-        .map(|x| x)
         .collect_vec()
 }
 
@@ -84,7 +83,7 @@ pub fn chrom2tid(bam_header:&HeaderView) -> FxHashMap<String,usize> {
     bam_header
         .target_names().iter()
         .enumerate()
-        .map(|(tid,&name)| (String::from_utf8_lossy(name).to_string(),tid as usize))
+        .map(|(tid,&name)| (String::from_utf8_lossy(name).to_string(),tid))
         .collect()
 }
 
@@ -210,7 +209,7 @@ pub fn estimate_lookback(bam_path: &Path, n: usize) -> Option<usize> {
         read_lengths.push(record.seq_len());
     }
 
-    if read_lengths.len() == 0 {
+    if read_lengths.is_empty() {
         return None
     }
 

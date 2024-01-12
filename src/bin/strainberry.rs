@@ -57,7 +57,7 @@ fn main() {
     println!("{} reads loaded", read_sequences.len());
 
     println!("Phasing strains");
-    let phaser = phase::Phaser::new(&bam_path, &target_names, &target_intervals, &read_sequences, &output_dir, &opts);
+    let phaser = phase::Phaser::new(bam_path, &target_names, &target_intervals, &read_sequences, output_dir, &opts);
     let haplotypes = phaser.phase(&variants);
     println!("{} haplotypes phased", haplotypes.len());
 

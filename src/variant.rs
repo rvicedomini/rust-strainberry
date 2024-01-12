@@ -53,7 +53,7 @@ fn load_variants_at_positions_threaded(bam_path: &Path, positions: Option<&VarPo
                 let mut bam_reader = IndexedReader::from_path(bam_path).unwrap();
                 for i in (thread_id..target_variants_ref.len()).step_by(opts.nb_threads) {
                     let (tid, target_positions) = target_variants_ref[i];
-                    let variants = load_variants_at_positions(&mut bam_reader, tid, target_positions, &opts);
+                    let variants = load_variants_at_positions(&mut bam_reader, tid, target_positions, opts);
                     sender.send((tid,variants)).unwrap();
                 }
             });
@@ -81,7 +81,7 @@ fn load_variants_at_positions(bam_reader: &mut IndexedReader, tid: usize, positi
             }
         }
 
-        let mut counts = [0 as usize; 5]; // A,C,G,T,N
+        let mut counts = [0_usize; 5]; // A,C,G,T,N
         for alignment in pileup.alignments() {
 
             let record = alignment.record();
@@ -118,7 +118,7 @@ fn load_variants_at_positions(bam_reader: &mut IndexedReader, tid: usize, positi
             .collect();
 
         if alleles.len() == 2 && alleles.iter().all(|&(base,_)| base != 'N') {
-            let tid = tid as usize;
+            // let tid = tid as usize;
             let var = Var{tid,pos,depth,alleles};
             variants.push(var);
         }
@@ -142,7 +142,7 @@ pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, opts:&Options) -> 
     let vcf_reader = utils::get_file_reader(vcf_path);
     let positions = vcf_reader.lines().flatten()
         .map(|line| line.trim().to_string())
-        .filter(|line| !line.is_empty() && !line.starts_with("#"))
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
         .map(|line| {
             let mut record = line.split('\t');
             let chrom = record.next().unwrap();

@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use itertools::Itertools;
 
 use rust_htslib::bam::HeaderView;
@@ -10,8 +12,10 @@ pub enum Strand {
     Reverse
 }
 
-impl Strand {
-    pub fn from_str(s:&str) -> Result<Strand,()> {
+impl FromStr for Strand {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "+" => Ok(Strand::Forward),
             "-" => Ok(Strand::Reverse),
@@ -19,6 +23,7 @@ impl Strand {
         }
     }
 }
+
 
 #[derive(Debug)]
 pub struct SeqAlignment {

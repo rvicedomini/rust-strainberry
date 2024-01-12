@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use rustc_hash::FxHashMap;
 
-use super::haplotree::{HaploTree,SNV};
+use super::haplotree::{HaploTree,Snv};
 use super::haplotype::Haplotype;
 
 pub struct PhasedBlock {
@@ -16,7 +16,7 @@ impl PhasedBlock {
 
     pub fn new(tid:usize) -> PhasedBlock {
         PhasedBlock { 
-            tid: tid,
+            tid,
             haplotree: HaploTree::new(),
             haplotypes: FxHashMap::default(),
             haplotype_node: FxHashMap::default(),
@@ -33,7 +33,7 @@ impl PhasedBlock {
         
         let htree_root = self.haplotree.get_root();
         for nuc in nucleotides {
-            let snv = SNV{pos,nuc};
+            let snv = Snv{pos,nuc};
             let htree_node = self.haplotree.extend(htree_root, snv);
             self.haplotypes.insert(htree_node, Haplotype::new(htree_node, self.tid, vec![snv]));
             self.haplotype_node.insert(htree_node, htree_node);
@@ -69,13 +69,13 @@ impl PhasedBlock {
             let ht_parent = self.haplotype_node[&hid];
             let ht_nuc = ht.last_nuc();
             let mut successors = edges.iter().filter(|(s,_)| *s == ht_nuc).map(|(_,t)| t);
-            let snv = SNV{ pos, nuc: *successors.next().unwrap() };
+            let snv = Snv{ pos, nuc: *successors.next().unwrap() };
             ht.push(snv);
             self.haplotype_node.insert(hid, self.haplotree.extend(ht_parent,snv));
             let mut new_haplotypes = vec![];
-            while let Some(&nuc) = successors.next() {
+            for &nuc in successors {
                 is_ambiguous = true;
-                let snv = SNV{pos,nuc};
+                let snv = Snv{pos,nuc};
                 let new_node = self.haplotree.extend(ht_parent,snv);
                 let mut new_ht = ht.clone();
                 new_ht.set_hid(new_node);
@@ -110,7 +110,7 @@ impl PhasedBlock {
                 phasedblock.begin = new_ht.first_pos();
                 phasedblock.haplotype_node.insert(new_hid, new_hid);
                 phasedblock.haplotypes.insert(new_hid, new_ht);
-                if ht_ids.len() > 0 {
+                if !ht_ids.is_empty() {
                     self.haplotypes.remove(&hid);
                 }
             }

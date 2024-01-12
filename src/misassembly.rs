@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::sync::mpsc;
 use std::thread;
 use std::path::Path;
@@ -44,7 +45,7 @@ pub fn partition_reference(bam_path: &Path, opts: &Options) -> Vec<SeqInterval> 
             scope.spawn(move || {
                 let mut bam_reader = IndexedReader::from_path(bam_path).unwrap();
                 for i in (thread_id..target_intervals_ref.len()).step_by(opts.nb_threads) {
-                    let intervals = find_misassemblies(&mut bam_reader, &target_intervals_ref[i], &opts);
+                    let intervals = find_misassemblies(&mut bam_reader, &target_intervals_ref[i], opts);
                     sender.send(intervals).unwrap();
                 }
             });
@@ -57,7 +58,7 @@ pub fn partition_reference(bam_path: &Path, opts: &Options) -> Vec<SeqInterval> 
 
     let bam_reader = Reader::from_path(bam_path).unwrap();
     let bam_header = bam_reader.header();
-    cluster_misassemblies(candidates, &bam_header, opts)
+    cluster_misassemblies(candidates, bam_header, opts)
     
 }
 
@@ -105,12 +106,12 @@ fn find_misassemblies(bam_reader: &mut IndexedReader, region: &SeqInterval, opts
                 target_end: seqalign.target_end(),
             }];
 
-            if let Some(Aux::String(supplementary_alignments)) = record.aux(b"SA").ok() {
+            if let Ok(Aux::String(supplementary_alignments)) = record.aux(b"SA") {
 
                 let supplementary_alignments = supplementary_alignments
-                    .split(";")
-                    .take_while(|sa| sa.len() > 0)
-                    .map(|sa| sa.split(",").collect_vec())
+                    .split(';')
+                    .take_while(|sa| !sa.is_empty())
+                    .map(|sa| sa.split(',').collect_vec())
                     .filter(|sa| sa[4].parse::<u8>().unwrap() >= opts.min_mapq)
                     .collect_vec();
 
@@ -140,7 +141,7 @@ fn find_misassemblies(bam_reader: &mut IndexedReader, region: &SeqInterval, opts
 fn misassemblies_from_alignments(alignments: &Vec<AlignedBlock>, read_length: usize, opts: &Options) -> Vec<Misassembly> {
     
     let mut candidates = vec![];
-    if alignments.len() == 0 {
+    if alignments.is_empty() {
         return candidates;
     }
 
@@ -186,7 +187,7 @@ fn cluster_misassemblies(mut candidates: Vec<Misassembly>, bam_header: &HeaderVi
 
     let mut clusters = vec![];
     for ma in candidates {
-        if clusters.len() == 0 {
+        if clusters.is_empty() {
             clusters.push(vec![ma]);
             continue
         }
