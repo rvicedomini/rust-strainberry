@@ -61,11 +61,14 @@ fn main() {
     let haplotypes = phaser.phase(&variants);
     println!("{} haplotypes phased", haplotypes.len());
 
-    // separate_workdir = os.path.join(opt.outdir,'20-separate')
-    // separator = HifiReadSeparator(reference_lengths, opt.BAM, read_dict, variant_positions, reference_alignments, reference_intervals, separate_workdir,
-    //     mapq=opt.min_mapq, lookback=opt.lookback, min_obs=opt.min_read_obs, min_frac=opt.min_read_frac,
-    //     graph_only=opt.graph_only, phase_only=opt.phase_only, debug=opt.debug)
-    // separator.separate_references()
+    if opts.phase_only {
+        println!("Finished!");
+        println!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
+        std::process::exit(0);
+    }
+
+    println!("Haplotype assembly");
+    
 
     println!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
 }

@@ -33,6 +33,10 @@ pub struct Options {
     #[arg(short = 't', long = "threads", value_name = "NUM", default_value_t = 1)]
     pub nb_threads: usize,
 
+    /// Stop after phasing and read partitioning
+    #[arg(long = "phase-only")]
+    pub phase_only: bool,
+
     /// Minimum number of phased variants to retain a haplotype
     #[arg(long = "min-snv", value_name = "NUM", default_value_t = 3)]
     pub min_snv: usize,
