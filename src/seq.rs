@@ -3,6 +3,13 @@ pub mod read;
 
 use std::fmt;
 use std::ops::Range;
+// use std::path::Path;
+
+use rust_htslib::bam;
+use rust_htslib::bam::record::Cigar;
+
+use crate::utils::BamRecordId;
+
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SeqInterval {
@@ -17,26 +24,46 @@ impl fmt::Display for SeqInterval {
     }
 }
 
+impl SeqInterval {
+    pub fn length(&self) -> usize {
+        self.end - self.beg
+    }
+
+    pub fn empty(&self) -> bool {
+        self.end == self.beg
+    }
+}
+
+
 pub struct SuccinctSeq {
-    name: String,
-    tid: usize,
+    record_id: BamRecordId,
+    target_id: usize,
     positions: Vec<usize>,
     nucleotides: Vec<u8>
 }
 
+
+impl fmt::Display for SuccinctSeq {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let seq_string = String::from_utf8_lossy(self.nucleotides()).to_string();
+        write!(f, "{}: {} ({}:{}..={})", self.record_id().0, seq_string, self.target_id(), self.positions().first().unwrap(), self.positions().last().unwrap())
+    }
+}
+
+
 impl SuccinctSeq {
 
-    pub fn build(name:&str, tid:usize) -> Self {
+    pub fn build(record_id:BamRecordId, target_id:usize) -> Self {
         Self { 
-            name: name.to_string(), 
-            tid,
+            record_id,
+            target_id,
             positions: vec![],
             nucleotides: vec![] 
         }
     }
 
-    pub fn name(&self) -> &str { self.name.as_str() }
-    pub fn tid(&self) -> usize { self.tid }
+    pub fn record_id(&self) -> BamRecordId { self.record_id.clone() }
+    pub fn target_id(&self) -> usize { self.target_id }
     pub fn positions(&self) -> &Vec<usize> { &self.positions }
     pub fn nucleotides(&self) -> &Vec<u8> { &self.nucleotides }
 
@@ -51,7 +78,7 @@ impl SuccinctSeq {
 
     pub fn seq_interval(&self) -> SeqInterval {
         SeqInterval { 
-            tid: self.tid,
+            tid: self.target_id,
             beg: *self.positions.first().unwrap(),
             end: *self.positions.last().unwrap() + 1,
         }
@@ -61,71 +88,94 @@ impl SuccinctSeq {
         self.positions.push(pos);
         self.nucleotides.push(nuc);
     }
-}
 
-impl fmt::Display for SuccinctSeq {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let seq_string = String::from_utf8_lossy(self.nucleotides()).to_string();
-        write!(f, "{}: {} ({}:{}..={})", self.name(), seq_string, self.tid(), self.positions().first().unwrap(), self.positions().last().unwrap())
+    pub fn from_bam_record(record: &bam::record::Record, variant_positions: &[usize], mut var_idx: usize) -> Option<SuccinctSeq> {
+        
+        if var_idx >= variant_positions.len() {
+            return None
+        }
+
+        let record_id = crate::utils::bam_record_id(record);
+        let target_id = record.tid() as usize;
+        let mut sseq = SuccinctSeq::build(record_id, target_id);
+
+        let mut target_pos = record.pos() as usize;
+        let mut query_pos = 0;
+        let query_seq = record.seq();
+
+        let mut var_pos = variant_positions[var_idx];
+        for cig in record.cigar().iter() {
+            match cig {
+                Cigar::SoftClip(len) | Cigar::Ins(len) => {
+                    query_pos += *len as usize;
+                    continue;
+                },
+                Cigar::Match(len) | Cigar::Equal(len) | Cigar::Diff(len) => {
+                    let mut oplen = *len as usize;
+                    while oplen > 0 {
+                        assert!(var_pos >= target_pos);
+                        if var_pos >= target_pos + oplen {
+                            target_pos += oplen;
+                            query_pos += oplen;
+                            break
+                        }
+                        // jump to variant position
+                        let dist = var_pos - target_pos;
+                        target_pos += dist;
+                        query_pos += dist;
+                        oplen -= dist;
+                        sseq.push(target_pos, query_seq[query_pos]);
+                        // consume match on both reference/query and retrieve next variant position
+                        var_idx += 1;
+                        if var_idx >= variant_positions.len() {
+                            break;
+                        }
+                        var_pos = variant_positions[var_idx];
+                        target_pos += 1;
+                        query_pos += 1;
+                        oplen -= 1;
+                    }
+                },
+                Cigar::Del(len) | Cigar::RefSkip(len) => {
+                    let mut oplen = *len as usize;
+                    while oplen > 0 {
+                        assert!(var_pos >= target_pos);
+                        if var_pos >= target_pos + oplen {
+                            target_pos += oplen;
+                            break;
+                        }
+                        // jump to variant position
+                        let dist = var_pos - target_pos;
+                        target_pos += dist;
+                        oplen -= dist;
+                        sseq.push(target_pos, b'-');
+                        // consume deletion on reference and retrieve next variant position
+                        var_idx += 1;
+                        if var_idx >= variant_positions.len(){
+                            break;
+                        }
+                        var_pos = variant_positions[var_idx];
+                        target_pos += 1;
+                        oplen -= 1;
+                    }
+                },
+                Cigar::HardClip(_) | Cigar::Pad(_) => {}
+            }
+
+            if var_idx >= variant_positions.len() {
+                break;
+            }
+        }
+
+        Some(sseq)
     }
 }
 
 
-// def get_sread_from_segment(segment:pysam.AlignedSegment, variant_positions:list, pos_idx=0) -> SuccinctRead:
-//     if pos_idx >= len(variant_positions):
-//         return None
-//     sread = SuccinctRead(segment_uid(segment), segment.reference_name)
-//     ref_pos = segment.reference_start
-//     seg_pos = segment.query_alignment_start
-//     var_idx = pos_idx
-//     var_pos = variant_positions[var_idx]
-//     for cigop, oplen in segment.cigartuples:
-//         if var_idx >= len(variant_positions): 
-//             break
-//         if cigop in [CigarOp.MATCH,CigarOp.MATCH_EQ,CigarOp.MISMATCH]:
-//             while oplen > 0:
-//                 assert(var_pos >= ref_pos)
-//                 if var_pos-ref_pos >= oplen:
-//                     ref_pos += oplen
-//                     seg_pos += oplen
-//                     oplen = 0
-//                     continue
-//                 # jump to variant position
-//                 dist = var_pos-ref_pos
-//                 ref_pos += dist
-//                 seg_pos += dist
-//                 oplen -= dist
-//                 sread.positions.append(ref_pos)
-//                 sread.nucleotides.append(segment.query_sequence[seg_pos])
-//                 # consume match on both reference/query and retrieve next variant position
-//                 var_idx += 1
-//                 if var_idx >= len(variant_positions): break
-//                 var_pos = variant_positions[var_idx]
-//                 ref_pos += 1
-//                 seg_pos += 1
-//                 oplen -= 1
-//         elif cigop in [CigarOp.DELETION,CigarOp.REF_SKIP]:
-//             while oplen > 0:
-//                 assert(var_pos >= ref_pos)
-//                 if var_pos-ref_pos >= oplen:
-//                     ref_pos += oplen
-//                     oplen = 0
-//                     continue
-//                 # jump to variant position
-//                 dist = var_pos-ref_pos
-//                 ref_pos += dist
-//                 oplen -= dist
-//                 sread.positions.append(ref_pos)
-//                 sread.nucleotides.append('-')
-//                 # consume deletion on reference and retrieve next variant position
-//                 var_idx += 1
-//                 if var_idx >= len(variant_positions): break
-//                 var_pos = variant_positions[var_idx]
-//                 ref_pos += 1
-//                 oplen -= 1
-//         elif cigop == CigarOp.INSERTION:
-//             seg_pos += oplen
-//     return sread
+
+// pub fn build_succinct_sequences(bam_path: &Path, target_names: &Vec<String>, target_intervals: &'a Vec<SeqInterval>, read_sequences: &'a FxHashMap<String, Vec<u8>>, output_dir: &Path, opts: &'a Options) {
+//     todo!()
+// }
 
 
 // def build_succinct_reads(bamfile, reference_id, reference_positions, min_mapq):

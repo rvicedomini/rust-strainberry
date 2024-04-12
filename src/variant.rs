@@ -140,7 +140,8 @@ pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, opts:&Options) -> 
     let chrom2tid = utils::chrom2tid(bam_header);
 
     let vcf_reader = utils::get_file_reader(vcf_path);
-    let positions = vcf_reader.lines().flatten()
+    let positions = vcf_reader.lines()
+        .map_while(Result::ok)
         .map(|line| line.trim().to_string())
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
         .map(|line| {

@@ -1,7 +1,7 @@
-mod haplograph;
-mod haplotree;
-mod haplotype;
-mod phasedblock;
+pub mod haplograph;
+pub mod haplotree;
+pub mod haplotype;
+pub mod phasedblock;
 
 use std::collections::VecDeque;
 use std::fs;
@@ -172,10 +172,10 @@ impl<'a> Phaser<'a> {
         for sread in succinct_records.values() {
             let best_hits = self.best_sread_haplotypes(sread, haplotype_intervals, variant_positions);
             if best_hits.iter().any(|(_hid,_ht_dist,alt_hits)| *alt_hits > 1) {
-                ambiguous.insert(sread.name().to_string());
+                ambiguous.insert(sread.record_id().0);
                 continue
             }
-            sread_haplotypes.entry(sread.name().to_string())
+            sread_haplotypes.entry(sread.record_id().0)
                 .or_insert(vec![])
                 .extend(best_hits.into_iter().map(|(hid,_,_)| hid));
         }
@@ -547,7 +547,7 @@ impl<'a> Phaser<'a> {
             // *nuc_counter.entry(record_nuc).or_default() += 1;
 
             if !succinct_records.contains_key(&record_id) {
-                let srec = SuccinctSeq::build(&record_id.0, pileup.tid() as usize);
+                let srec = SuccinctSeq::build(record_id.clone(), pileup.tid() as usize);
                 succinct_records.insert(record_id.clone(), srec);
                 supporting_sreads.insert(record_id.clone());
             }

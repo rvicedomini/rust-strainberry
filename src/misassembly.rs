@@ -138,7 +138,7 @@ fn find_misassemblies(bam_reader: &mut IndexedReader, region: &SeqInterval, opts
 }
 
 
-fn misassemblies_from_alignments(alignments: &Vec<AlignedBlock>, read_length: usize, opts: &Options) -> Vec<Misassembly> {
+fn misassemblies_from_alignments(alignments: &[AlignedBlock], read_length: usize, opts: &Options) -> Vec<Misassembly> {
     
     let mut candidates = vec![];
     if alignments.is_empty() {

@@ -24,6 +24,19 @@ impl FromStr for Strand {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum MappingType {
+    DovetailSuffix,
+    QueryPrefix,
+    QuerySuffix,
+    ReferencePrefix,
+    ReferenceSuffix,
+    Internal,
+    QueryContained,
+    ReferenceContained,
+    DovetailPrefix
+}
+
 
 #[derive(Debug)]
 pub struct SeqAlignment {

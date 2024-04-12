@@ -37,12 +37,12 @@ fn main() {
         println!("Looking for potential variants");
         variant::load_variants_from_bam(bam_path, &opts)
     };
-    println!("Loaded {} variants", variants.values().map(|vars| vars.len()).sum::<usize>());
+    println!("  {} variants found", variants.values().map(|vars| vars.len()).sum::<usize>());
 
     println!("Loading sequences from: {}", fasta_path.canonicalize().unwrap().display());
     let target_names = utils::bam_target_names(bam_path);
     let target_sequences = utils::load_sequences(fasta_path, bam_path);
-    println!("Loaded {} sequences", target_sequences.len());
+    println!("  {} sequences loaded", target_sequences.len());
     
     // TODO:
     // Consider estimating lookback length when a flag "--auto-lookback" is provided
@@ -54,12 +54,12 @@ fn main() {
 
     println!("Loading reads from BAM");
     let read_sequences: FxHashMap<String, Vec<u8>> = load_bam_sequences(bam_path, &opts);
-    println!("{} reads loaded", read_sequences.len());
+    println!("  {} reads loaded", read_sequences.len());
 
     println!("Phasing strains");
     let phaser = phase::Phaser::new(bam_path, &target_names, &target_intervals, &read_sequences, output_dir, &opts);
     let haplotypes = phaser.phase(&variants);
-    println!("{} haplotypes phased", haplotypes.len());
+    println!("  {} haplotypes phased", haplotypes.len());
 
     if opts.phase_only {
         println!("Finished!");
@@ -67,7 +67,10 @@ fn main() {
         std::process::exit(0);
     }
 
-    println!("Haplotype assembly");
+    println!("Building aware contigs");
+    let aware_contigs = strainberry::awarecontig::build_aware_contigs(&target_sequences, &target_intervals, &haplotypes, opts.min_aware_ctg_len);
+    println!("  {} aware contigs built", aware_contigs.len());
+
     
 
     println!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());

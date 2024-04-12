@@ -1,4 +1,39 @@
-use tinyvec::{tiny_vec,TinyVec};
+/*use tinyvec::{tiny_vec,TinyVec};
+
+
+fn flip_strand(strand:u8) -> u8 {
+    assert!(strand == b'+' || strand == b'-');
+    if strand == b'+' { b'-' } else { b'+' }
+}
+
+
+struct Node {
+    id: usize,
+    edges: TinyVec<[usize;10]>,
+    successors: TinyVec<[usize;10]>,
+    // leaf: bool,
+    // complete: bool,
+}
+
+
+pub struct AwareGraph {
+    nodes: Vec<Node>,
+    edges: Vec<BiEdge>,
+    transitives: Vec<BiEdge>,
+
+}
+
+    def __init__(self, seq_dict, read_dict):
+        self.nodes : Dict[tuple,Node] = dict()
+        self.next_node_id = 0
+        self.edges : Dict[tuple,BiEdge] = dict()
+        self.transitives : Dict[tuple,TransEdge] = dict()
+        self.visited = set()
+        self.seq_dict = seq_dict
+        self.read_dict = read_dict
+
+
+
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Snv {
@@ -6,13 +41,7 @@ pub struct Snv {
     pub nuc: u8,
 }
 
-struct Node {
-    snv: Option<Snv>,
-    parent: usize,
-    successors: TinyVec<[usize;10]>,
-    // leaf: bool,
-    // complete: bool,
-}
+
 
 impl Node {
     fn new(snv:Option<Snv>, parent:usize) -> Self {
@@ -29,12 +58,6 @@ impl Default for Node {
 pub struct HaploTree {
     root: usize,
     nodes: Vec<Node>,
-}
-
-impl Default for HaploTree {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl HaploTree {
@@ -89,4 +112,4 @@ impl HaploTree {
     pub fn path_extend(&mut self, node:usize, path:&[Snv]) -> usize {
         path.iter().fold(node, |node,&snv| self.extend(node,snv))
     }
-}
+}*/

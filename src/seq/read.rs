@@ -22,7 +22,7 @@ fn complement(nuc: u8) -> u8 {
 }
 
 #[inline(always)]
-fn reverse_complement(seq: &Vec<u8>) -> Vec<u8> {
+fn reverse_complement(seq: &[u8]) -> Vec<u8> {
     let mut rev_seq = Vec::with_capacity(seq.len());
     rev_seq.extend(seq.iter().rev().map(|&nuc| complement(nuc)));
     rev_seq
