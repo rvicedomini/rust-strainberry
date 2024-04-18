@@ -3,11 +3,11 @@ use std::path::Path;
 use std::time::Instant;
 
 use clap::Parser;
-use rustc_hash::FxHashMap;
 
 use strainberry::cli;
 use strainberry::misassembly;
 use strainberry::phase;
+use strainberry::seq::alignment::load_bam_alignments;
 use strainberry::seq::read::load_bam_sequences;
 use strainberry::utils;
 use strainberry::variant;
@@ -53,7 +53,8 @@ fn main() {
     let target_intervals = misassembly::partition_reference(bam_path, &opts);
 
     println!("Loading reads from BAM");
-    let read_sequences: FxHashMap<String, Vec<u8>> = load_bam_sequences(bam_path, &opts);
+    let read_sequences = load_bam_sequences(bam_path, &opts);
+    let _read_alignments = load_bam_alignments(bam_path, &opts);
     println!("  {} reads loaded", read_sequences.len());
 
     println!("Phasing strains");

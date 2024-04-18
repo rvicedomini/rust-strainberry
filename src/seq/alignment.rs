@@ -1,12 +1,18 @@
+use std::path::Path;
 use std::str::FromStr;
 
 use itertools::Itertools;
 
-use rust_htslib::bam::HeaderView;
+use rust_htslib::bam::{HeaderView,Read,IndexedReader};
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Record, Cigar, Aux};
 
-#[derive(Debug, Clone, Copy)]
+use rustc_hash::FxHashMap;
+
+use crate::cli::Options;
+
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Strand {
     Forward,
     Reverse
@@ -67,8 +73,12 @@ impl SeqAlignment {
     pub fn strand(&self) -> Strand { self.strand }
 
     pub fn target_name(&self) -> &str { &self.target_name }
+    pub fn target_length(&self) -> usize { self.target_length }
     pub fn target_beg(&self) -> usize { self.target_beg }
     pub fn target_end(&self) -> usize { self.target_end }
+
+    pub fn mapq(&self) -> u8 { self.mapq }
+    pub fn is_secondary(&self) -> bool { self.is_secondary }
 
     pub fn cigar(&self) -> &Vec<Cigar> { &self.cigar }
 
@@ -140,6 +150,80 @@ impl SeqAlignment {
         }
     }
 
+    pub fn split(&self, min_indel:usize) -> Vec<SeqAlignment> {
+
+        let mut alignments = vec![];
+
+        let mut query_beg = if self.strand() == Strand::Forward { self.query_beg() } else { self.query_length() - self.query_end() };
+        let mut target_beg = self.target_beg();
+        let (mut query_end, mut target_end) = (query_beg, self.target_end);
+        let (mut matches, mut mapping_length) = (0,0);
+        let mut cigar = vec![];
+
+        for cigar_op in self.cigar() {
+            match cigar_op {
+                Cigar::Match(len) | Cigar::Equal(len) | Cigar::Diff(len) => {
+                    let len = *len as usize;
+                    query_end += len;
+                    target_end += len;
+                    matches += len;
+                    mapping_length += len;
+                },
+                Cigar::Del(len) | Cigar::Ins(len) if (*len as usize) >= min_indel => {
+                    alignments.push(SeqAlignment {
+                        query_name: self.query_name().to_string(),
+                        query_length: self.query_length(),
+                        query_beg: if self.strand() == Strand::Forward { query_beg } else { self.query_length() - query_end },
+                        query_end: if self.strand() == Strand::Forward { query_end } else { self.query_length() - query_beg },
+                        strand: self.strand(),
+                        target_name: self.target_name().to_string(),
+                        target_length: self.target_length(), target_beg, target_end,
+                        matches,
+                        mapping_length,
+                        mapq: self.mapq(),
+                        is_secondary: self.is_secondary(),
+                        cigar
+                    });
+                    query_beg = if let Cigar::Ins(_) = cigar_op { query_end + (*len as usize) } else { query_end };
+                    target_beg = if let Cigar::Del(_) = cigar_op { target_end + (*len as usize) } else { target_end };
+                    (query_end, target_end) = (query_beg, target_end);
+                    (matches, mapping_length) = (0,0);
+                    cigar = vec![];
+                    continue
+                },
+                Cigar::Del(len) => {
+                    target_end += *len as usize;
+                    mapping_length += *len as usize;
+                },
+                Cigar::Ins(len) => {
+                    query_end += *len as usize;
+                    mapping_length += *len as usize;
+                }
+                _ => { continue }
+            }
+            cigar.push(*cigar_op);
+        }
+
+        if !cigar.is_empty() {
+            alignments.push(SeqAlignment {
+                query_name: self.query_name().to_string(),
+                query_length: self.query_length(),
+                query_beg: if self.strand() == Strand::Forward { query_beg } else { self.query_length() - query_end },
+                query_end: if self.strand() == Strand::Forward { query_end } else { self.query_length() - query_beg },
+                strand: self.strand(),
+                target_name: self.target_name().to_string(),
+                target_length: self.target_length(), target_beg, target_end,
+                matches,
+                mapping_length,
+                mapq: self.mapq(),
+                is_secondary: self.is_secondary(),
+                cigar
+            });
+        }
+
+        alignments
+    }
+
     pub fn aligned_blocks(&self) -> IterAlignedBlocks {
         IterAlignedBlocks {
             query_pos: self.query_beg(),
@@ -187,4 +271,36 @@ impl<'a> Iterator for IterAlignedBlocks<'a> {
         }
         None
     }
+}
+
+
+pub fn load_bam_alignments(bam_path: &Path, opts: &Options) -> FxHashMap<String,Vec<SeqAlignment>> {
+
+    let mut read_alignments = FxHashMap::default();
+    let mut bam_reader = IndexedReader::from_path(bam_path).unwrap();
+    let bam_header = bam_reader.header().clone();
+
+    bam_reader.fetch(".").expect("Failed fetching records from BAM");
+    for record in bam_reader.rc_records() {
+        let record = record.expect("Failed processing BAM file");
+        if record.mapq() < opts.min_mapq
+            || record.is_unmapped()
+            || record.is_secondary()
+            || record.is_quality_check_failed()
+            || record.is_duplicate()
+        {
+            continue
+        }
+
+        let seqalign = SeqAlignment::from_bam_record(&record, &bam_header);
+        for seqalign in seqalign.split(opts.min_indel) {
+            if !read_alignments.contains_key(seqalign.query_name()) {
+                read_alignments.insert(seqalign.query_name().to_string(), vec![]);
+            }
+            read_alignments.get_mut(seqalign.query_name()).unwrap().push(seqalign);
+        }
+    }
+
+    read_alignments
+
 }
