@@ -9,8 +9,6 @@ use std::sync::mpsc;
 use std::thread;
 use std::path::{Path,PathBuf};
 
-use bio::data_structures::interval_tree::IntervalTree;
-
 use itertools::Itertools;
 use rustc_hash::{FxHashSet,FxHashMap};
 
@@ -26,7 +24,6 @@ use crate::variant::{Var,VarDict};
 use phasedblock::PhasedBlock;
 
 // use self::haplograph::HaploGraph;
-use self::haplotree::Snv;
 use self::haplotype::{Haplotype, HaplotypeId};
 
 // input: 
