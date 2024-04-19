@@ -5,45 +5,48 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::phase::haplotype::{HaplotypeId,Haplotype};
 use crate::seq::SeqInterval;
-use crate::seq::alignment::{MappingType, SeqAlignment};
+use crate::seq::alignment::{MappingType, SeqAlignment, Strand};
+use crate::utils::BamRecordId;
 
 
 #[derive(Debug, Clone)]
 pub struct AwareContig {
     interval: SeqInterval,
     is_separated: bool,
-    haplotype_id: Option<usize>,
+    hid: Option<usize>,
     sequence: Vec<u8>,
     aligned_bases: usize,
 }
 
 impl fmt::Display for AwareContig {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "AwareContig(iv={}, is_separated={}, ht_id={:?})", self.interval, self.is_separated, self.haplotype_id)
+        write!(f, "AwareContig(iv={}, is_separated={}, ht_id={:?})", self.interval, self.is_separated, self.hid)
     }
 }
 
 impl AwareContig {
 
-    fn is_phased(&self) -> bool {
-        self.haplotype_id.is_some()
+    fn tid(&self) -> usize { self.interval.tid }
+    fn beg(&self) -> usize { self.interval.beg }
+    fn end(&self) -> usize { self.interval.end }
+    fn length(&self) -> usize { self.interval.end - self.interval.beg }
+
+    fn is_phased(&self) -> bool { self.hid.is_some() }
+    fn hid(&self) -> Option<usize> { self.hid }
+    fn haplotype_id(&self) -> Option<HaplotypeId> {
+        Some(HaplotypeId{
+            tid: self.interval.tid,
+            beg: self.interval.beg,
+            end: self.interval.end,
+            hid: self.hid?
+        })
     }
 
-    fn length(&self) -> usize {
-        self.interval.end - self.interval.beg
-    }
+    fn interval(&self) -> SeqInterval { self.interval }
 
-    fn interval(&self) -> SeqInterval {
-        self.interval
-    }
+    fn phaseset_id(&self) -> SeqInterval { self.interval() }
 
-    fn phaseset_id(&self) -> SeqInterval {
-        self.interval()
-    }
-
-    fn region(&self) -> (usize,usize) {
-        (self.interval.beg, self.interval.end)
-    }
+    fn region(&self) -> (usize,usize) { (self.beg(), self.end()) }
 
     fn depth(&self) -> f64 {
         let contig_length = self.length();
@@ -58,15 +61,15 @@ impl AwareContig {
 
 #[derive(Debug, Clone)]
 pub struct AwareAlignment {
-    query_id: String,
+    query_name: String,
     query_length: usize,
     query_beg: usize,
     query_end: usize,
-    strand: bool,
+    strand: Strand,
     aware_id: usize,
-    reference_id: String,
-    reference_beg: usize,
-    reference_end: usize,
+    target_name: String,
+    target_beg: usize,
+    target_end: usize,
     mapq: u8,
     identity: f64,
     query_aln_beg: usize,
@@ -110,7 +113,7 @@ pub fn build_aware_contigs(target_sequences:&[Vec<u8>], target_intervals:&Vec<Se
         .map(|siv| AwareContig{
             interval: siv,
             is_separated: siv.beg != 0 || siv.end != target_sequences[siv.tid].len(),
-            haplotype_id: None,
+            hid: None,
             sequence: target_sequences[siv.tid][siv.beg..siv.end].to_vec(),
             aligned_bases: 0
         }).collect_vec();
@@ -121,24 +124,77 @@ pub fn build_aware_contigs(target_sequences:&[Vec<u8>], target_intervals:&Vec<Se
             AwareContig {
                 interval: piv,
                 is_separated: true,
-                haplotype_id: Some(ht.hid()),
+                hid: Some(ht.hid()),
                 sequence: target_sequences[piv.tid][piv.beg..piv.end].to_vec(),
                 aligned_bases: 0
             }
         })
     );
 
-    aware_contigs.sort_unstable_by_key(|ctg| (ctg.interval(), ctg.haplotype_id));
+    aware_contigs.sort_unstable_by_key(|ctg| (ctg.interval(), ctg.hid()));
     aware_contigs
 }
 
 
 // aware_contigs should be sorted by interval
-pub fn map_alignments_to_aware_contigs(seq_alignments: &Vec<SeqAlignment>, aware_contigs: &Vec<AwareContig>) -> Vec<AwareAlignment> {
+pub fn map_alignments_to_aware_contigs(seq_alignments: &[SeqAlignment], aware_contigs: &[AwareContig], seq2haplo: &FxHashMap<BamRecordId,Vec<HaplotypeId>>, ambiguous_reads:&FxHashSet<String>) -> Vec<AwareAlignment> {
+    
     let mut aware_alignments: Vec<AwareAlignment> = vec![];
-    let mut ambiguous_reads: FxHashSet<&str> = FxHashSet::default();
 
+    for sa in seq_alignments.iter().filter(|sa| !ambiguous_reads.contains(sa.query_name())) {
+        let sa_id = sa.record_id();
 
+        let idx = aware_contigs.partition_point(|ctg| ctg.tid() < sa.tid() || (ctg.tid() == sa.tid() && ctg.end() <= sa.target_beg()));
+        for (i,ctg) in aware_contigs[idx..].iter().take_while(|ctg| ctg.beg() < sa.target_end()).enumerate() {
+            
+            if ctg.is_phased() && (!seq2haplo.contains_key(&sa_id) || !seq2haplo[&sa_id].contains(&ctg.haplotype_id().unwrap())) {
+                continue
+            }
+
+            let aware_id = idx+i;
+            
+            let aware_target_beg = std::cmp::max(sa.target_beg(), ctg.beg());
+            let aware_target_end = std::cmp::min(sa.target_end(), ctg.end());
+            
+            let aware_ctg_beg = aware_target_beg - ctg.beg();
+            let aware_ctg_end = aware_target_end - ctg.beg();
+            let aware_ctg_range = (aware_ctg_beg, aware_ctg_end, ctg.length());
+
+            let query_beg = if let Strand::Forward = sa.strand() { sa.query_beg() } else { sa.query_length() - sa.query_end() };
+            let (mut aware_query_beg, aware_target_beg) = crate::seq::alignment::first_match_from(ctg.beg(), query_beg, sa.target_beg(), sa.cigar());
+            let (mut aware_query_end, aware_target_end) = crate::seq::alignment::last_match_until(ctg.end(), query_beg, sa.target_beg(), sa.cigar());
+            let aware_query_range = (aware_query_beg, aware_query_end, sa.query_length());
+
+            if aware_query_end <= aware_query_beg || aware_target_end <= aware_target_beg {
+                continue
+            }
+
+            let maptype = crate::seq::alignment::classify_mapping(aware_query_range, aware_ctg_range);
+
+            if let Strand::Reverse = sa.strand() {
+                (aware_query_beg, aware_query_end) = (sa.query_length() - aware_query_beg, sa.query_length() - aware_query_end);
+            }
+
+            if matches!(maptype, MappingType::QueryContained|MappingType::ReferenceContained|MappingType::DovetailPrefix|MappingType::DovetailSuffix) {
+                aware_alignments.push(AwareAlignment{
+                    query_name: sa.query_name().to_string(),
+                    query_length: sa.query_length(),
+                    query_beg: aware_query_beg,
+                    query_end: aware_query_end,
+                    strand: sa.strand(),
+                    aware_id,
+                    target_name: sa.target_name().to_string(),
+                    target_beg: aware_target_beg,
+                    target_end: aware_target_end,
+                    mapq: sa.mapq(),
+                    identity: sa.identity(),
+                    query_aln_beg: sa.query_beg(),
+                    query_aln_end: sa.query_end(),
+                    mapping_type: maptype
+                });
+            }
+        }
+    }
 
     aware_alignments
 }
@@ -149,32 +205,9 @@ pub fn map_alignments_to_aware_contigs(seq_alignments: &Vec<SeqAlignment>, aware
 def map_sreads_to_aware_contigs(reference_alignments, aware_table, aware_intervals, segment_haplotypes, ambiguous_segments, allow_ambiguous=False):
     for reference_id, alignments in reference_alignments.items():
         for a in alignments:
-            segment_id = a.uid()
-            if (not allow_ambiguous) and (segment_id in ambiguous_segments):
-                ambiguous_reads.add(a.query)
-                continue
+
             for aware_contig in (iv.data for iv in sorted(aware_intervals[reference_id].overlap(a.reference_start,a.reference_end))):
                 
-                if aware_contig.phased and all(ht_name != aware_contig.name() for ht_name,ht_dist in segment_haplotypes[segment_id]):
-                    continue
-                
-                aware_ref_start = max(a.reference_start,aware_contig.reference_start)
-                aware_ref_end = min(a.reference_end,aware_contig.reference_end)
-                
-                aware_ctg_start = aware_ref_start - aware_contig.reference_start
-                aware_ctg_end = aware_ref_end - aware_contig.reference_start
-                aware_ctg_range = (aware_ctg_start,aware_ctg_end,aware_contig.length())
-
-                query_start = a.query_start if a.strand == '+' else (a.query_length-a.query_end)
-                aware_qry_start, aware_ref_start = first_match_from(aware_contig.reference_start, query_start, a.reference_start, a.cigar)
-                aware_qry_end, aware_ref_end = last_match_until(aware_contig.reference_end, query_start, a.reference_start, a.cigar)
-                aware_qry_range = (aware_qry_start,aware_qry_end,a.query_length)
-
-                if aware_qry_end-aware_qry_start <= 0 or aware_ref_end-aware_ref_start <= 0:
-                    continue
-
-                maptype = classify_mapping(aware_qry_range, aware_ctg_range)
-
                 if a.strand == '-': 
                     aware_qry_start, aware_qry_end = a.query_length-aware_qry_end, a.query_length-aware_qry_start
 
@@ -182,14 +215,6 @@ def map_sreads_to_aware_contigs(reference_alignments, aware_table, aware_interva
                     aware_alignment = AwareAlignment(a.query, a.query_length, aware_qry_start, aware_qry_end, a.strand, aware_contig.id, 
                                                      reference_id, aware_ref_start, aware_ref_end, a.mapq, a.identity(), a.query_start, a.query_end, maptype)
                     aware_alignments[a.query].append(aware_alignment)
-
-                # if a.query in ['edge_4_10631-10663_h1_seq1']:
-                #     logger.debug(f'---------- {segment_id} ----------')
-                #     logger.debug(f'aware_ctg = {aware_contig.name()}')
-                #     logger.debug(f'aware_qry_range = {aware_qry_range}')
-                #     logger.debug(f'aware_ref_interval = ({aware_ref_start},{aware_ref_end})')
-                #     logger.debug(f'aware_range = {aware_ctg_range}')
-                #     logger.debug(f'{str(maptype)}')
     
     for query_id in ambiguous_reads:
         aware_alignments.pop(query_id,None)

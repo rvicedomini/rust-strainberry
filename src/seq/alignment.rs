@@ -10,6 +10,7 @@ use rust_htslib::bam::record::{Aux, Cigar, Record};
 use rustc_hash::FxHashMap;
 
 use crate::cli::Options;
+use crate::utils::BamRecordId;
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,9 +44,14 @@ pub enum MappingType {
     DovetailPrefix
 }
 
+pub fn classify_mapping(query_range:(usize,usize,usize), target_range:(usize,usize,usize)) -> MappingType {
+    todo!()
+}
+
 
 #[derive(Debug)]
 pub struct SeqAlignment {
+    tid: usize,
     query_name: String,
     query_length: usize,
     query_beg: usize,
@@ -65,6 +71,9 @@ pub struct SeqAlignment {
 
 impl SeqAlignment {
 
+    pub fn tid(&self) -> usize { self.tid }
+    pub fn record_id(&self) -> BamRecordId { BamRecordId(self.query_name.to_string(), self.query_beg, self.query_end) }
+
     pub fn query_name(&self) -> &str { &self.query_name }
     pub fn query_length(&self) -> usize { self.query_length }
     pub fn query_beg(&self) -> usize { self.query_beg }
@@ -79,6 +88,7 @@ impl SeqAlignment {
 
     pub fn mapq(&self) -> u8 { self.mapq }
     pub fn is_secondary(&self) -> bool { self.is_secondary }
+    pub fn identity(&self) -> f64 { if self.mapping_length > 0 { (self.matches as f64)/(self.mapping_length as f64) } else { 0.0 } }
 
     pub fn cigar(&self) -> &Vec<Cigar> { &self.cigar }
     pub fn cigar_string(&self) -> String { self.cigar.iter().map(|op| op.to_string()).join("") }
@@ -141,7 +151,8 @@ impl SeqAlignment {
             .cloned()
             .collect_vec();
 
-        SeqAlignment { 
+        SeqAlignment {
+            tid: tid as usize,
             query_name, query_length, query_beg, query_end,
             strand,
             target_name, target_length, target_beg, target_end,
@@ -172,6 +183,7 @@ impl SeqAlignment {
                 },
                 Cigar::Del(len) | Cigar::Ins(len) if (*len as usize) >= min_indel => {
                     alignments.push(SeqAlignment {
+                        tid: self.tid(),
                         query_name: self.query_name().to_string(),
                         query_length: self.query_length(),
                         query_beg: if self.strand() == Strand::Forward { query_beg } else { self.query_length() - query_end },
@@ -207,6 +219,7 @@ impl SeqAlignment {
 
         if !cigar.is_empty() {
             alignments.push(SeqAlignment {
+                tid: self.tid(),
                 query_name: self.query_name().to_string(),
                 query_length: self.query_length(),
                 query_beg: if self.strand() == Strand::Forward { query_beg } else { self.query_length() - query_end },
@@ -295,15 +308,71 @@ pub fn load_bam_alignments(bam_path: &Path, opts: &Options) -> FxHashMap<String,
         }
 
         let seqalign = SeqAlignment::from_bam_record(&record, &bam_header);
-        let split_alignments = seqalign.split(opts.min_indel);
-        for seqalign in split_alignments {
-            if !read_alignments.contains_key(seqalign.query_name()) {
-                read_alignments.insert(seqalign.query_name().to_string(), vec![]);
-            }
-            read_alignments.get_mut(seqalign.query_name()).unwrap().push(seqalign);
+        if !read_alignments.contains_key(seqalign.query_name()) {
+            read_alignments.insert(seqalign.query_name().to_string(), vec![]);
         }
+        read_alignments.get_mut(seqalign.query_name()).unwrap().push(seqalign);
     }
 
     read_alignments
 
 }
+
+
+pub fn first_match_from(position:usize, query_beg:usize, target_beg:usize, cigar: &[Cigar]) -> (usize,usize) {
+    todo!()
+}
+
+
+// # cigar string must not contain clipping/padding operations
+// def first_match_from(position, query_start, reference_start, cigar):
+//     cig_i = 0
+//     cig_len = 0
+//     match_found = False
+//     while (reference_start <= position or (not match_found)) and cig_i < len(cigar):
+//         match_found = False
+//         cig_op, cig_len = cigar[cig_i]
+//         if cig_op in [0,7,8]: # match: qry++ ref++
+//             reference_start += cig_len
+//             query_start += cig_len
+//             match_found = True
+//         elif cig_op in [2,3]: # deletion/ref-skip: ref++
+//             reference_start += cig_len
+//         elif cig_op == 1: # insertion: qry++
+//             query_start += cig_len
+//         cig_i += 1
+//     if reference_start > position and match_found:
+//         bases_ahead = min(reference_start-position,cig_len)
+//         assert(bases_ahead <= query_start and bases_ahead <= reference_start)
+//         query_match_pos = query_start - bases_ahead
+//         ref_match_pos = reference_start - bases_ahead
+//         return query_match_pos, ref_match_pos
+//     return None, None
+
+pub fn last_match_until(position:usize, query_beg:usize, target_beg:usize, cigar: &[Cigar]) -> (usize,usize) {
+    todo!()
+}
+
+
+// # cigar string must not contain clipped bases at the beginning
+// def last_match_until(position, query_start, reference_start, cigar):
+//     cig_i = 0
+//     match_found = False
+//     query_match_pos = query_start
+//     ref_match_pos = reference_start
+//     while (reference_start < position or (not match_found)) and cig_i < len(cigar):
+//         cig_op, cig_len = cigar[cig_i]
+//         if(cig_op in [0,7,8]): # match: qry++ ref++
+//             inc = cig_len if reference_start+cig_len <= position else position-reference_start
+//             reference_start += inc
+//             query_start += inc
+//             match_found = True
+//             query_match_pos = query_start
+//             ref_match_pos = reference_start
+//         elif(cig_op in [2,3]): # deletion/ref-skip: ref++
+//             inc = cig_len
+//             reference_start += inc
+//         elif cig_op == 1: # insertion: qry++
+//             query_start += cig_len
+//         cig_i += 1
+//     return (query_match_pos, ref_match_pos) if match_found else (None, None)
