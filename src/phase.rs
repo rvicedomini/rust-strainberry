@@ -75,7 +75,7 @@ impl<'a> Phaser<'a> {
     }
 
     
-    pub fn phase(&self, variants: &VarDict) -> FxHashMap<SeqInterval,Vec<Haplotype>> {
+    pub fn phase(&self, variants: &VarDict) -> FxHashMap<HaplotypeId,Haplotype> {
 
         let mut target_variants = vec![];
         for siv in self.target_intervals {
@@ -109,7 +109,7 @@ impl<'a> Phaser<'a> {
             .collect()
     }
 
-    fn phase_interval(&self, target_interval:&SeqInterval, variants: &[Var]) -> FxHashMap<SeqInterval,Vec<Haplotype>> {
+    fn phase_interval(&self, target_interval:&SeqInterval, variants: &[Var]) -> FxHashMap<HaplotypeId,Haplotype> {
         // eprintln!("  -> Phasing {target_interval} ({} variants)", variants.len());
         let (haplotypes, succinct_records) = self.phase_variants(target_interval,variants);
         // eprintln!("  -> Haplotypes in {target_interval}: {}", haplotypes.len());
@@ -117,11 +117,11 @@ impl<'a> Phaser<'a> {
         let haplotypes = self.remove_false_haplotypes(haplotypes, &variant_positions);
         // eprintln!("  -> Filtered Haplotypes in {target_interval}: {}", haplotypes.len());
         
-        let haplotype_intervals = IntervalTree::from_iter(
-            haplotypes.values().map(|ht| (ht.beg()..ht.end(), ht))
-        );
+        // let haplotype_intervals = IntervalTree::from_iter(
+        //     haplotypes.values().map(|ht| (ht.beg()..ht.end(), ht))
+        // );
 
-        let (sread_haplotypes, _ambiguous_reads) = self.separate_reads(&succinct_records, &haplotype_intervals, &variant_positions);
+        let (sread_haplotypes, _ambiguous_reads) = self::separate_reads(&succinct_records, &haplotypes, &variant_positions, self.opts.min_shared_snv);
 
         // TODO: Merge contiguous haplotypes when it is not ambiguous to do so
         // let mut haplograph = HaploGraph::new(&haplotypes, &sread_haplotypes);
@@ -129,147 +129,79 @@ impl<'a> Phaser<'a> {
         // let dot_path = self.work_dir().join(dot_file.as_str());
         // let _ = haplograph.write_dot(&dot_path);
 
-        let mut phasesets: FxHashMap<SeqInterval,Vec<Haplotype>> = FxHashMap::default();
-        for ht in haplotypes.into_values() {
-            phasesets.entry(ht.region())
-                .or_default()
-                .push(ht);
-        }
+        // let mut phasesets: FxHashMap<SeqInterval,Vec<Haplotype>> = FxHashMap::default();
+        // for ht in haplotypes.into_values() {
+        //     phasesets.entry(ht.region())
+        //         .or_default()
+        //         .push(ht);
+        // }
         
-        self.write_reads(&phasesets, &sread_haplotypes).unwrap();
+        self.write_reads(&haplotypes, &sread_haplotypes).unwrap();
         
-        phasesets
-    }
-
-
-    fn write_reads(&self, phasesets: &FxHashMap<SeqInterval,Vec<Haplotype>>, read_haplotypes: &FxHashMap<String,Vec<HaplotypeId>>) -> std::io::Result<()> {
-        for (_, haplotypes) in phasesets.iter() {
-            let mut read_files = FxHashMap::default();
-            for ht in haplotypes {
-                let ht_id = ht.uid();
-                let ht_file_gz = format!("{}_{}-{}_h{}.fa.gz", self.target_names[ht_id.tid], ht_id.beg, ht_id.end, ht_id.hid);
-                let ht_file_path = self.work_dir().join(ht_file_gz.as_str());
-                read_files.insert(ht_id, utils::get_file_writer(&ht_file_path));
-            }
-            for (read_name, ht_list) in read_haplotypes.iter() {
-                if let Some(ht_id) = ht_list.iter().find(|&ht_id| read_files.contains_key(ht_id)) {
-                    let out = read_files.get_mut(ht_id).unwrap();
-                    out.write_all(format!(">{read_name}\n").as_bytes())?;
-                    out.write_all(self.read_sequences[read_name].as_slice())?;
-                    out.write_all(b"\n")?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-
-    fn separate_reads(&self, succinct_records: &FxHashMap<BamRecordId,SuccinctSeq>, haplotype_intervals: &IntervalTree<usize,&Haplotype>, variant_positions: &FxHashSet<usize>)
-        ->  (FxHashMap<String,Vec<HaplotypeId>>, FxHashSet<String>) {
-
-        let mut sread_haplotypes = FxHashMap::default();
-        let mut ambiguous = FxHashSet::default();
-        for sread in succinct_records.values() {
-            let best_hits = self.best_sread_haplotypes(sread, haplotype_intervals, variant_positions);
-            if best_hits.iter().any(|(_hid,_ht_dist,alt_hits)| *alt_hits > 1) {
-                ambiguous.insert(sread.record_id().0);
-                continue
-            }
-            sread_haplotypes.entry(sread.record_id().0)
-                .or_insert(vec![])
-                .extend(best_hits.into_iter().map(|(hid,_,_)| hid));
-        }
-        (sread_haplotypes,ambiguous)
-    }
-
-
-    fn best_sread_haplotypes(&self, sread: &SuccinctSeq, haplotype_intervals: &IntervalTree<usize,&Haplotype>, variant_positions: &FxHashSet<usize>) -> Vec<(HaplotypeId,usize,usize)> {
-        
-        let mut candidates = FxHashMap::default();
-        let sread_positions: FxHashSet<usize> = sread.positions().iter().cloned().collect();
-        for &ht in haplotype_intervals.find(sread.range()).map(|iv| iv.data()) {
-            let ht_left = ht.variants().partition_point(|snv| snv.pos < *sread.positions().first().unwrap());
-            let ht_right = ht.variants().partition_point(|snv| snv.pos < *sread.positions().last().unwrap());
-            let ht_positions: FxHashSet<usize> = ht.variants().get(ht_left..ht_right).unwrap().iter().map(|snv| snv.pos).collect();
-            let shared_positions: FxHashSet<usize> = ht_positions.intersection(&sread_positions).cloned().collect();
-            if variant_positions.intersection(&shared_positions).count() >= self.opts.min_shared_snv {
-                let sread_nucleotides = sread.positions().iter()
-                    .enumerate()
-                    .filter(|&(_i,pos)| shared_positions.contains(pos))
-                    .map(|(i,_)| *sread.nucleotides().get(i).unwrap())
-                    .collect_vec();
-                let ht_nucleotides = ht.variants().iter()
-                    .filter(|&snv| shared_positions.contains(&snv.pos))
-                    .map(|snv| snv.nuc)
-                    .collect_vec();
-                let hamming_dist = sread_nucleotides.into_iter()
-                    .zip_eq(ht_nucleotides.iter())
-                    .filter(|&(a,b)| a != *b)
-                    .count();
-                // hamming distance should not exceed 1/3 of the sequence length
-                if 3 * hamming_dist <= ht_nucleotides.len() {
-                    let range = ht.beg()..ht.end();
-                    candidates.entry(range)
-                        .or_insert(vec![])
-                        .push((ht.uid(),hamming_dist));
-                }
-            }
-        }
-
-        let mut best_hits = vec![];
-        for hits in candidates.into_values() {
-            let best_dist = hits.iter().min_by_key(|&(_,ht_dist)| ht_dist).unwrap().1;
-            let region_best_hits = hits.iter()
-                .filter(|&(_,ht_dist)| *ht_dist == best_dist)
-                .cloned()
-                .collect_vec();
-            // println!("sread:{}, dist:{}, hits:{:?}", sread.name(), best_dist, region_best_hits);
-            best_hits.push((
-                region_best_hits.last().unwrap().0,
-                region_best_hits.last().unwrap().1,
-                region_best_hits.len()
-            ));
-        }
-        best_hits
-    }
-
-
-    fn remove_false_haplotypes(&self, mut haplotypes: FxHashMap<HaplotypeId,Haplotype>, positions: &FxHashSet<usize>) -> FxHashMap<HaplotypeId,Haplotype> {
-        haplotypes.retain(|_hid, ht| ht.variants().iter().map(|snv| snv.pos).any(|ht_pos| positions.contains(&ht_pos)));
         haplotypes
     }
 
 
-    fn variant_positions(&self, haplotypes: &FxHashMap<HaplotypeId,Haplotype>) -> FxHashSet<usize> {
+    fn write_reads(&self, haplotypes: &FxHashMap<HaplotypeId,Haplotype>, sread_haplotypes: &FxHashMap<BamRecordId,Vec<HaplotypeId>>) -> std::io::Result<()> {
         
-        let haplo_nodes: FxHashSet<Snv> = haplotypes.values()
-            .flat_map(|ht| ht.variants())
-            .cloned()
-            .collect();
+        let mut read_files = FxHashMap::default();
+        
+        for ht in haplotypes.values() {
+            let ht_id = ht.uid();
+            let ht_file_gz = format!("{}_{}-{}_h{}.fa.gz", self.target_names[ht_id.tid], ht_id.beg, ht_id.end, ht_id.hid);
+            let ht_file_path = self.work_dir().join(ht_file_gz.as_str());
+            read_files.insert(ht_id, utils::get_file_writer(&ht_file_path));
+        }
+        
+        for (record_id, ht_list) in sread_haplotypes.iter() {
+            if let Some(ht_id) = ht_list.iter().find(|&ht_id| read_files.contains_key(ht_id)) {
+                let out = read_files.get_mut(ht_id).unwrap();
+                out.write_all(format!(">{}\n", &record_id.0).as_bytes())?;
+                out.write_all(self.read_sequences[&record_id.0].as_slice())?;
+                out.write_all(b"\n")?;
+            }
+        }
 
-        let mut counter: FxHashMap<usize,usize> = FxHashMap::default();
-        for snv in &haplo_nodes {
-            counter.entry(snv.pos)
+        Ok(())
+    }
+
+    fn remove_false_haplotypes(&self, mut haplotypes: FxHashMap<HaplotypeId,Haplotype>, positions: &FxHashSet<(usize,usize)>) -> FxHashMap<HaplotypeId,Haplotype> {
+        haplotypes.retain(|_, ht| {
+            ht.variants()
+                .iter()
+                .map(|snv| (ht.tid(),snv.pos))
+                .any(|pos| positions.contains(&pos))
+        });
+        haplotypes
+    }
+
+    fn variant_positions(&self, haplotypes: &FxHashMap<HaplotypeId,Haplotype>) -> FxHashSet<(usize,usize)> {
+        
+        // let haplo_nodes: FxHashSet<&Snv> = haplotypes.values()
+        //     .flat_map(|ht| ht.variants())
+        //     .collect();
+
+        let mut counter: FxHashMap<_,usize> = FxHashMap::default();
+        for (tid,snv_pos) in haplotypes.values().flat_map(|ht| ht.variants().iter().map(|snv| (ht.tid(),snv.pos))) {
+            counter.entry((tid,snv_pos))
                 .and_modify(|cnt| *cnt+=1)
                 .or_insert(1);
         }
 
         counter.into_iter()
-            .filter(|&(_pos,cnt)| cnt > 1)
-            .map(|(pos,_cnt)| pos)
-            // .sorted_unstable()
+            .filter(|&(_,cnt)| cnt > 1)
+            .map(|(pos,_)| pos)
             .collect()
     }
 
+    pub fn phase_variants(&self, target_interval:&SeqInterval, variants: &[Var]) -> (FxHashMap<HaplotypeId,Haplotype>,Vec<SuccinctSeq>)  {
 
-    pub fn phase_variants(&self, target_interval:&SeqInterval, variants: &[Var]) -> (FxHashMap<HaplotypeId,Haplotype>,FxHashMap<BamRecordId,SuccinctSeq>)  {
+        if variants.is_empty() {
+            return (FxHashMap::default(),vec![]);
+        }
 
         let mut haplotypes = FxHashMap::default();
         let mut succinct_records: FxHashMap<BamRecordId,SuccinctSeq> = FxHashMap::default();
-
-        if variants.is_empty() {
-            return (haplotypes,succinct_records);
-        }
 
         let mut supporting_sreads: FxHashSet<BamRecordId> = FxHashSet::default();
         let mut lookback_positions: VecDeque<usize> = VecDeque::new();
@@ -450,7 +382,7 @@ impl<'a> Phaser<'a> {
             }
         }
         
-        (haplotypes, succinct_records)
+        (haplotypes, succinct_records.into_values().collect_vec())
     }
 
     fn validate_haplotypes(&self, succinct_records: &FxHashMap<BamRecordId,SuccinctSeq>, candidate_records: &Vec<&BamRecordId>, phasedblock: &PhasedBlock, min_position: usize) -> (Vec<usize>,Vec<usize>) {
@@ -512,7 +444,6 @@ impl<'a> Phaser<'a> {
 
         (unsupported_haplotypes, ambiguous_haplotypes)
     }
-
 
     fn process_pileup(&self, pileup: &bam::pileup::Pileup, succinct_records: &mut FxHashMap<BamRecordId,SuccinctSeq>, supporting_sreads: &mut FxHashSet<BamRecordId>, var_nucleotides: &[u8]) -> Vec<(u8,u8)> {
 
@@ -590,69 +521,75 @@ impl<'a> Phaser<'a> {
 }
 
 
+pub fn separate_reads(succinct_records: &[SuccinctSeq], haplotypes: &FxHashMap<HaplotypeId,Haplotype>, variant_positions: &FxHashSet<(usize,usize)>, min_shared_snv: usize)
+    ->  (FxHashMap<BamRecordId,Vec<HaplotypeId>>, FxHashSet<String>) {
 
-// def _separate_reference_region(self, contig_id, contig_start, contig_end, variant_positions):
+    let haplotypes = haplotypes.values().sorted_unstable_by_key(|ht| ht.uid()).collect_vec();
+    let mut sread_haplotypes = FxHashMap::default();
+    let mut ambiguous = FxHashSet::default();
+    for sread in succinct_records {
+        let best_hits = best_sread_haplotypes(sread, &haplotypes, variant_positions, min_shared_snv);
+        if best_hits.iter().any(|(_hid,_ht_dist,alt_hits)| *alt_hits > 1) {
+            ambiguous.insert(sread.record_id().0);
+            continue
+        }
+        sread_haplotypes.entry(sread.record_id())
+            .or_insert(vec![])
+            .extend(best_hits.into_iter().map(|(hid,_,_)| hid));
+    }
+    (sread_haplotypes,ambiguous)
+}
 
-//     logger.debug(f'----- Separating {contig_id}:{contig_start}-{contig_end} -----')
-//     contig_region_name = f'{contig_id}_{contig_start}-{contig_end}'
+fn best_sread_haplotypes(sread: &SuccinctSeq, haplotypes: &[&Haplotype], variant_positions: &FxHashSet<(usize,usize)>, min_shared_snv: usize)
+    -> Vec<(HaplotypeId,usize,usize)> {
+    
+    let mut candidates = FxHashMap::default();
+    let sread_positions: FxHashSet<(usize,usize)> = sread.positions().iter().map(|var_pos| (sread.tid(),*var_pos)).collect();
+    
+    let idx = haplotypes.partition_point(|ht| ht.tid() < sread.tid() || (ht.tid() == sread.tid() && ht.end() <= sread.beg()));
+    for ht in haplotypes[idx..].iter().take_while(|ht| ht.beg() < sread.end()) {
+        let ht_left = ht.variants().partition_point(|snv| snv.pos < *sread.positions().first().unwrap());
+        let ht_right = ht.variants().partition_point(|snv| snv.pos < *sread.positions().last().unwrap());
+        let ht_positions: FxHashSet<(usize,usize)> = ht.variants()[ht_left..ht_right].iter().map(|snv| (ht.tid(),snv.pos)).collect();
+        let shared_positions = ht_positions.intersection(&sread_positions).cloned().collect();
+        if variant_positions.intersection(&shared_positions).count() >= min_shared_snv {
+            let sread_nucleotides = sread.positions().iter()
+                .enumerate()
+                .filter(|&(_i,pos)| shared_positions.contains(&(sread.tid(),*pos)))
+                .map(|(i,_)| *sread.nucleotides().get(i).unwrap())
+                .collect_vec();
+            let ht_nucleotides = ht.variants().iter()
+                .filter(|&snv| shared_positions.contains(&(ht.tid(),snv.pos)))
+                .map(|snv| snv.nuc)
+                .collect_vec();
+            let hamming_dist = sread_nucleotides.into_iter()
+                .zip_eq(ht_nucleotides.iter())
+                .filter(|&(a,b)| a != *b)
+                .count();
+            // hamming distance should not exceed 1/3 of the sequence length
+            if 3 * hamming_dist <= ht_nucleotides.len() {
+                let range = ht.beg()..ht.end();
+                candidates.entry(range)
+                    .or_insert(vec![])
+                    .push((ht.uid(),hamming_dist));
+            }
+        }
+    }
 
-//     if len(variant_positions) == 0:
-//         logger.debug(f'No SNV to be phased')
-//         return {}, set()
+    let mut best_hits = vec![];
+    for hits in candidates.into_values() {
+        let best_dist = hits.iter().min_by_key(|&(_,ht_dist)| ht_dist).unwrap().1;
+        let region_best_hits = hits.iter()
+            .filter(|&(_,ht_dist)| *ht_dist == best_dist)
+            .cloned()
+            .collect_vec();
+        // println!("sread:{}, dist:{}, hits:{:?}", sread.name(), best_dist, region_best_hits);
+        best_hits.push((
+            region_best_hits.last().unwrap().0,
+            region_best_hits.last().unwrap().1,
+            region_best_hits.len()
+        ));
+    }
+    best_hits
+}
 
-//     logger.debug(f'Phasing haplotypes')
-//     phaser = NextPhaser(self.bam, min_mapq=self.mapq, lookback=self.lookback, min_obs=self.min_obs, min_frac=self.min_frac)
-//     haplotypes = phaser.phase_haplotypes(contig_id, variant_positions)
-//     logger.debug(f'Phased haplotypes: {len(haplotypes)}')
-
-//     logger.debug(f'Removing false haplotypes')
-//     variant_positions = self.retrieve_variant_positions(haplotypes)
-//     haplotypes = self.remove_false_haplotypes(haplotypes, variant_positions)
-//     logger.debug(f'Remaining haplotypes: {len(haplotypes)}')
-
-//     if len(haplotypes) == 0:
-//         logger.debug(f'No haplotype remaining')
-//         return {}, set()
-
-//     logger.debug(f'Mapping reads to haplotypes')
-//     haplotype_intervals = IntervalTree(Interval(ht.start(),ht.end(),ht) for ht in haplotypes)
-//     segment_haplotypes, ambiguous_segments = local_separate_reads(phaser.succinct_reads.values(), haplotype_intervals, variant_positions)
-//     logger.debug(f'Mapped={len(segment_haplotypes)} Ambiguous={len(ambiguous_segments)} Total={len(phaser.succinct_reads)}')
-
-//     logger.debug(f'Haplotype extension')
-//     hap_graph = HaploGraph(haplotypes, segment_haplotypes, self.lookback)
-//     hap_graph.write_dot(os.path.join(self.outdir_dots,f'{contig_region_name}.haplotypes.partial.dot'))
-//     haplotypes = hap_graph.scaffold_haplotypes(variant_positions, min_nreads=self.min_obs)
-//     hap_graph.write_dot(os.path.join(self.outdir_dots,f'{contig_region_name}.haplotypes.final.dot'))
-//     logger.debug(f'Extended haplotypes: {len(haplotypes)}')
-
-//     logger.debug(f'Mapping reads to extended haplotypes')
-//     haplotype_intervals = IntervalTree(Interval(ht.start(),ht.end(),ht) for ht in haplotypes)
-//     segment_haplotypes, ambiguous_segments = local_separate_reads(phaser.succinct_reads.values(), haplotype_intervals, variant_positions)
-//     logger.debug(f'Mapped={len(segment_haplotypes)} Ambiguous={len(ambiguous_segments)} Total={len(phaser.succinct_reads)}')
-
-//     phasesets = defaultdict(list)
-//     for ht in haplotypes:
-//         phasesets[ht.region()].append(ht)
-
-//     logger.debug(f'Writing reads')
-//     for (ps_start,ps_end), ht_list in phasesets.items():
-//         self.write_reads(contig_id, ps_start, ps_end, ht_list, segment_haplotypes)
-
-//     return phasesets, variant_positions
-
-
-
-// def separate_references(self):
-//     for reference_id in self.reference_lengths:
-//         reference_positions = self.variant_positions[reference_id]
-//         reference_phasesets = dict()
-//         reference_variant_positions = set()
-//         for reference_start, reference_end in self.reference_intervals[reference_id]:
-//             first = bisect.bisect_left(reference_positions, reference_start)
-//             last = bisect.bisect_right(reference_positions, reference_end-1)
-//             region_phasesets, region_positions = self._separate_reference_region(reference_id, reference_start, reference_end, reference_positions[first:last])
-//             reference_phasesets |= region_phasesets
-//             reference_variant_positions |= region_positions
-//         self.phasesets[reference_id] = reference_phasesets
-//         self.variant_positions[reference_id] = reference_variant_positions

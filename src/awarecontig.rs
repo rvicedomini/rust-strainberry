@@ -1,16 +1,15 @@
 use std::fmt;
 
 use itertools::Itertools;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::phase::haplotype::Haplotype;
+use crate::phase::haplotype::{HaplotypeId,Haplotype};
 use crate::seq::SeqInterval;
-use crate::seq::alignment::MappingType;
+use crate::seq::alignment::{MappingType, SeqAlignment};
 
 
 #[derive(Debug, Clone)]
 pub struct AwareContig {
-    id: usize,
     interval: SeqInterval,
     is_separated: bool,
     haplotype_id: Option<usize>,
@@ -20,7 +19,7 @@ pub struct AwareContig {
 
 impl fmt::Display for AwareContig {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "AwareContig(id={}, iv={}, is_separated={}, ht_id={:?})", self.id, self.interval, self.is_separated, self.haplotype_id)
+        write!(f, "AwareContig(iv={}, is_separated={}, ht_id={:?})", self.interval, self.is_separated, self.haplotype_id)
     }
 }
 
@@ -58,7 +57,7 @@ impl AwareContig {
 }
 
 #[derive(Debug, Clone)]
-struct AwareAlignment {
+pub struct AwareAlignment {
     query_id: String,
     query_length: usize,
     query_beg: usize,
@@ -76,14 +75,14 @@ struct AwareAlignment {
 }
 
 
-fn retrieve_unphased_intervals(target_intervals:&Vec<SeqInterval>, haplotypes:&FxHashMap<SeqInterval,Vec<Haplotype>>, min_length:usize) -> Vec<SeqInterval> {
+fn retrieve_unphased_intervals(target_intervals:&Vec<SeqInterval>, haplotypes:&FxHashMap<HaplotypeId,Haplotype>, min_length:usize) -> Vec<SeqInterval> {
 
     let mut unphased_intervals: Vec<SeqInterval> = vec![];
-    let phased_intervals = haplotypes.keys().sorted_unstable().collect_vec();
+    let phased_intervals = haplotypes.values().map(|ht| ht.region()).unique().sorted_unstable().collect_vec();
 
     for iv in target_intervals {
 
-        let first = phased_intervals.partition_point(|&x| x < iv);
+        let first = phased_intervals.partition_point(|x| x < iv);
         
         let mut beg = iv.beg;
         for &piv in phased_intervals[first..].iter().take_while(|piv| piv.tid == iv.tid && piv.end <= iv.end) {
@@ -104,12 +103,11 @@ fn retrieve_unphased_intervals(target_intervals:&Vec<SeqInterval>, haplotypes:&F
 }
 
 
-pub fn build_aware_contigs(target_sequences:&[Vec<u8>], target_intervals:&Vec<SeqInterval>, haplotypes:&FxHashMap<SeqInterval,Vec<Haplotype>>, min_length:usize) -> Vec<AwareContig> {
+pub fn build_aware_contigs(target_sequences:&[Vec<u8>], target_intervals:&Vec<SeqInterval>, haplotypes:&FxHashMap<HaplotypeId,Haplotype>, min_length:usize) -> Vec<AwareContig> {
     
     let mut aware_contigs = retrieve_unphased_intervals(target_intervals, haplotypes, min_length)
-        .into_iter().enumerate()
-        .map(|(aware_id,siv)| AwareContig{
-            id: aware_id,
+        .into_iter()
+        .map(|siv| AwareContig{
             interval: siv,
             is_separated: siv.beg != 0 || siv.end != target_sequences[siv.tid].len(),
             haplotype_id: None,
@@ -118,12 +116,9 @@ pub fn build_aware_contigs(target_sequences:&[Vec<u8>], target_intervals:&Vec<Se
         }).collect_vec();
 
     aware_contigs.extend(haplotypes.values()
-        .flatten()
-        .zip(aware_contigs.len()..)
-        .map(|(ht,aware_id)| {
+        .map(|ht| {
             let piv = ht.region();
             AwareContig {
-                id: aware_id,
                 interval: piv,
                 is_separated: true,
                 haplotype_id: Some(ht.hid()),
@@ -133,17 +128,25 @@ pub fn build_aware_contigs(target_sequences:&[Vec<u8>], target_intervals:&Vec<Se
         })
     );
 
+    aware_contigs.sort_unstable_by_key(|ctg| (ctg.interval(), ctg.haplotype_id));
     aware_contigs
 }
 
 
+// aware_contigs should be sorted by interval
+pub fn map_alignments_to_aware_contigs(seq_alignments: &Vec<SeqAlignment>, aware_contigs: &Vec<AwareContig>) -> Vec<AwareAlignment> {
+    let mut aware_alignments: Vec<AwareAlignment> = vec![];
+    let mut ambiguous_reads: FxHashSet<&str> = FxHashSet::default();
+
+
+
+    aware_alignments
+}
 
 /*
 # TODO: use read_alignments instead of reference_alignments ?
 # TODO: refactor code without the possibility of ambiguous mappings (break alignment paths, instead)
 def map_sreads_to_aware_contigs(reference_alignments, aware_table, aware_intervals, segment_haplotypes, ambiguous_segments, allow_ambiguous=False):
-    aware_alignments = defaultdict(list)
-    ambiguous_reads = set()
     for reference_id, alignments in reference_alignments.items():
         for a in alignments:
             segment_id = a.uid()

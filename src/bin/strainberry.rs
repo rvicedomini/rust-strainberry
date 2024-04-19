@@ -4,9 +4,12 @@ use std::time::Instant;
 
 use clap::Parser;
 
+use rustc_hash::FxHashSet;
+
 use strainberry::cli;
 use strainberry::misassembly;
 use strainberry::phase;
+use strainberry::seq::build_succinct_sequences;
 use strainberry::seq::alignment::load_bam_alignments;
 use strainberry::seq::read::load_bam_sequences;
 use strainberry::utils;
@@ -54,7 +57,6 @@ fn main() {
 
     println!("Loading reads from BAM");
     let read_sequences = load_bam_sequences(bam_path, &opts);
-    let _read_alignments = load_bam_alignments(bam_path, &opts);
     println!("  {} reads loaded", read_sequences.len());
 
     println!("Phasing strains");
@@ -71,6 +73,12 @@ fn main() {
     println!("Building aware contigs");
     let aware_contigs = strainberry::awarecontig::build_aware_contigs(&target_sequences, &target_intervals, &haplotypes, opts.min_aware_ctg_len);
     println!("  {} aware contigs built", aware_contigs.len());
+
+    println!("Processing alignments");
+    let read_alignments = load_bam_alignments(bam_path, &opts);
+    let succinct_sequences = build_succinct_sequences(bam_path, &variants, &opts);
+    let variant_positions = variants.values().flatten().map(|var| (var.tid,var.pos)).collect::<FxHashSet<_>>();
+    let (sseq2haplo, _ambiguous_reads) = strainberry::phase::separate_reads(&succinct_sequences, &haplotypes, &variant_positions, opts.min_shared_snv);
 
     
 
