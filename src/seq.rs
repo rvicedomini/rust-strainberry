@@ -3,12 +3,19 @@ pub mod read;
 
 use std::fmt;
 use std::ops::Range;
-// use std::path::Path;
+use std::path::Path;
+use std::sync::mpsc;
+use std::thread;
 
-use rust_htslib::bam;
-use rust_htslib::bam::record::Cigar;
+use itertools::Itertools;
+use rust_htslib::bam::{HeaderView,Read,IndexedReader};
+use rust_htslib::bam::ext::BamRecordExtensions;
+use rust_htslib::bam::record::{Aux, Cigar, Record};
+use rustc_hash::FxHashMap;
 
-use crate::utils::BamRecordId;
+use crate::cli::Options;
+use crate::utils::{self,BamRecordId};
+use crate::variant::{Var,VarDict};
 
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -46,7 +53,7 @@ pub struct SuccinctSeq {
 impl fmt::Display for SuccinctSeq {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let seq_string = String::from_utf8_lossy(self.nucleotides()).to_string();
-        write!(f, "{}: {} ({}:{}..={})", self.record_id().0, seq_string, self.target_id(), self.positions().first().unwrap(), self.positions().last().unwrap())
+        write!(f, "{}: {} ({}:{}..={})", self.record_id().0, seq_string, self.tid(), self.positions().first().unwrap(), self.positions().last().unwrap())
     }
 }
 
@@ -63,25 +70,17 @@ impl SuccinctSeq {
     }
 
     pub fn record_id(&self) -> BamRecordId { self.record_id.clone() }
-    pub fn target_id(&self) -> usize { self.target_id }
+    pub fn tid(&self) -> usize { self.target_id }
     pub fn positions(&self) -> &Vec<usize> { &self.positions }
     pub fn nucleotides(&self) -> &Vec<u8> { &self.nucleotides }
 
     pub fn len(&self) -> usize { self.positions.len() }
     pub fn is_empty(&self) -> bool { self.len() == 0 }
 
-    pub fn range(&self) -> Range<usize> {
-        let beg = *self.positions.first().unwrap();
-        let end = *self.positions.last().unwrap();
-        beg..end
-    }
-
-    pub fn seq_interval(&self) -> SeqInterval {
-        SeqInterval { 
-            tid: self.target_id,
-            beg: *self.positions.first().unwrap(),
-            end: *self.positions.last().unwrap() + 1,
-        }
+    pub fn beg(&self) -> usize { *self.positions.first().unwrap() }
+    pub fn end(&self) -> usize { *self.positions.last().unwrap() + 1 }
+    pub fn region(&self) -> SeqInterval {
+        SeqInterval { tid: self.tid(), beg: self.beg(), end: self.end() }
     }
 
     pub fn push(&mut self, pos:usize, nuc:u8) {
@@ -89,9 +88,9 @@ impl SuccinctSeq {
         self.nucleotides.push(nuc);
     }
 
-    pub fn from_bam_record(record: &bam::record::Record, variant_positions: &[usize], mut var_idx: usize) -> Option<SuccinctSeq> {
+    pub fn from_bam_record(record: &Record, target_variants: &[Var], mut var_idx: usize) -> Option<SuccinctSeq> {
         
-        if var_idx >= variant_positions.len() {
+        if var_idx >= target_variants.len() {
             return None
         }
 
@@ -103,7 +102,7 @@ impl SuccinctSeq {
         let mut query_pos = 0;
         let query_seq = record.seq();
 
-        let mut var_pos = variant_positions[var_idx];
+        let mut var_pos = target_variants[var_idx].pos;
         for cig in record.cigar().iter() {
             match cig {
                 Cigar::SoftClip(len) | Cigar::Ins(len) => {
@@ -127,10 +126,10 @@ impl SuccinctSeq {
                         sseq.push(target_pos, query_seq[query_pos]);
                         // consume match on both reference/query and retrieve next variant position
                         var_idx += 1;
-                        if var_idx >= variant_positions.len() {
+                        if var_idx >= target_variants.len() {
                             break;
                         }
-                        var_pos = variant_positions[var_idx];
+                        var_pos = target_variants[var_idx].pos;
                         target_pos += 1;
                         query_pos += 1;
                         oplen -= 1;
@@ -151,10 +150,10 @@ impl SuccinctSeq {
                         sseq.push(target_pos, b'-');
                         // consume deletion on reference and retrieve next variant position
                         var_idx += 1;
-                        if var_idx >= variant_positions.len(){
+                        if var_idx >= target_variants.len(){
                             break;
                         }
-                        var_pos = variant_positions[var_idx];
+                        var_pos = target_variants[var_idx].pos;
                         target_pos += 1;
                         oplen -= 1;
                     }
@@ -162,33 +161,65 @@ impl SuccinctSeq {
                 Cigar::HardClip(_) | Cigar::Pad(_) => {}
             }
 
-            if var_idx >= variant_positions.len() {
+            if var_idx >= target_variants.len() {
                 break;
             }
         }
 
-        Some(sseq)
+        if !sseq.is_empty() {
+            Some(sseq)
+        } else {
+            None
+        }
     }
 }
 
 
 
-// pub fn build_succinct_sequences(bam_path: &Path, target_names: &Vec<String>, target_intervals: &'a Vec<SeqInterval>, read_sequences: &'a FxHashMap<String, Vec<u8>>, output_dir: &Path, opts: &'a Options) {
-//     todo!()
-// }
+pub fn build_succinct_sequences(bam_path: &Path, variants: &VarDict, opts: &Options) -> Vec<SuccinctSeq> {
+    
+    let target_intervals = utils::bam_target_intervals(bam_path);
+    let target_intervals = target_intervals.into_iter()
+        .sorted_unstable_by_key(|siv| siv.end - siv.beg)
+        .collect_vec();
+    
+    let (tx, rx) = mpsc::channel();
+    thread::scope(|scope| {
+        for thread_id in 0..opts.nb_threads {
+            let sender = tx.clone();
+            let target_intervals_ref = &target_intervals;
+            scope.spawn(move || {
+                let mut succinct_sequences = vec![];
+                let mut bam_reader = IndexedReader::from_path(bam_path).unwrap();
+                for &siv in target_intervals_ref.iter().skip(thread_id).step_by(opts.nb_threads) {
+                    if let Some(target_variants) = variants.get(&siv.tid) {
 
+                        bam_reader.fetch(siv.tid as u32).unwrap();
+                        for record in bam_reader.rc_records().map(|x| x.expect("Failure parsing BAM file")) {
+                            if record.mapq() < opts.min_mapq
+                                || record.is_unmapped()
+                                || record.is_secondary()
+                                || record.is_quality_check_failed()
+                                || record.is_duplicate()
+                            {
+                                continue
+                            }
+                            let var_idx = target_variants.partition_point(|var| var.pos < record.reference_start() as usize);
+                            if let Some(sseq) = SuccinctSeq::from_bam_record(&record, &target_variants, var_idx) {
+                                succinct_sequences.push(sseq);
+                            }
+                        }
+                    }
+                }
+                sender.send(succinct_sequences).unwrap();
+            });
+        }
+    });
 
-// def build_succinct_reads(bamfile, reference_id, reference_positions, min_mapq):
-//     succinct_reads = dict()
-//     with pysam.AlignmentFile(bamfile,'rb') as bam_handle:
-//         for segment in bam_handle.fetch(contig=reference_id):
-//             if segment.is_unmapped or segment.is_secondary or segment.is_duplicate or segment.is_qcfail or segment.mapping_quality < min_mapq: 
-//                 continue
-//             pos_idx = bisect.bisect_left(reference_positions,segment.reference_start)
-//             sread = get_sread_from_segment(segment,reference_positions,pos_idx)
-//             if sread and len(sread.positions) > 0:
-//                 succinct_reads[sread.id] = sread
-//     return succinct_reads
+    (0..opts.nb_threads)
+        .flat_map(|_| rx.recv().unwrap().into_iter())
+        .collect()
+}
 
 
 // # TODO: improve it, considering a sorted list of positions in input
