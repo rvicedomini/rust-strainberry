@@ -2,16 +2,14 @@ pub mod alignment;
 pub mod read;
 
 use std::fmt;
-use std::ops::Range;
 use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
 
 use itertools::Itertools;
-use rust_htslib::bam::{HeaderView,Read,IndexedReader};
+use rust_htslib::bam::{Read,IndexedReader};
 use rust_htslib::bam::ext::BamRecordExtensions;
-use rust_htslib::bam::record::{Aux, Cigar, Record};
-use rustc_hash::FxHashMap;
+use rust_htslib::bam::record::{Cigar, Record};
 
 use crate::cli::Options;
 use crate::utils::{self,BamRecordId};
@@ -205,7 +203,7 @@ pub fn build_succinct_sequences(bam_path: &Path, variants: &VarDict, opts: &Opti
                                 continue
                             }
                             let var_idx = target_variants.partition_point(|var| var.pos < record.reference_start() as usize);
-                            if let Some(sseq) = SuccinctSeq::from_bam_record(&record, &target_variants, var_idx) {
+                            if let Some(sseq) = SuccinctSeq::from_bam_record(&record, target_variants, var_idx) {
                                 succinct_sequences.push(sseq);
                             }
                         }
