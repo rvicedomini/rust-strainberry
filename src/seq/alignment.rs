@@ -5,7 +5,7 @@ use itertools::Itertools;
 
 use rust_htslib::bam::{HeaderView,Read,IndexedReader};
 use rust_htslib::bam::ext::BamRecordExtensions;
-use rust_htslib::bam::record::{Record, Cigar, Aux};
+use rust_htslib::bam::record::{Aux, Cigar, Record};
 
 use rustc_hash::FxHashMap;
 
@@ -81,6 +81,7 @@ impl SeqAlignment {
     pub fn is_secondary(&self) -> bool { self.is_secondary }
 
     pub fn cigar(&self) -> &Vec<Cigar> { &self.cigar }
+    pub fn cigar_string(&self) -> String { self.cigar.iter().map(|op| op.to_string()).join("") }
 
     pub fn from_bam_record(record: &Record, header: &HeaderView) -> SeqAlignment {
 
@@ -271,6 +272,7 @@ impl<'a> Iterator for IterAlignedBlocks<'a> {
         }
         None
     }
+
 }
 
 
@@ -293,7 +295,8 @@ pub fn load_bam_alignments(bam_path: &Path, opts: &Options) -> FxHashMap<String,
         }
 
         let seqalign = SeqAlignment::from_bam_record(&record, &bam_header);
-        for seqalign in seqalign.split(opts.min_indel) {
+        let split_alignments = seqalign.split(opts.min_indel);
+        for seqalign in split_alignments {
             if !read_alignments.contains_key(seqalign.query_name()) {
                 read_alignments.insert(seqalign.query_name().to_string(), vec![]);
             }
