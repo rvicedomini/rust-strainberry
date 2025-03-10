@@ -257,7 +257,7 @@ pub struct IterAlignedBlocks<'a> {
     cigar: &'a Vec<Cigar>,
 }
 
-impl<'a> Iterator for IterAlignedBlocks<'a> {
+impl Iterator for IterAlignedBlocks<'_> {
     type Item = [usize;4];
     
     fn next(&mut self) -> Option<Self::Item> {

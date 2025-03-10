@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
@@ -46,7 +48,7 @@ fn main() {
     let target_names = utils::bam_target_names(bam_path);
     let target_sequences = utils::load_sequences(fasta_path, bam_path);
     println!("  {} sequences loaded", target_sequences.len());
-    
+
     // TODO:
     // Consider estimating lookback length when a flag "--auto-lookback" is provided
     // utils::estimate_lookback(bam_path, 1000)

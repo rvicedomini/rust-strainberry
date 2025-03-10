@@ -155,7 +155,7 @@ pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, opts:&Options) -> 
         .collect_vec();
 
     let positions = positions.into_iter()
-        .group_by(|&(tid,_)| tid)
+        .chunk_by(|&(tid,_)| tid)
         .into_iter()
         .map(|(tid,target_positions)| (
             tid,

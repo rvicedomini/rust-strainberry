@@ -205,7 +205,7 @@ fn cluster_misassemblies(mut candidates: Vec<Misassembly>, bam_header: &HeaderVi
     let chrom2tid = utils::chrom2tid(bam_header);
 
     let mut intervals = vec![];
-    for (tid, target_clusters) in &clusters.into_iter().filter(|clust| clust.len() >= opts.min_alt_count).group_by(|clust| chrom2tid[&clust[0].0]) {
+    for (tid, target_clusters) in &clusters.into_iter().filter(|clust| clust.len() >= opts.min_alt_count).chunk_by(|clust| chrom2tid[&clust[0].0]) {
         let target_length = bam_header.target_len(tid as u32).unwrap() as usize;
         let mut target_pos = 0;
         for clust in target_clusters {
