@@ -10,21 +10,29 @@ use crate::cli::Options;
 use crate::utils;
 
 
+// from ffforf: https://github.com/jguhlin/ffforf/blob/master/src/lib.rs
 #[inline(always)]
 fn complement(nuc: u8) -> u8 {
-    match nuc {
-        b'a'|b'A' => b'T',
-        b'c'|b'C' => b'G',
-        b't'|b'T' => b'A',
-        b'g'|b'G' => b'C',
-        _ => b'N'
+    if nuc != b'N' {
+        if nuc & 2 != 0 {
+            nuc ^ 4
+        } else {
+            nuc ^ 21
+        }
+    } else {
+        nuc
     }
 }
 
-#[inline(always)]
-fn reverse_complement(seq: &[u8]) -> Vec<u8> {
-    let mut rev_seq = Vec::with_capacity(seq.len());
-    rev_seq.extend(seq.iter().rev().map(|&nuc| complement(nuc)));
+fn revcomp_inplace(seq: &mut [u8]) {
+    seq.reverse();
+    seq.iter_mut().for_each(|nuc| { *nuc = complement(*nuc) });
+}
+
+
+fn revcomp(seq: &[u8]) -> Vec<u8> {
+    let mut rev_seq = seq.to_vec();
+    revcomp_inplace(&mut rev_seq);
     rev_seq
 }
 
@@ -51,7 +59,7 @@ pub fn load_bam_sequences(bam_path: &Path, opts: &Options) -> FxHashMap<String,V
                             let qname = String::from_utf8_lossy(record.qname()).to_string();
                             let mut qseq = record.seq().as_bytes();
                             if record.is_reverse() {
-                                qseq = reverse_complement(&qseq)
+                                revcomp_inplace(&mut qseq)
                             };
                             seq_dict.insert(qname, qseq);
                         }
