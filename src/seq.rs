@@ -6,7 +6,6 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
 
-use itertools::Itertools;
 use rust_htslib::bam::{Read,IndexedReader};
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Cigar, Record};
@@ -176,10 +175,8 @@ impl SuccinctSeq {
 
 pub fn build_succinct_sequences(bam_path: &Path, variants: &VarDict, opts: &Options) -> Vec<SuccinctSeq> {
     
-    let target_intervals = utils::bam_target_intervals(bam_path);
-    let target_intervals = target_intervals.into_iter()
-        .sorted_unstable_by_key(|siv| siv.end - siv.beg)
-        .collect_vec();
+    let mut target_intervals = utils::bam_target_intervals(bam_path);
+    target_intervals.sort_unstable_by_key(|siv| siv.end - siv.beg);
     
     let (tx, rx) = mpsc::channel();
     thread::scope(|scope| {
