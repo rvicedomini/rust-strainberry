@@ -1,7 +1,7 @@
 use std::fmt;
 
 use itertools::Itertools;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::{FxHashMap,FxHashSet};
 
 use crate::phase::haplotype::{HaplotypeId,Haplotype};
 use crate::seq::SeqInterval;
@@ -136,12 +136,28 @@ pub fn build_aware_contigs(target_sequences:&[Vec<u8>], target_intervals:&Vec<Se
 }
 
 
+pub fn map_succinct_seqs_to_aware_contigs(seq_alignments: &FxHashMap<String,Vec<SeqAlignment>>, aware_contigs: &mut[AwareContig], seq2haplo: &FxHashMap<BamRecordId,Vec<HaplotypeId>>, ambiguous_reads:&FxHashSet<String>) -> FxHashMap<String,Vec<AwareAlignment>> {
+
+    let mut read2aware: FxHashMap<String,Vec<AwareAlignment>> = FxHashMap::default();
+    for (name, alignments) in seq_alignments {
+        if ambiguous_reads.contains(name) {
+            continue
+        }
+        let aware_alignments = map_alignments_to_aware_contigs(alignments, aware_contigs, seq2haplo);
+        let aware_alignments = filter_aware_alignments(aware_alignments, aware_contigs);
+        read2aware.insert(name.clone(), aware_alignments);
+    }
+
+    read2aware
+}
+
+
 // aware_contigs should be sorted by interval
-pub fn map_alignments_to_aware_contigs(seq_alignments: &[SeqAlignment], aware_contigs: &[AwareContig], seq2haplo: &FxHashMap<BamRecordId,Vec<HaplotypeId>>, ambiguous_reads:&FxHashSet<String>) -> Vec<AwareAlignment> {
+pub fn map_alignments_to_aware_contigs(seq_alignments: &[SeqAlignment], aware_contigs: &[AwareContig], seq2haplo: &FxHashMap<BamRecordId,Vec<HaplotypeId>>) -> Vec<AwareAlignment> {
     
     let mut aware_alignments: Vec<AwareAlignment> = vec![];
 
-    for sa in seq_alignments.iter().filter(|sa| !ambiguous_reads.contains(sa.query_name())) {
+    for sa in seq_alignments {
         let sa_id = sa.record_id();
 
         let idx = aware_contigs.partition_point(|ctg| ctg.tid() < sa.tid() || (ctg.tid() == sa.tid() && ctg.end() <= sa.target_beg()));
@@ -161,18 +177,18 @@ pub fn map_alignments_to_aware_contigs(seq_alignments: &[SeqAlignment], aware_co
             let aware_ctg_range = (aware_ctg_beg, aware_ctg_end, ctg.length());
 
             let query_beg = if let Strand::Forward = sa.strand() { sa.query_beg() } else { sa.query_length() - sa.query_end() };
-            let (mut aware_query_beg, aware_target_beg) = crate::seq::alignment::first_match_from(ctg.beg(), query_beg, sa.target_beg(), sa.cigar());
-            let (mut aware_query_end, aware_target_end) = crate::seq::alignment::last_match_until(ctg.end(), query_beg, sa.target_beg(), sa.cigar());
+            let (mut aware_query_beg, aware_target_beg) = crate::seq::alignment::first_match_from(ctg.beg(), query_beg, sa.target_beg(), sa.cigar()).unwrap();
+            let (mut aware_query_end, aware_target_end) = crate::seq::alignment::last_match_until(ctg.end(), query_beg, sa.target_beg(), sa.cigar()).unwrap();
             let aware_query_range = (aware_query_beg, aware_query_end, sa.query_length());
 
             if aware_query_end <= aware_query_beg || aware_target_end <= aware_target_beg {
                 continue
             }
 
-            let maptype = crate::seq::alignment::classify_mapping(aware_query_range, aware_ctg_range);
+            let maptype = crate::seq::alignment::classify_mapping(aware_query_range, aware_ctg_range, 100, 0.05);
 
             if let Strand::Reverse = sa.strand() {
-                (aware_query_beg, aware_query_end) = (sa.query_length() - aware_query_beg, sa.query_length() - aware_query_end);
+                (aware_query_beg, aware_query_end) = (sa.query_length() - aware_query_end, sa.query_length() - aware_query_beg);
             }
 
             if matches!(maptype, MappingType::QueryContained|MappingType::ReferenceContained|MappingType::DovetailPrefix|MappingType::DovetailSuffix) {
@@ -199,80 +215,23 @@ pub fn map_alignments_to_aware_contigs(seq_alignments: &[SeqAlignment], aware_co
     aware_alignments
 }
 
-/*
-# TODO: use read_alignments instead of reference_alignments ?
-# TODO: refactor code without the possibility of ambiguous mappings (break alignment paths, instead)
-def map_sreads_to_aware_contigs(reference_alignments, aware_table, aware_intervals, segment_haplotypes, ambiguous_segments, allow_ambiguous=False):
-    for reference_id, alignments in reference_alignments.items():
-        for a in alignments:
 
-            for aware_contig in (iv.data for iv in sorted(aware_intervals[reference_id].overlap(a.reference_start,a.reference_end))):
-                
-                if a.strand == '-': 
-                    aware_qry_start, aware_qry_end = a.query_length-aware_qry_end, a.query_length-aware_qry_start
-
-                if maptype in [MappingType.QUERY_CONTAINED, MappingType.REFERENCE_CONTAINED, MappingType.DOVETAIL_PREFIX, MappingType.DOVETAIL_SUFFIX]:
-                    aware_alignment = AwareAlignment(a.query, a.query_length, aware_qry_start, aware_qry_end, a.strand, aware_contig.id, 
-                                                     reference_id, aware_ref_start, aware_ref_end, a.mapq, a.identity(), a.query_start, a.query_end, maptype)
-                    aware_alignments[a.query].append(aware_alignment)
+pub fn filter_aware_alignments(mut aware_alignments: Vec<AwareAlignment>, aware_contigs: &mut [AwareContig]) -> Vec<AwareAlignment> {
+    let nb_aware_alignments = aware_alignments.len();
+    let mut filtered_alignments = Vec::with_capacity(nb_aware_alignments);
     
-    for query_id in ambiguous_reads:
-        aware_alignments.pop(query_id,None)
-    
-    for query_id in aware_alignments:
-        aware_alignments[query_id] = sorted(aware_alignments[query_id], key=lambda x:x.query_start)
-        # if query_id in ['edge_8_517622-524797_h1_seq1']:
-        #     logger.debug(f'---------- {query_id} ----------')
-        #     for a in aware_alignments[query_id]:
-        #         logger.debug(f'{a}')
-        aware_alignments[query_id] = filter_alignments(aware_alignments[query_id],aware_table)
-        # if query_id in ['edge_8_517622-524797_h1_seq1']:
-        #     logger.debug(f'########## {query_id} ##########')
-        #     for a in aware_alignments[query_id]:
-        #         logger.debug(f'{a}')
-    return aware_alignments
-*/
-
-/*
-def filter_alignments(alignments, aware_table):
-    sorted_aln = sorted(alignments, key=lambda x:(x.query_aln_start,x.query_start))
-    filtered_aln = []
-    for i,a in enumerate(sorted_aln):
-        if a.query_end-a.query_start < 1:
+    aware_alignments.sort_unstable_by_key(|a| (a.query_aln_beg,a.query_beg));
+    for (i,a) in aware_alignments.into_iter().enumerate() {
+        if a.query_end - a.query_beg < 1 {
             continue
-        if a.maptype in [MappingType.DOVETAIL_PREFIX,MappingType.DOVETAIL_SUFFIX] and (0 < i < len(sorted_aln)-1):
+        }
+        if matches!(a.mapping_type, MappingType::DovetailPrefix|MappingType::DovetailSuffix) && 0 < i && i < nb_aware_alignments-1 {
             continue
-        aware_contig = aware_table[a.aware_id]
-        aware_aligned_bases = a.reference_end-a.reference_start
-        aware_contig.alignedbases += aware_aligned_bases
-        filtered_aln.append(a)
-    return filtered_aln
-*/
+        }
+        let aware_contig = &mut aware_contigs[a.aware_id];
+        aware_contig.aligned_bases += a.target_end - a.target_beg;
+        filtered_alignments.push(a);
+    }
 
-/*
-def map_sreads_to_aware_contigs_old(reference_alignments, aware_table, aware_intervals, segment_haplotypes, ambiguous_segments, allow_ambiguous=False):
-    aware_alignments = defaultdict(list)
-    ambiguous_reads = set()
-    for reference_id, alignments in reference_alignments.items():
-        for a in alignments:
-            segment_id = a.id()
-            if (not allow_ambiguous) and (segment_id in ambiguous_segments):
-                ambiguous_reads.add(a.query)
-                continue
-            for aware_contig in (iv.data for iv in sorted(aware_intervals[reference_id].overlap(a.reference_start,a.reference_end))):
-                if aware_contig.phased and (aware_contig.name() not in segment_haplotypes[segment_id]): 
-                    continue
-                overlap_on_reference = overlap_length(a.reference_start, a.reference_end, aware_contig.reference_start, aware_contig.reference_end)
-                aware_contig.alignedbases += overlap_on_reference
-                query_start, reference_start = first_match_from(aware_contig.reference_start, a.query_start, a.reference_start, a.cigar)
-                query_end, reference_end = last_match_until(aware_contig.reference_end, a.query_start, a.reference_start, a.cigar)
-                if a.strand == '-': query_start,query_end = a.query_length-query_end, a.query_length-query_start
-                query_aln_start, query_aln_end = (a.query_start,a.query_end) if a.strand == '+' else (a.query_length-a.query_end,a.query_length-a.query_start)
-                aware_alignment = AwareAlignment(a.query, a.query_length, query_start, query_end, a.strand, aware_contig.id, reference_start, reference_end, a.mapq, a.identity(), query_aln_start, query_aln_end)
-                aware_alignments[a.query].append((segment_id,aware_alignment))
-    for query_id in ambiguous_reads:
-        aware_alignments.pop(query_id,None)
-    for query_id in aware_alignments:
-        aware_alignments[query_id] = filter_alignments(aware_alignments[query_id],aware_table)
-    return aware_alignments
-*/
+    filtered_alignments
+}
