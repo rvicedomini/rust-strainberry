@@ -30,8 +30,7 @@ fn main() {
     let bam_path = Path::new(&opts.bam_file);
     let output_dir = Path::new(&opts.output_dir);
 
-    // TODO?
-    // create output directory in cli module ? (after option validation)
+    // TODO - consider creating output directory in cli module (after option validation)
     if fs::create_dir_all(output_dir).is_err() {
         println!("Cannot create output directory: \"{}\"", output_dir.display());
         std::process::exit(1);
@@ -78,16 +77,17 @@ fn main() {
     let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&target_sequences, &target_intervals, &haplotypes, opts.min_aware_ctg_len);
     println!("  {} aware contigs built", aware_contigs.len());
 
-    println!("Processing alignments");
+    println!("Loading read alignments");
     let read_alignments = load_bam_alignments(bam_path, &opts);
-    let succinct_sequences = build_succinct_sequences(bam_path, &variants, &opts);
+    println!("Building succinct reads");
+    let succinct_reads = build_succinct_sequences(bam_path, &variants, &opts);
+    println!("Read realignment to haplotypes");
     let variant_positions = variants.values().flatten().map(|var| (var.tid,var.pos)).collect::<FxHashSet<_>>();
-    let (seq2haplo, ambiguous_reads) = strainberry::phase::separate_reads(&succinct_sequences, &haplotypes, &variant_positions, opts.min_shared_snv);
+    let (seq2haplo, ambiguous_reads) = strainberry::phase::separate_reads(&succinct_reads, &haplotypes, &variant_positions, opts.min_shared_snv);
+    println!("Mapping reads to aware contigs");
+    let _read2aware: FxHashMap<String,Vec<AwareAlignment>> = strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut aware_contigs, &seq2haplo, &ambiguous_reads);
 
-    println!("Mapping succinct reads to aware alignments");
-    let _read2aware: FxHashMap<String,Vec<AwareAlignment>> = strainberry::awarecontig::map_succinct_seqs_to_aware_contigs(
-        &read_alignments, &mut aware_contigs, &seq2haplo, &ambiguous_reads
-    );
+    println!("Building strain-aware graph");
 
     println!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
 }

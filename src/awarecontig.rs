@@ -136,7 +136,7 @@ pub fn build_aware_contigs(target_sequences:&[Vec<u8>], target_intervals:&Vec<Se
 }
 
 
-pub fn map_succinct_seqs_to_aware_contigs(seq_alignments: &FxHashMap<String,Vec<SeqAlignment>>, aware_contigs: &mut[AwareContig], seq2haplo: &FxHashMap<BamRecordId,Vec<HaplotypeId>>, ambiguous_reads:&FxHashSet<String>) -> FxHashMap<String,Vec<AwareAlignment>> {
+pub fn map_sequences_to_aware_contigs(seq_alignments: &FxHashMap<String,Vec<SeqAlignment>>, aware_contigs: &mut[AwareContig], seq2haplo: &FxHashMap<BamRecordId,Vec<HaplotypeId>>, ambiguous_reads:&FxHashSet<String>) -> FxHashMap<String,Vec<AwareAlignment>> {
 
     let mut read2aware: FxHashMap<String,Vec<AwareAlignment>> = FxHashMap::default();
     for (name, alignments) in seq_alignments {
@@ -153,11 +153,11 @@ pub fn map_succinct_seqs_to_aware_contigs(seq_alignments: &FxHashMap<String,Vec<
 
 
 // aware_contigs should be sorted by interval
-pub fn map_alignments_to_aware_contigs(seq_alignments: &[SeqAlignment], aware_contigs: &[AwareContig], seq2haplo: &FxHashMap<BamRecordId,Vec<HaplotypeId>>) -> Vec<AwareAlignment> {
+pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contigs: &[AwareContig], seq2haplo: &FxHashMap<BamRecordId,Vec<HaplotypeId>>) -> Vec<AwareAlignment> {
     
     let mut aware_alignments: Vec<AwareAlignment> = vec![];
 
-    for sa in seq_alignments {
+    for sa in alignments {
         let sa_id = sa.record_id();
 
         let idx = aware_contigs.partition_point(|ctg| ctg.tid() < sa.tid() || (ctg.tid() == sa.tid() && ctg.end() <= sa.target_beg()));
