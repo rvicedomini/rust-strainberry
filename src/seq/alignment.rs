@@ -44,8 +44,38 @@ pub enum MappingType {
     DovetailPrefix
 }
 
-pub fn classify_mapping(query_range:(usize,usize,usize), target_range:(usize,usize,usize)) -> MappingType {
-    todo!()
+pub fn classify_mapping(query_range:(usize,usize,usize), target_range:(usize,usize,usize), overhang:usize, r:f64) -> MappingType {
+    use MappingType::*;
+
+    let (b1,e1,l1) = query_range;
+    let (b2,e2,l2) = target_range;
+    assert!(b1<e1 && e1<=l1 && b2<e2 && e2<=l2);
+    let left_overhang = std::cmp::min(b1,b2);
+    let right_overhang = std::cmp::min(l1-e1,l2-e2);
+    let maplen = std::cmp::max(e1-b1,e2-b2);
+    let oh_threshold = std::cmp::max(overhang, ((maplen as f64)*r) as usize);
+
+    if b2 <= b1 && b2 <= oh_threshold && right_overhang > oh_threshold {
+        ReferencePrefix
+    } else if b1 <= b2 && b1 <= oh_threshold && right_overhang > oh_threshold {
+        QueryPrefix
+    } else if left_overhang > oh_threshold && l2-e2 <= oh_threshold && l2-e2 <= l1-e1 {
+        ReferenceSuffix
+    } else if left_overhang > oh_threshold && l1-e1 <= oh_threshold && l1-e1 <= l2-e2 {
+        QuerySuffix
+    } else if left_overhang > oh_threshold || right_overhang > oh_threshold {
+        Internal
+    } else if b1 >= b2 && l1-e1 >= l2-e2 {
+        ReferenceContained
+    } else if b2 >= b1 && l2-e2 >= l1-e1 {
+        QueryContained
+    } else if b1 <= b2 {
+        assert!(l2-e2 <= l1-e1);
+        DovetailPrefix
+    } else {
+        assert!(b2<=b1 && l1-e1 <= l2-e2);
+        DovetailSuffix
+    }
 }
 
 
@@ -137,7 +167,7 @@ impl SeqAlignment {
             Aux::U16(ed) => ed as usize,
             Aux::I32(ed) => ed as usize,
             Aux::U32(ed) => ed as usize,
-            _ => panic!("Cannot read NM field from bam record {record:?}")
+            _ => panic!("Unexpected type of NM field for bam record {record:?}")
         };
 
         let exact_matches: usize = matches - (edit_dist - indels);
@@ -319,60 +349,74 @@ pub fn load_bam_alignments(bam_path: &Path, opts: &Options) -> FxHashMap<String,
 }
 
 
-pub fn first_match_from(position:usize, query_beg:usize, target_beg:usize, cigar: &[Cigar]) -> (usize,usize) {
-    todo!()
+// cigar must not contain clipping/padding operations
+pub fn first_match_from(position:usize, mut query_beg:usize, mut target_beg:usize, cigar: &[Cigar]) -> Option<(usize,usize)> {
+    let mut cig_i = 0;
+    let mut cig_len = 0;
+    let mut match_found = false;
+    while (target_beg <= position || !match_found) && cig_i < cigar.len() {
+        match_found = false;
+        let cig_op = cigar[cig_i]; cig_len = cig_op.len() as usize;
+        match cig_op {
+            Cigar::Match(_)|Cigar::Diff(_)|Cigar::Equal(_) => {
+                target_beg += cig_len;
+                query_beg += cig_len;
+                match_found = true;
+            }
+            Cigar::Del(_)|Cigar::RefSkip(_) => {
+                target_beg += cig_len;
+            }
+            Cigar::Ins(_) => {
+                query_beg += cig_len;
+            }
+            _ => {
+                unreachable!("Unexpected cigar operation")
+            }
+        }
+        cig_i += 1;
+
+    }
+    if target_beg > position && match_found {
+        let bases_ahead = std::cmp::min(target_beg-position,cig_len);
+        assert!(bases_ahead <= query_beg && bases_ahead <= target_beg);
+        let query_match_pos = query_beg - bases_ahead;
+        let target_match_pos = target_beg - bases_ahead;
+        return Some((query_match_pos,target_match_pos))
+    }
+    None
 }
 
+// cigar string must not contain clipped bases at the beginning
+pub fn last_match_until(position:usize, mut query_beg:usize, mut target_beg:usize, cigar: &[Cigar]) -> Option<(usize,usize)> {
+    let mut cig_i = 0;
+    let mut match_found = false;
+    let mut query_match_pos = query_beg;
+    let mut target_match_pos = target_beg;
+    while (target_beg < position || !match_found) && cig_i < cigar.len() {
+        match cigar[cig_i] {
+            Cigar::Match(cig_len)|Cigar::Diff(cig_len)|Cigar::Equal(cig_len) => {
+                let inc = if target_beg + (cig_len as usize) <= position { cig_len as usize } else { position-target_beg };
+                target_beg += inc;
+                query_beg += inc;
+                match_found = true;
+                query_match_pos = query_beg;
+                target_match_pos = target_beg;
+            }
+            Cigar::Del(cig_len)|Cigar::RefSkip(cig_len) => {
+                target_beg += cig_len as usize;
+            }
+            Cigar::Ins(cig_len) => {
+                query_beg += cig_len as usize;
+            }
+            _ => {
+                unreachable!("Unexpected cigar operation")
+            }
+        }
+        cig_i += 1;
 
-// # cigar string must not contain clipping/padding operations
-// def first_match_from(position, query_start, reference_start, cigar):
-//     cig_i = 0
-//     cig_len = 0
-//     match_found = False
-//     while (reference_start <= position or (not match_found)) and cig_i < len(cigar):
-//         match_found = False
-//         cig_op, cig_len = cigar[cig_i]
-//         if cig_op in [0,7,8]: # match: qry++ ref++
-//             reference_start += cig_len
-//             query_start += cig_len
-//             match_found = True
-//         elif cig_op in [2,3]: # deletion/ref-skip: ref++
-//             reference_start += cig_len
-//         elif cig_op == 1: # insertion: qry++
-//             query_start += cig_len
-//         cig_i += 1
-//     if reference_start > position and match_found:
-//         bases_ahead = min(reference_start-position,cig_len)
-//         assert(bases_ahead <= query_start and bases_ahead <= reference_start)
-//         query_match_pos = query_start - bases_ahead
-//         ref_match_pos = reference_start - bases_ahead
-//         return query_match_pos, ref_match_pos
-//     return None, None
-
-pub fn last_match_until(position:usize, query_beg:usize, target_beg:usize, cigar: &[Cigar]) -> (usize,usize) {
-    todo!()
+    }
+    if match_found {
+        return Some((query_match_pos,target_match_pos))
+    }
+    None
 }
-
-
-// # cigar string must not contain clipped bases at the beginning
-// def last_match_until(position, query_start, reference_start, cigar):
-//     cig_i = 0
-//     match_found = False
-//     query_match_pos = query_start
-//     ref_match_pos = reference_start
-//     while (reference_start < position or (not match_found)) and cig_i < len(cigar):
-//         cig_op, cig_len = cigar[cig_i]
-//         if(cig_op in [0,7,8]): # match: qry++ ref++
-//             inc = cig_len if reference_start+cig_len <= position else position-reference_start
-//             reference_start += inc
-//             query_start += inc
-//             match_found = True
-//             query_match_pos = query_start
-//             ref_match_pos = reference_start
-//         elif(cig_op in [2,3]): # deletion/ref-skip: ref++
-//             inc = cig_len
-//             reference_start += inc
-//         elif cig_op == 1: # insertion: qry++
-//             query_start += cig_len
-//         cig_i += 1
-//     return (query_match_pos, ref_match_pos) if match_found else (None, None)
