@@ -88,6 +88,7 @@ fn main() {
     let _read2aware: FxHashMap<String,Vec<AwareAlignment>> = strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut aware_contigs, &seq2haplo, &ambiguous_reads);
 
     println!("Building strain-aware graph");
+    let _aware_graph = strainberry::awaregraph::AwareGraph::default();
 
     println!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
 }
