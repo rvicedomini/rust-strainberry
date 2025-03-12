@@ -2,7 +2,6 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
 
-use itertools::Itertools;
 use rust_htslib::bam::{Read,IndexedReader};
 use rustc_hash::FxHashMap;
 
