@@ -6,8 +6,10 @@ use std::time::Instant;
 
 use clap::Parser;
 
+use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
+use strainberry::awarecontig::AwareAlignment;
 use strainberry::cli;
 use strainberry::misassembly;
 use strainberry::phase;
@@ -69,20 +71,23 @@ fn main() {
     if opts.phase_only {
         println!("Finished!");
         println!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
-        std::process::exit(0);
+        return; // std::process::exit(0);
     }
 
     println!("Building aware contigs");
-    let aware_contigs = strainberry::awarecontig::build_aware_contigs(&target_sequences, &target_intervals, &haplotypes, opts.min_aware_ctg_len);
+    let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&target_sequences, &target_intervals, &haplotypes, opts.min_aware_ctg_len);
     println!("  {} aware contigs built", aware_contigs.len());
 
     println!("Processing alignments");
     let read_alignments = load_bam_alignments(bam_path, &opts);
     let succinct_sequences = build_succinct_sequences(bam_path, &variants, &opts);
     let variant_positions = variants.values().flatten().map(|var| (var.tid,var.pos)).collect::<FxHashSet<_>>();
-    let (sseq2haplo, _ambiguous_reads) = strainberry::phase::separate_reads(&succinct_sequences, &haplotypes, &variant_positions, opts.min_shared_snv);
+    let (seq2haplo, ambiguous_reads) = strainberry::phase::separate_reads(&succinct_sequences, &haplotypes, &variant_positions, opts.min_shared_snv);
 
-    
+    println!("Mapping succinct reads to aware alignments");
+    let _read2aware: FxHashMap<String,Vec<AwareAlignment>> = strainberry::awarecontig::map_succinct_seqs_to_aware_contigs(
+        &read_alignments, &mut aware_contigs, &seq2haplo, &ambiguous_reads
+    );
 
     println!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
 }
