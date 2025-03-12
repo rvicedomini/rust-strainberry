@@ -39,10 +39,8 @@ fn revcomp(seq: &[u8]) -> Vec<u8> {
 
 pub fn load_bam_sequences(bam_path: &Path, opts: &Options) -> FxHashMap<String,Vec<u8>> {
     
-    let target_intervals = utils::bam_target_intervals(bam_path);
-    let target_intervals = target_intervals.into_iter()
-        .sorted_unstable_by_key(|siv| siv.end - siv.beg)
-        .collect_vec();
+    let mut target_intervals = utils::bam_target_intervals(bam_path);
+    target_intervals.sort_unstable_by_key(|siv| siv.end - siv.beg);
     
     let (tx, rx) = mpsc::channel();
     thread::scope(|scope| {
