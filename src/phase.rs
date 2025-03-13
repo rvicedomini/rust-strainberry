@@ -4,7 +4,6 @@ pub mod haplotype;
 pub mod phasedblock;
 
 use std::collections::VecDeque;
-use std::fs;
 use std::sync::mpsc;
 use std::thread;
 use std::path::{Path,PathBuf};
@@ -47,14 +46,7 @@ pub struct Phaser<'a> {
 
 impl<'a> Phaser<'a> {
 
-    pub fn new(bam_path: &'a Path, target_names: &'a Vec<String>, target_intervals: &'a Vec<SeqInterval>, read_sequences: &'a FxHashMap<String, Vec<u8>>, output_dir: &Path, opts: &'a Options) -> Phaser<'a> {
-
-        let work_dir = output_dir.join("20-separate");
-        if fs::create_dir_all(work_dir.as_path()).is_err() {
-            eprintln!("Cannot create output directory: \"{}\"", work_dir.display());
-            std::process::exit(1);
-        };
-        eprintln!("Phasing work directory: {}", work_dir.display());
+    pub fn new(bam_path: &'a Path, target_names: &'a Vec<String>, target_intervals: &'a Vec<SeqInterval>, read_sequences: &'a FxHashMap<String, Vec<u8>>, work_dir: PathBuf, opts: &'a Options) -> Phaser<'a> {
 
         Phaser {
             bam_path,
