@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::path::Path;
+use std::process::ExitCode;
 use std::time::Instant;
 
 use clap::Parser;
@@ -20,7 +21,7 @@ use strainberry::utils;
 use strainberry::variant;
 
 
-fn main() {
+fn main() -> ExitCode{
     
     let t_start = Instant::now();
 
@@ -33,7 +34,7 @@ fn main() {
     // TODO - consider creating output directory in cli module (after option validation)
     if fs::create_dir_all(output_dir).is_err() {
         println!("Cannot create output directory: \"{}\"", output_dir.display());
-        std::process::exit(1);
+        return ExitCode::FAILURE;
     };
 
     let variants = if let Some(vcf_file) = &opts.vcf_file {
@@ -62,15 +63,21 @@ fn main() {
     let read_sequences = load_bam_sequences(bam_path, &opts);
     println!("  {} reads loaded", read_sequences.len());
 
+    let phased_dir = output_dir.join("20-phased");
+    if fs::create_dir_all(phased_dir.as_path()).is_err() {
+        eprintln!("Cannot create phasing work directory: \"{}\"", phased_dir.display());
+        return ExitCode::FAILURE;
+    };
+    
     println!("Phasing strains");
-    let phaser = phase::Phaser::new(bam_path, &target_names, &target_intervals, &read_sequences, output_dir, &opts);
+    let phaser = phase::Phaser::new(bam_path, &target_names, &target_intervals, &read_sequences, phased_dir, &opts);
     let haplotypes = phaser.phase(&variants);
     println!("  {} haplotypes phased", haplotypes.len());
 
     if opts.phase_only {
         println!("Finished!");
         println!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
-        return; // std::process::exit(0);
+        return ExitCode::SUCCESS;
     }
 
     println!("Building aware contigs");
@@ -85,10 +92,20 @@ fn main() {
     let variant_positions = variants.values().flatten().map(|var| (var.tid,var.pos)).collect::<FxHashSet<_>>();
     let (seq2haplo, ambiguous_reads) = strainberry::phase::separate_reads(&succinct_reads, &haplotypes, &variant_positions, opts.min_shared_snv);
     println!("Mapping reads to aware contigs");
-    let _read2aware: FxHashMap<String,Vec<AwareAlignment>> = strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut aware_contigs, &seq2haplo, &ambiguous_reads);
+    let read2aware: FxHashMap<String,Vec<AwareAlignment>> = strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut aware_contigs, &seq2haplo, &ambiguous_reads);
 
+    let graphs_dir = output_dir.join("40-graphs");
+    if fs::create_dir_all(graphs_dir.as_path()).is_err() {
+        eprintln!("Cannot create graphs directory: \"{}\"", graphs_dir.display());
+        return ExitCode::FAILURE;
+    };
+    
     println!("Building strain-aware graph");
-    let _aware_graph = strainberry::awaregraph::AwareGraph::default();
+    let mut aware_graph = strainberry::awaregraph::AwareGraph::build(&aware_contigs);
+    aware_graph.add_edges_from_aware_alignments(&read2aware);
+    aware_graph.write_gfa(graphs_dir.join("aware_graph.raw.gfa")).unwrap();
 
     println!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
+
+    ExitCode::SUCCESS
 }
