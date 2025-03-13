@@ -1,4 +1,3 @@
-use std::str::FromStr;
 use std::sync::mpsc;
 use std::thread;
 use std::path::Path;
@@ -10,7 +9,7 @@ use rust_htslib::bam::record::Aux;
 
 use crate::cli::Options;
 use crate::seq::SeqInterval;
-use crate::seq::alignment::{Strand,SeqAlignment};
+use crate::seq::alignment::SeqAlignment;
 use crate::utils;
 
 
@@ -22,7 +21,7 @@ struct Misassembly(String,usize);
 struct AlignedBlock {
     query_beg: usize,
     query_end: usize,
-    strand: Strand,
+    strand: u8,
     target_name: String,
     target_beg: usize,
     target_end: usize,
@@ -118,11 +117,12 @@ fn find_misassemblies(bam_reader: &mut IndexedReader, region: &SeqInterval, opts
                 for sa in supplementary_alignments {
                     let target_name = sa[0].to_string();
                     let target_pos = sa[1].parse::<usize>().unwrap() - 1;
-                    let strand = Strand::from_str(sa[2]).unwrap();
+                    let strand = sa[2].as_bytes()[0];
+                    assert!(strand == b'+' || strand == b'-');
                     let cigar = utils::parse_cigar_bytes(sa[3].as_bytes());
                     let [mut query_beg,mut query_end,target_beg,target_end] = utils::intervals_from_cigar(&cigar, target_pos);
                     let query_length = utils::seq_length_from_cigar(&cigar, true);
-                    if matches!(strand, Strand::Reverse) {
+                    if strand == b'-' {
                         (query_beg,query_end) = (query_length-query_end, query_length-query_beg);
                     }
                     read_alignments.push(AlignedBlock{ query_beg, query_end, strand, target_name, target_beg, target_end });
@@ -147,7 +147,7 @@ fn misassemblies_from_alignments(alignments: &[AlignedBlock], read_length: usize
 
     let first = alignments.first().unwrap();
     if first.query_beg >= opts.min_overhang {
-        candidates.push(if let Strand::Forward = first.strand {
+        candidates.push(if first.strand == b'+' {
             Misassembly(first.target_name.clone(), first.target_beg)
         } else {
             Misassembly(first.target_name.clone(), first.target_end)
@@ -156,12 +156,12 @@ fn misassemblies_from_alignments(alignments: &[AlignedBlock], read_length: usize
 
     for w in alignments.windows(2) {
         let (a,b) = (&w[0],&w[1]);
-        candidates.push(if let Strand::Forward = a.strand {
+        candidates.push(if a.strand == b'+' {
             Misassembly(a.target_name.clone(), a.target_end)
         } else {
             Misassembly(a.target_name.clone(), a.target_beg)
         });
-        candidates.push(if let Strand::Forward = b.strand {
+        candidates.push(if b.strand == b'+' {
             Misassembly(b.target_name.clone(), b.target_beg)
         } else {
             Misassembly(b.target_name.clone(), b.target_end)
@@ -170,7 +170,7 @@ fn misassemblies_from_alignments(alignments: &[AlignedBlock], read_length: usize
 
     let last = alignments.last().unwrap();
     if read_length - last.query_end >= opts.min_overhang {
-        candidates.push(if let Strand::Forward = last.strand {
+        candidates.push(if last.strand == b'+' {
             Misassembly(last.target_name.clone(), last.target_end)
         } else {
             Misassembly(last.target_name.clone(), last.target_beg)
