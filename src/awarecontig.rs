@@ -5,7 +5,7 @@ use rustc_hash::{FxHashMap,FxHashSet};
 
 use crate::phase::haplotype::{HaplotypeId,Haplotype};
 use crate::seq::SeqInterval;
-use crate::seq::alignment::{MappingType, SeqAlignment, Strand};
+use crate::seq::alignment::{MappingType, SeqAlignment};
 use crate::utils::BamRecordId;
 
 
@@ -26,14 +26,14 @@ impl fmt::Display for AwareContig {
 
 impl AwareContig {
 
-    fn tid(&self) -> usize { self.interval.tid }
-    fn beg(&self) -> usize { self.interval.beg }
-    fn end(&self) -> usize { self.interval.end }
-    fn length(&self) -> usize { self.interval.end - self.interval.beg }
+    pub fn tid(&self) -> usize { self.interval.tid }
+    pub fn beg(&self) -> usize { self.interval.beg }
+    pub fn end(&self) -> usize { self.interval.end }
+    pub fn length(&self) -> usize { self.interval.end - self.interval.beg }
 
-    fn is_phased(&self) -> bool { self.hid.is_some() }
-    fn hid(&self) -> Option<usize> { self.hid }
-    fn haplotype_id(&self) -> Option<HaplotypeId> {
+    pub fn is_phased(&self) -> bool { self.hid.is_some() }
+    pub fn hid(&self) -> Option<usize> { self.hid }
+    pub fn haplotype_id(&self) -> Option<HaplotypeId> {
         Some(HaplotypeId{
             tid: self.interval.tid,
             beg: self.interval.beg,
@@ -42,13 +42,13 @@ impl AwareContig {
         })
     }
 
-    fn interval(&self) -> SeqInterval { self.interval }
+    pub fn interval(&self) -> SeqInterval { self.interval }
 
-    fn phaseset_id(&self) -> SeqInterval { self.interval() }
+    pub fn phaseset_id(&self) -> SeqInterval { self.interval() }
 
-    fn region(&self) -> (usize,usize) { (self.beg(), self.end()) }
+    pub fn region(&self) -> (usize,usize) { (self.beg(), self.end()) }
 
-    fn depth(&self) -> f64 {
+    pub fn depth(&self) -> f64 {
         let contig_length = self.length();
         if contig_length > 0 {
             (self.aligned_bases as f64) / (contig_length as f64)
@@ -61,20 +61,20 @@ impl AwareContig {
 
 #[derive(Debug, Clone)]
 pub struct AwareAlignment {
-    query_name: String,
-    query_length: usize,
-    query_beg: usize,
-    query_end: usize,
-    strand: Strand,
-    aware_id: usize,
-    target_name: String,
-    target_beg: usize,
-    target_end: usize,
-    mapq: u8,
-    identity: f64,
-    query_aln_beg: usize,
-    query_aln_end: usize,
-    mapping_type: MappingType
+    pub query_name: String,
+    pub query_length: usize,
+    pub query_beg: usize,
+    pub query_end: usize,
+    pub strand: u8,
+    pub aware_id: usize,
+    pub target_name: String,
+    pub target_beg: usize,
+    pub target_end: usize,
+    pub mapq: u8,
+    pub identity: f64,
+    pub query_aln_beg: usize,
+    pub query_aln_end: usize,
+    pub mapping_type: MappingType
 }
 
 
@@ -176,7 +176,7 @@ pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contig
             let aware_ctg_end = aware_target_end - ctg.beg();
             let aware_ctg_range = (aware_ctg_beg, aware_ctg_end, ctg.length());
 
-            let query_beg = if let Strand::Forward = sa.strand() { sa.query_beg() } else { sa.query_length() - sa.query_end() };
+            let query_beg = if sa.is_forward() { sa.query_beg() } else { sa.query_length() - sa.query_end() };
             let (mut aware_query_beg, aware_target_beg) = crate::seq::alignment::first_match_from(ctg.beg(), query_beg, sa.target_beg(), sa.cigar()).unwrap();
             let (mut aware_query_end, aware_target_end) = crate::seq::alignment::last_match_until(ctg.end(), query_beg, sa.target_beg(), sa.cigar()).unwrap();
             let aware_query_range = (aware_query_beg, aware_query_end, sa.query_length());
@@ -187,7 +187,7 @@ pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contig
 
             let maptype = crate::seq::alignment::classify_mapping(aware_query_range, aware_ctg_range, 100, 0.05);
 
-            if let Strand::Reverse = sa.strand() {
+            if sa.is_reverse() {
                 (aware_query_beg, aware_query_end) = (sa.query_length() - aware_query_end, sa.query_length() - aware_query_beg);
             }
 
