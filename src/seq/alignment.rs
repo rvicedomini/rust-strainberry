@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::str::FromStr;
 
 use itertools::Itertools;
 
@@ -12,24 +11,6 @@ use rustc_hash::FxHashMap;
 use crate::cli::Options;
 use crate::utils::BamRecordId;
 
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Strand {
-    Forward,
-    Reverse
-}
-
-impl FromStr for Strand {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "+" => Ok(Strand::Forward),
-            "-" => Ok(Strand::Reverse),
-            _ => Err(())
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy)]
 pub enum MappingType {
@@ -86,7 +67,7 @@ pub struct SeqAlignment {
     query_length: usize,
     query_beg: usize,
     query_end: usize,
-    strand: Strand,
+    strand: u8,
     target_name: String,
     target_length: usize,
     target_beg: usize,
@@ -109,7 +90,9 @@ impl SeqAlignment {
     pub fn query_beg(&self) -> usize { self.query_beg }
     pub fn query_end(&self) -> usize { self.query_end }
     
-    pub fn strand(&self) -> Strand { self.strand }
+    pub fn strand(&self) -> u8 { self.strand }
+    pub fn is_forward(&self) -> bool { self.strand() == b'+' }
+    pub fn is_reverse(&self) -> bool { self.strand() == b'-' }
 
     pub fn target_name(&self) -> &str { &self.target_name }
     pub fn target_length(&self) -> usize { self.target_length }
@@ -145,7 +128,7 @@ impl SeqAlignment {
             (query_beg, query_end) = (query_length-query_end, query_length-query_beg);
         }
 
-        let strand = if is_reverse { Strand::Reverse } else { Strand::Forward };
+        let strand = if is_reverse { b'-' } else { b'+' };
 
         let tid = record.tid() as u32;
         let target_name = String::from_utf8_lossy(header.tid2name(tid)).to_string();
@@ -196,7 +179,7 @@ impl SeqAlignment {
 
         let mut alignments = vec![];
 
-        let mut query_beg = if self.strand() == Strand::Forward { self.query_beg() } else { self.query_length() - self.query_end() };
+        let mut query_beg = if self.is_forward() { self.query_beg() } else { self.query_length() - self.query_end() };
         let mut target_beg = self.target_beg();
         let (mut query_end, mut target_end) = (query_beg, self.target_end);
         let (mut matches, mut mapping_length) = (0,0);
@@ -216,8 +199,8 @@ impl SeqAlignment {
                         tid: self.tid(),
                         query_name: self.query_name().to_string(),
                         query_length: self.query_length(),
-                        query_beg: if self.strand() == Strand::Forward { query_beg } else { self.query_length() - query_end },
-                        query_end: if self.strand() == Strand::Forward { query_end } else { self.query_length() - query_beg },
+                        query_beg: if self.is_forward() { query_beg } else { self.query_length() - query_end },
+                        query_end: if self.is_forward() { query_end } else { self.query_length() - query_beg },
                         strand: self.strand(),
                         target_name: self.target_name().to_string(),
                         target_length: self.target_length(), target_beg, target_end,
@@ -252,8 +235,8 @@ impl SeqAlignment {
                 tid: self.tid(),
                 query_name: self.query_name().to_string(),
                 query_length: self.query_length(),
-                query_beg: if self.strand() == Strand::Forward { query_beg } else { self.query_length() - query_end },
-                query_end: if self.strand() == Strand::Forward { query_end } else { self.query_length() - query_beg },
+                query_beg: if self.is_forward() { query_beg } else { self.query_length() - query_end },
+                query_end: if self.is_forward() { query_end } else { self.query_length() - query_beg },
                 strand: self.strand(),
                 target_name: self.target_name().to_string(),
                 target_length: self.target_length(), target_beg, target_end,
