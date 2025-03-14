@@ -14,7 +14,7 @@ use super::haplotree::Snv;
 //     fn length(&self) -> usize { self.end - self.beg }
 // }
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct HaplotypeId {
     pub tid: usize,
     pub beg: usize,
