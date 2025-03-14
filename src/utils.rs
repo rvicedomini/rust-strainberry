@@ -112,11 +112,10 @@ pub fn parse_cigar_bytes(cigar: &[u8]) -> CigarString {
 }
 
 
-pub fn intervals_from_cigar(cigarstring: &CigarString, pos:usize) -> [usize;4] {
-
-    let (target_beg, mut target_end) = (pos,pos);
-    let (mut query_beg, mut query_end) = (0,0);
-    for (i,&cigar) in cigarstring.iter().enumerate() {
+pub fn intervals_from_cigar(cigarstring: &CigarString, target_beg:usize, mut query_beg:usize) -> [usize;4] {
+    let mut target_end = target_beg;
+    let mut query_end = query_beg;
+    for (i, &cigar) in cigarstring.iter().enumerate() {
         match cigar {
             Cigar::Match(len) | Cigar::Equal(len) | Cigar::Diff(len) => {
                 target_end += len as usize;
