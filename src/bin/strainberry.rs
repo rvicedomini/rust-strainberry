@@ -58,6 +58,7 @@ fn main() -> ExitCode{
 
     println!("Splitting reference at putative misjoins");
     let target_intervals = misassembly::partition_reference(bam_path, &opts);
+    println!("  {} sequences after split", target_intervals.len());
 
     println!("Loading reads from BAM");
     let read_sequences = load_bam_sequences(bam_path, &opts);
@@ -84,13 +85,28 @@ fn main() -> ExitCode{
     let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&target_sequences, &target_intervals, &haplotypes, opts.min_aware_ctg_len);
     println!("  {} aware contigs built", aware_contigs.len());
 
+    // # to be added from python implementation:
+    // logger.info('Defining reference-adjacent aware contigs')
+    // aware_adjacent = defaultdict(set)
+    // for reference_id,reference_intervals in aware_intervals.items():
+    //     reference_intervals = sorted((iv.begin,iv.end) for iv in reference_intervals)
+    //     for i in range(len(reference_intervals)-1):
+    //         a = reference_intervals[i]
+    //         b = reference_intervals[i+1]
+    //         aware_adjacent[reference_id].add((a,b))
+    //         aware_adjacent[reference_id].add((b,a))
+
     println!("Loading read alignments");
     let read_alignments = load_bam_alignments(bam_path, &opts);
+
     println!("Building succinct reads");
     let succinct_reads = build_succinct_sequences(bam_path, &variants, &opts);
+
     println!("Read realignment to haplotypes");
     let variant_positions = variants.values().flatten().map(|var| (var.tid,var.pos)).collect::<FxHashSet<_>>();
     let (seq2haplo, ambiguous_reads) = strainberry::phase::separate_reads(&succinct_reads, &haplotypes, &variant_positions, opts.min_shared_snv);
+    println!("  unique={} ambiguous={}", seq2haplo.len(), ambiguous_reads.len());
+
     println!("Mapping reads to aware contigs");
     let read2aware: FxHashMap<String,Vec<AwareAlignment>> = strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut aware_contigs, &seq2haplo, &ambiguous_reads);
 
@@ -103,7 +119,26 @@ fn main() -> ExitCode{
     println!("Building strain-aware graph");
     let mut aware_graph = strainberry::awaregraph::AwareGraph::build(&aware_contigs);
     aware_graph.add_edges_from_aware_alignments(&read2aware);
-    aware_graph.write_gfa(graphs_dir.join("aware_graph.raw.gfa")).unwrap();
+    aware_graph.write_gfa(graphs_dir.join("aware_graph.raw.gfa"), &target_names).unwrap();
+    aware_graph.remove_weak_edges(5);
+    aware_graph.write_gfa(graphs_dir.join("aware_graph.gfa"), &target_names).unwrap();
+
+    // # to be added from python implementation:
+    // # assign reference sequence to reference-adjacent contigs
+    // awaregraph.patch_edges(aware_adjacent)
+
+    // # to be added from python implementation:
+    // logger.debug(f'Removing inconsistent edges')
+    // inconsistent_edges = awaregraph.get_htig_inconsistent_edges(htig2aware)
+    // awaregraph.remove_htig_inconsistent_edges(inconsistent_edges)
+
+    println!("Resolving strain-aware graph using reads");
+    let nb_tedges = aware_graph.add_bridges(&read2aware);
+    // # to be added from python implementation:
+    // awaregraph.patch_sequences(htig2aware)
+    // awaregraph.write_dot(f'{contigs_workdir}/aware_graph.dot')
+    println!("  {} read bridges added", nb_tedges);
+
 
     println!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
 
