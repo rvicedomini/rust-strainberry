@@ -44,8 +44,8 @@ pub fn partition_reference(bam_path: &Path, opts: &Options) -> Vec<SeqInterval> 
             scope.spawn(move || {
                 let mut bam_reader = IndexedReader::from_path(bam_path).unwrap();
                 for i in (thread_id..target_intervals_ref.len()).step_by(opts.nb_threads) {
-                    let intervals = find_misassemblies(&mut bam_reader, &target_intervals_ref[i], opts);
-                    sender.send(intervals).unwrap();
+                    let candidates = find_misassemblies(&mut bam_reader, &target_intervals_ref[i], opts);
+                    sender.send(candidates).unwrap();
                 }
             });
         }
@@ -82,15 +82,14 @@ fn find_misassemblies(bam_reader: &mut IndexedReader, region: &SeqInterval, opts
 
         let seqalign = SeqAlignment::from_bam_record(&record, &bam_header);
 
-        let aligned_blocks = seqalign.aligned_blocks().collect_vec();
-        for w in aligned_blocks.windows(2) {
-            let [_a_query_beg,a_query_end,_a_target_beg,a_target_end] = w[0];
-            let [b_query_beg,_b_query_end,b_target_beg,_b_target_end] = w[1];
+        for (a,b) in seqalign.aligned_blocks().tuple_windows() {
+            let [_a_query_beg,a_query_end,_a_target_beg,a_target_end] = a;
+            let [b_query_beg,_b_query_end,b_target_beg,_b_target_end] = b;
             if b_target_beg - a_target_end >= opts.min_indel {
-                candidates.push(Misassembly(seqalign.target_name().to_string(),a_target_end));
-                candidates.push(Misassembly(seqalign.target_name().to_string(),b_target_beg));
+                candidates.push(Misassembly(seqalign.target_name().to_string(), a_target_end));
+                candidates.push(Misassembly(seqalign.target_name().to_string(), b_target_beg));
             } else if b_query_beg - a_query_end >= opts.min_indel {
-                candidates.push(Misassembly(seqalign.target_name().to_string(),b_target_beg));
+                candidates.push(Misassembly(seqalign.target_name().to_string(), b_target_beg));
             }
         }
 
@@ -116,11 +115,11 @@ fn find_misassemblies(bam_reader: &mut IndexedReader, region: &SeqInterval, opts
 
                 for sa in supplementary_alignments {
                     let target_name = sa[0].to_string();
-                    let target_pos = sa[1].parse::<usize>().unwrap() - 1;
+                    let target_beg = sa[1].parse::<usize>().unwrap() - 1;
                     let strand = sa[2].as_bytes()[0];
                     assert!(strand == b'+' || strand == b'-');
                     let cigar = utils::parse_cigar_bytes(sa[3].as_bytes());
-                    let [mut query_beg,mut query_end,target_beg,target_end] = utils::intervals_from_cigar(&cigar, target_pos);
+                    let [mut query_beg,mut query_end,target_beg,target_end] = utils::intervals_from_cigar(&cigar, target_beg, 0);
                     let query_length = utils::seq_length_from_cigar(&cigar, true);
                     if strand == b'-' {
                         (query_beg,query_end) = (query_length-query_end, query_length-query_beg);
@@ -212,6 +211,7 @@ fn cluster_misassemblies(mut candidates: Vec<Misassembly>, bam_header: &HeaderVi
             let Misassembly(_, me_beg) = clust.first().unwrap();
             let Misassembly(_, me_end) = clust.last().unwrap();
             let Misassembly(_, me_median_pos) = &clust[clust.len()/2];
+            // TODO: try splitting simply at median position, removing target[beg:end] could be too much?
             if *me_median_pos >= opts.min_overhang && target_length-me_median_pos >= opts.min_overhang {
                 intervals.push(SeqInterval{ tid, beg: target_pos, end: *me_beg });
                 target_pos = *me_end;
