@@ -22,7 +22,7 @@ use crate::variant::{Var,VarDict};
 
 use phasedblock::PhasedBlock;
 
-// use self::haplograph::HaploGraph;
+use self::haplograph::HaploGraph;
 use self::haplotype::{Haplotype, HaplotypeId};
 
 // input: 
@@ -112,8 +112,19 @@ impl<'a> Phaser<'a> {
 
         let (sread_haplotypes, _ambiguous_reads) = self::separate_reads(&succinct_records, &haplotypes, &variant_positions, self.opts.min_shared_snv);
 
-        // TODO: Merge contiguous haplotypes when it is not ambiguous to do so
-        // let mut haplograph = HaploGraph::new(&haplotypes, &sread_haplotypes);
+        // logger.debug(f'Haplotype extension')
+        // hap_graph = HaploGraph(haplotypes, segment_haplotypes, self.lookback)
+        // hap_graph.write_dot(os.path.join(self.outdir_dots,f'{contig_region_name}.haplotypes.partial.dot'))
+        // haplotypes = hap_graph.scaffold_haplotypes(variant_positions, min_nreads=self.min_obs)
+        // hap_graph.write_dot(os.path.join(self.outdir_dots,f'{contig_region_name}.haplotypes.final.dot'))
+        // logger.debug(f'Extended haplotypes: {len(haplotypes)}')
+
+        // Merge contiguous haplotypes when it is not ambiguous to do so
+        let mut haplograph = HaploGraph::new(&haplotypes, &sread_haplotypes); // TODO: consider taking ownership of haplotypes
+        let haplotypes = haplograph.scaffold_haplotypes(&variant_positions, 5, 0.8);
+
+        todo!();
+        
         // let dot_file = format!("{}_{}-{}.dot", target_interval.tid, target_interval.beg, target_interval.end);
         // let dot_path = self.work_dir().join(dot_file.as_str());
         // let _ = haplograph.write_dot(&dot_path);
