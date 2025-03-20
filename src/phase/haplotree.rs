@@ -1,6 +1,6 @@
 use tinyvec::{tiny_vec,TinyVec};
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Snv {
     pub pos: usize,
     pub nuc: u8,

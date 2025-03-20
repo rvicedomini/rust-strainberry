@@ -1,4 +1,5 @@
 use std::fmt;
+use rustc_hash::FxHashSet;
 
 use crate::seq::SeqInterval;
 
@@ -22,7 +23,7 @@ pub struct HaplotypeId {
     pub hid: usize
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Haplotype {
     hid: usize,
     tid: usize,
@@ -81,9 +82,9 @@ impl Haplotype {
         SeqInterval{ tid:self.tid, beg:self.beg(), end:self.end() }
     }
 
-    // pub fn append(&mut self, mut other: Haplotype) {
-    //     self.vars.extend(other.vars.drain(other.offset..));
-    // }
+    pub fn extend(&mut self, mut other: Haplotype) {
+        self.vars.extend(other.vars.drain(other.offset..));
+    }
 
     pub fn push(&mut self, snv:Snv) {
         self.vars.push(snv);
@@ -109,9 +110,37 @@ impl Haplotype {
     //     self.split_off(idx, hid, dist)
     // }
 
-    // pub fn trim(&mut self) {
-    //     todo!()
-    // }
+    pub fn trim(&mut self, variant_positions:&FxHashSet<(usize,usize)>, lookback:usize) {
+        // left trim
+        let first_i = (0..self.vars.len()).find(|&i| variant_positions.contains(&(self.tid(),self.vars[i].pos)));
+        if first_i.is_none() { // no variant positions -> delete haplotype
+            self.vars.clear();
+            self.offset = 0;
+            return;
+        }
+        // trim positions that are too far from the first variant position
+        let first_i = unsafe { first_i.unwrap_unchecked() }; // if it was None I would have returned in the if-statement above
+        let var_pos = self.vars[first_i].pos;
+        let cut_i = (0..first_i).rev().find(|i| var_pos - self.vars[*i].pos > lookback);
+        if let Some(cut_i) = cut_i {
+            self.vars.drain(..=cut_i);
+            self.offset = std::cmp::max(0, self.offset-(cut_i+1))
+        }
+        // right trim
+        let last_i = (0..self.size()).rev().find(|&i| variant_positions.contains(&(self.tid(),self.vars[self.offset+i].pos)));
+        if last_i.is_none() { // no variant positions -> delete haplotype
+            self.vars.clear();
+            self.offset = 0;
+            return;
+        }
+        // trim positions that are too far from the last variant position
+        let last_i = unsafe { last_i.unwrap_unchecked() }; // if it was None I would have returned in the if-statement above
+        let var_pos = self.vars[self.offset+last_i].pos;
+        let cut_i = (self.offset+last_i+1..self.vars.len()).find(|i| self.vars[*i].pos - var_pos > lookback);
+        if let Some(cut_i) = cut_i {
+            self.vars.drain(..cut_i);
+        }
+    }
 
     pub fn seq_string(&self) -> String {
         let context_str = String::from_iter(self.vars[..self.offset].iter().map(|snv| snv.nuc as char));
@@ -127,40 +156,3 @@ impl fmt::Display for Haplotype {
         write!(f, "h{}: {} ({}:{}..={})", self.hid(), self.seq_string(), self.tid(), self.first_pos(), self.last_pos())
     }
 }
-
-
-// def trim(self, variant_pos, lookback):
-//     # left_trim
-//     it = (i for i in range(len(self.positions)) if self.positions[i] in variant_pos)
-//     first_i = next(it,None)
-//     if first_i is None: # no variant positions -> delete haplotype
-//         self.positions = []
-//         self.sequence = ''
-//         self.start_idx = 0
-//         return self
-//     # trim positions that are too far from the first variant position
-//     var_pos = self.positions[first_i]
-//     cut_i = first_i-1
-//     while cut_i >= 0 and var_pos-self.positions[cut_i]+1 <= lookback:
-//         cut_i -= 1
-//     if cut_i >= 0:
-//         self.positions = self.positions[cut_i+1:]
-//         self.sequence = self.sequence[cut_i+1:]
-//         self.start_idx = max(0,self.start_idx-(cut_i+1))
-//     # right trim
-//     it = (i for i in reversed(range(self.size())) if self.positions[self.start_idx+i] in variant_pos)
-//     last_i = next(it,None)
-//     if last_i is None: # no variant positions -> delete haplotype
-//         self.positions = []
-//         self.sequence = ''
-//         self.start_idx = 0
-//         return self
-//     # trim positions that are too far from the last variant position
-//     var_pos = self.positions[self.start_idx+last_i]
-//     cut_i = self.start_idx + last_i + 1
-//     while cut_i < len(self.positions) and self.positions[cut_i]-var_pos+1 <= lookback:
-//         cut_i += 1
-//     if cut_i < len(self.positions):
-//         self.positions = self.positions[:cut_i]
-//         self.sequence = self.sequence[:cut_i]
-//     return self

@@ -15,13 +15,14 @@ struct Edge(HaplotypeId,usize);
 type AdjList = FxHashMap<HaplotypeId,TinyVec<[Edge;10]>>;
 
 pub struct HaploGraph {
+    haplotypes: FxHashMap<HaplotypeId,Haplotype>,
     succ: AdjList,
     pred: AdjList,
 }
 
 impl HaploGraph {
 
-    pub fn new(haplotypes: &FxHashMap<HaplotypeId,Haplotype>, sread_haplotypes: &FxHashMap<BamRecordId, Vec<HaplotypeId>>) -> HaploGraph {
+    pub fn new(haplotypes: FxHashMap<HaplotypeId,Haplotype>, sread_haplotypes: &FxHashMap<BamRecordId, Vec<HaplotypeId>>) -> HaploGraph {
         let mut succ: AdjList = AdjList::default();
         let mut pred: AdjList = AdjList::default();
         
@@ -47,7 +48,7 @@ impl HaploGraph {
             }
         }
 
-        HaploGraph{ succ, pred }
+        HaploGraph{ haplotypes, succ, pred }
     }
 
     fn out_degree(&self, hid:&HaplotypeId) -> usize { self.succ[hid].len() }
@@ -110,32 +111,47 @@ impl HaploGraph {
         }
     }
 
-    pub fn scaffold_haplotypes(&mut self, variant_positions:&FxHashSet<(usize,usize)>, min_reads:usize, min_frac:f64) -> FxHashMap<HaplotypeId,Haplotype> {
+    pub fn scaffold_haplotypes(&mut self, variant_positions:&FxHashSet<(usize,usize)>, min_reads:usize, min_frac:f64, min_snv:usize) -> FxHashMap<HaplotypeId,Haplotype> {
         assert!(min_frac > 0.5);
-
         self.remove_weak_edges(min_reads, min_frac);
-        
-        // assert(all(self.hg.out_degree(n) < 2 and self.hg.in_degree(n) < 2 for n in self.hg.nodes))
-        // scaffolds = []
-        // haplotype_scaffold = dict()
-        // for ht_from in self.hg.nodes:
-        //     if self.hg.in_degree(ht_from) == 0:
-        //         haplotype_nodes = self._scaffold_from(ht_from)
-        //         ht_name = haplotype_nodes.pop()
-        //         scf = copy.deepcopy(self.name2haplotype[ht_name])
-        //         haplotype_scaffold[ht_name] = scf
-        //         while len (haplotype_nodes) > 0:
-        //             ht_name = haplotype_nodes.pop()
-        //             scf.extend(self.name2haplotype[ht_name])
-        //             haplotype_scaffold[ht_name] = scf
-        //         scf.trim(variant_positions,0)
-        //         assert(scf.size() > 0)
-        //         if scf.size() >= 3:
-        //             scaffolds.append(scf)
-        // return scaffolds
+        assert!(self.succ.keys().all(|hid| self.out_degree(hid) < 2 && self.in_degree(hid) < 2));
+        let mut scaffolds: FxHashMap<HaplotypeId,Haplotype> = FxHashMap::default();
+        for ht_from in self.succ.keys().filter(|&hid| self.in_degree(hid) == 0) {
+            let mut haplotype_nodes = self.scaffold_from(*ht_from);
+            assert!(!haplotype_nodes.is_empty());
+            let ht_name = unsafe { haplotype_nodes.pop().unwrap_unchecked() };
+            let mut scf = self.haplotypes[&ht_name].clone(); // TODO: do I really need to clone it?
+            while let Some(ht_name) = haplotype_nodes.pop() {
+                scf.extend(self.haplotypes[&ht_name].clone()); // TODO: same as above, can I safely remove it from the hashmap and not clone it?
+            }
+            scf.trim(variant_positions,0);
+            assert!(scf.size() > 0);
+            if scf.size() >= min_snv {
+                scaffolds.insert(scf.uid(), scf);
+            }
+        }
+        scaffolds
+    }
 
-
-        todo!()
+    // TODO: move from recursive to iterative
+    // Prerequisite: linear path from hid in the graph, no loops
+    fn scaffold_from(&self, mut hid:HaplotypeId) -> Vec<HaplotypeId> {
+        let mut haplotype_nodes = vec![];
+        while self.out_degree(&hid) > 0 {
+            haplotype_nodes.push(hid);
+            hid = unsafe { self.succ[&hid].first().unwrap_unchecked().0 };
+        }
+        haplotype_nodes.push(hid);
+        haplotype_nodes.reverse();
+        haplotype_nodes
+        // old iterative version:
+        // if self.out_degree(hid) == 0 {
+        //     return vec![*hid];
+        // }
+        // let succ = unsafe { &self.succ[hid].first().unwrap_unchecked().0 }; // out_degree > 0
+        // let mut haplotype_nodes = self.scaffold_from(succ);
+        // haplotype_nodes.push(*hid);
+        // haplotype_nodes
     }
 
     // pub fn write_dot(&self, path:&Path) -> std::io::Result<()> {

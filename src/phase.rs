@@ -103,12 +103,8 @@ impl<'a> Phaser<'a> {
         let (haplotypes, succinct_records) = self.phase_variants(target_interval,variants);
         // eprintln!("  -> Haplotypes in {target_interval}: {}", haplotypes.len());
         let variant_positions = self.variant_positions(&haplotypes);
-        let haplotypes = self.remove_false_haplotypes(haplotypes, &variant_positions);
+        let haplotypes: FxHashMap<HaplotypeId,Haplotype> = self.remove_false_haplotypes(haplotypes, &variant_positions);
         // eprintln!("  -> Filtered Haplotypes in {target_interval}: {}", haplotypes.len());
-        
-        // let haplotype_intervals = IntervalTree::from_iter(
-        //     haplotypes.values().map(|ht| (ht.beg()..ht.end(), ht))
-        // );
 
         let (sread_haplotypes, _ambiguous_reads) = self::separate_reads(&succinct_records, &haplotypes, &variant_positions, self.opts.min_shared_snv);
 
@@ -120,10 +116,8 @@ impl<'a> Phaser<'a> {
         // logger.debug(f'Extended haplotypes: {len(haplotypes)}')
 
         // Merge contiguous haplotypes when it is not ambiguous to do so
-        let mut haplograph = HaploGraph::new(&haplotypes, &sread_haplotypes); // TODO: consider taking ownership of haplotypes
-        let haplotypes = haplograph.scaffold_haplotypes(&variant_positions, 5, 0.8);
-
-        todo!();
+        let mut haplograph = HaploGraph::new(haplotypes, &sread_haplotypes); // TODO: would taking ownership of sread_haplotypes make sense?
+        let haplotypes: FxHashMap<HaplotypeId,Haplotype> = haplograph.scaffold_haplotypes(&variant_positions, 5, 0.8, self.opts.min_snv);
         
         // let dot_file = format!("{}_{}-{}.dot", target_interval.tid, target_interval.beg, target_interval.end);
         // let dot_path = self.work_dir().join(dot_file.as_str());
@@ -176,10 +170,6 @@ impl<'a> Phaser<'a> {
     }
 
     fn variant_positions(&self, haplotypes: &FxHashMap<HaplotypeId,Haplotype>) -> FxHashSet<(usize,usize)> {
-        
-        // let haplo_nodes: FxHashSet<&Snv> = haplotypes.values()
-        //     .flat_map(|ht| ht.variants())
-        //     .collect();
 
         let mut counter: FxHashMap<_,usize> = FxHashMap::default();
         for (tid,snv_pos) in haplotypes.values().flat_map(|ht| ht.variants().iter().map(|snv| (ht.tid(),snv.pos))) {
