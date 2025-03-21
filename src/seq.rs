@@ -68,8 +68,8 @@ impl SuccinctSeq {
 
     pub fn record_id(&self) -> BamRecordId { self.record_id.clone() }
     pub fn tid(&self) -> usize { self.target_id }
-    pub fn positions(&self) -> &Vec<usize> { &self.positions }
-    pub fn nucleotides(&self) -> &Vec<u8> { &self.nucleotides }
+    pub fn positions(&self) -> &[usize] { &self.positions }
+    pub fn nucleotides(&self) -> &[u8] { &self.nucleotides }
 
     pub fn len(&self) -> usize { self.positions.len() }
     pub fn is_empty(&self) -> bool { self.len() == 0 }
