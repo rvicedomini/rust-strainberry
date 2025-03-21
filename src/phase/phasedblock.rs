@@ -40,6 +40,8 @@ impl PhasedBlock {
         }
     }
 
+    pub fn len(&self) -> usize { self.haplotypes.len() }
+    pub fn is_empty(&self) -> bool { self.len() == 0 }
     pub fn haplotypes(&self) -> &FxHashMap<usize,Haplotype> { &self.haplotypes }
     pub fn haplotypes_mut(&mut self) -> &mut FxHashMap<usize,Haplotype> { &mut self.haplotypes }
 
