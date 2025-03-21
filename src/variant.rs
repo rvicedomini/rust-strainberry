@@ -167,4 +167,47 @@ pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, opts:&Options) -> 
 }
 
 
+// From longshot: https://github.com/pjedge/longshot/blob/99ace95bada7b360dc338deae65073590d6dc35d/src/main.rs#L478
+// use Fishers exact test to filter variants for which allele observations are biased toward one strand or the other
+pub fn filter_variants(vardict:FxHashMap<usize,Vec<Var>>) -> FxHashMap<usize,Vec<Var>> {
 
+    let mut _retained = FxHashMap::default();
+
+    for var in vardict.into_values().flatten() {
+        if var.alleles.len() != 2 {
+            continue
+        }
+
+        // let counts: [u32; 4] = [
+        //     var.allele_counts_forward[0] as u32,
+        //     var.allele_counts_reverse[0] as u32,
+        //     var.allele_counts_forward[1] as u32,
+        //     var.allele_counts_reverse[1] as u32,
+        // ];
+        // let fishers_exact_pvalues = fishers_exact(&counts)
+        //     .chain_err(|| "Error calculating Fisher's exact test for strand bias.")?;
+
+        // //println!("{:?} {:?} {:?}  {:?}",&counts, fishers_exact_pvalues.two_tail_pvalue, fishers_exact_pvalues.less_pvalue, fishers_exact_pvalues.greater_pvalue);
+        // var.strand_bias_pvalue = if fishers_exact_pvalues.two_tail_pvalue <= 500.0 {
+        //     *PHREDProb::from(Prob(fishers_exact_pvalues.two_tail_pvalue))
+        // } else {
+        //     500.0
+        // };
+
+        // if fishers_exact_pvalues.two_tail_pvalue < strand_bias_pvalue_cutoff {
+        //     var.filter.add_filter(VarFilter::StrandBias);
+        //     var.genotype = Genotype(0, 0);
+        //     var.gq = 0.0;
+        // }
+    }
+
+    // for f in 0..flist.len() {
+    //     flist[f].calls.retain(|&c| {
+    //         !varlist.lst[c.var_ix as usize]
+    //             .filter
+    //             .has_filter(VarFilter::StrandBias)
+    //     });
+    // }
+
+    _retained
+}
