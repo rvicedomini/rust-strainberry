@@ -7,6 +7,7 @@ use std::time::Instant;
 
 use clap::Parser;
 
+use itertools::Itertools;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
@@ -56,9 +57,14 @@ fn main() -> ExitCode{
     // utils::estimate_lookback(bam_path, 1000)
     println!("Lookback {} bp", opts.lookback);
 
-    println!("Splitting reference at putative misjoins");
-    let target_intervals = misassembly::partition_reference(bam_path, &opts);
-    println!("  {} sequences after split", target_intervals.len());
+    let target_intervals = if opts.no_split { 
+        utils::bam_target_intervals(bam_path).into_iter().collect_vec()
+    } else {
+        println!("Splitting reference at putative misjoins");
+        let target_intervals = misassembly::partition_reference(bam_path, &opts);
+        println!("  {} sequences after split", target_intervals.len());
+        target_intervals
+    };
 
     println!("Loading reads from BAM");
     let read_sequences = load_bam_sequences(bam_path, &opts);
@@ -136,9 +142,8 @@ fn main() -> ExitCode{
     let nb_tedges = aware_graph.add_bridges(&read2aware);
     // # to be added from python implementation:
     // awaregraph.patch_sequences(htig2aware)
-    // awaregraph.write_dot(f'{contigs_workdir}/aware_graph.dot')
+    aware_graph.write_dot(graphs_dir.join("aware_graph.dot")).unwrap();
     println!("  {} read bridges added", nb_tedges);
-
 
     println!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
 

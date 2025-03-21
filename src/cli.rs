@@ -37,6 +37,10 @@ pub struct Options {
     #[arg(long = "phase-only")]
     pub phase_only: bool,
 
+    /// Do not split at putative misassembly events
+    #[arg(long = "no-split")]
+    pub no_split: bool,
+
     /// Minimum number of phased variants to retain a haplotype
     #[arg(long = "min-snv", value_name = "NUM", default_value_t = 3)]
     pub min_snv: usize,
