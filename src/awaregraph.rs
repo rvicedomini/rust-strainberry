@@ -326,6 +326,39 @@ impl<'a> AwareGraph<'a> {
         Ok(())
     }
 
+    pub fn write_dot(&self, dot_path:PathBuf) -> std::io::Result<()> {
+        let mut dot = crate::utils::get_file_writer(dot_path.as_path());
+        dot.write_all(b"digraph \"\" {\n")?;
+        dot.write_all(b"\tgraph [rankdir=LR, splines=true];\n")?;
+        for (node_id, node) in self.nodes.iter() {
+            let node_depth = node.ctg.depth() as usize;
+            let fillcolor = ["white","orange"][node.ctg.is_phased() as usize];
+            let node_line = format!("\t{node_id}\t[label=\"{node_id} ({node_depth}X)\", style=filled, fillcolor={fillcolor}];\n");
+            dot.write_all(node_line.as_bytes())?;
+        }
+        for edge_id in self.edges.values() {
+            let edge = self.get_biedge_idx(*edge_id);
+            let EdgeKey { id_from, strand_from, id_to, strand_to } = edge.key;
+            let arrow_tail = if strand_from == b'+' { "normal" } else { "inv" };
+            let arrow_head = if strand_to == b'+' { "normal" } else { "inv" };
+            let edge_gap = if edge.gaps.is_empty() { 0 } else { *edge.gaps.iter().sorted_unstable().take(edge.gaps.len()/2).last().unwrap() };
+            let edge_label = format!("{}/{}bp", edge.observations, edge_gap);
+            let edge_line = format!("\t{id_from} -> {id_to}\t[arrowtail={arrow_tail}, arrowhead={arrow_head}, dir=both, label=\"{edge_label}\"];\n");
+            dot.write_all(edge_line.as_bytes())?;
+        }
+        for edge_id in self.transitives.values() {
+            let edge = self.get_biedge_idx(*edge_id);
+            let EdgeKey { id_from, strand_from, id_to, strand_to } = edge.key;
+            let arrow_tail = if strand_from == b'+' { "normal" } else { "inv" };
+            let arrow_head = if strand_to == b'+' { "normal" } else { "inv" };
+            let edge_gap = if edge.gaps.is_empty() { 0 } else { *edge.gaps.iter().sorted_unstable().nth(edge.gaps.len()/2).unwrap() };
+            let edge_label = format!("{}/{}bp", edge.observations, edge_gap);
+            let edge_line = format!("\t{id_from} -> {id_to}\t[arrowtail={arrow_tail}, arrowhead={arrow_head}, dir=both, color=\"red\", label=\"{edge_label}\"];\n");
+            dot.write_all(edge_line.as_bytes())?;
+        }
+        dot.write_all(b"}\n")?;
+        Ok(())
+    }
 
 }
 
