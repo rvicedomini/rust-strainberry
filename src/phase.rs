@@ -99,9 +99,9 @@ impl<'a> Phaser<'a> {
     }
 
     fn phase_interval(&self, target_interval:&SeqInterval, variants: &[Var]) -> FxHashMap<HaplotypeId,Haplotype> {
-        // eprintln!("  -> Phasing {target_interval} ({} variants)", variants.len());
+        eprintln!("----- Phasing {}:{}-{} ({} variants) -----", self.target_names[target_interval.tid], target_interval.beg, target_interval.end, variants.len());
         let (haplotypes, succinct_records) = self.phase_variants(target_interval,variants);
-        // eprintln!("  -> Haplotypes in {target_interval}: {}", haplotypes.len());
+
         let variant_positions = self.variant_positions(&haplotypes);
         let haplotypes: FxHashMap<HaplotypeId,Haplotype> = self.remove_false_haplotypes(haplotypes, &variant_positions);
         // eprintln!("  -> Filtered Haplotypes in {target_interval}: {}", haplotypes.len());
@@ -116,7 +116,7 @@ impl<'a> Phaser<'a> {
         // logger.debug(f'Extended haplotypes: {len(haplotypes)}')
 
         // Merge contiguous haplotypes when it is not ambiguous to do so
-        let mut haplograph = HaploGraph::new(haplotypes, &sread_haplotypes); // TODO: would taking ownership of sread_haplotypes make sense?
+        let mut haplograph = HaploGraph::new(haplotypes, &sread_haplotypes);
         let haplotypes: FxHashMap<HaplotypeId,Haplotype> = haplograph.scaffold_haplotypes(&variant_positions, 5, 0.8, self.opts.min_snv);
         
         // let dot_file = format!("{}_{}-{}.dot", target_interval.tid, target_interval.beg, target_interval.end);
@@ -204,22 +204,19 @@ impl<'a> Phaser<'a> {
         let mut var = var_iter.next();
         for pileup in bam_reader.pileup().flatten() {
             
+            // possibly update snv_position
             if var.is_none() {
                 break 
             };
-
             let target_pos = pileup.pos() as usize;
-            
             let mut var_position = var.unwrap().pos;
             let mut var_nucleotides = var.unwrap().alleles.iter().map(|x| x.0 as u8).collect_vec();
-
             if var_position < target_pos {
                 var = var_iter.next();
                 if var.is_none() { break; }
                 var_position = var.unwrap().pos;
                 var_nucleotides = var.unwrap().alleles.iter().map(|x| x.0 as u8).collect_vec();
             }
-
             if target_pos < var_position {
                 continue;
             }
@@ -227,14 +224,14 @@ impl<'a> Phaser<'a> {
             // eprintln!("-----> SNV position = {var_position}");
             debug_assert_eq!(target_pos, var_position);
 
-            // TODO: keep a list of "in-scope" succinct reads
+            // load pileup column
             let edges = self.process_pileup(&pileup, &mut succinct_records, &mut supporting_sreads, &var_nucleotides);
             lookback_positions.push_back(var_position);
 
-            // eprintln!("Nucleotides: {}, Edges: {:?}", String::from_utf8(var_nucleotides.clone()).unwrap(), edges.iter().map(|&(u,v)| (u as char, v as char)).collect_vec());
+            // eprintln!("  Var:{var:?} Nucleotides: {}, Edges: {:?}", String::from_utf8(var_nucleotides.clone()).unwrap(), edges.iter().map(|&(u,v)| (u as char, v as char)).collect_vec());
 
             // filter lookback positions too far away
-            // while var_position - lookback_positions[0] + 1 > self.opts.lookback {
+            // while var_position - lookback_positions[0] > self.opts.lookback {
             //     lookback_positions.pop_front();
             // }
 
@@ -245,11 +242,12 @@ impl<'a> Phaser<'a> {
                 phasedblock.init(var_position, var_nucleotides);
                 continue
             }
-
-            // if no edge within lookback bases, possibly save haplotypes
-            if edges.is_empty() && phasedblock.haplotypes().values().next().unwrap().raw_size() >= self.opts.min_snv && (var_position - phasedblock.begin() + 1 > self.opts.lookback) {
-                for ht in phasedblock.drain() {
-                    haplotypes.insert(ht.uid(), ht);
+            // if no available edges
+            if edges.is_empty() {
+                if var_position - phasedblock.begin() + 1 > self.opts.lookback {
+                    for ht in phasedblock.drain() {
+                        haplotypes.insert(ht.uid(), ht);
+                    }
                 }
                 phasedblock.init(var_position, var_nucleotides);
                 lookback_positions.clear();
@@ -269,7 +267,7 @@ impl<'a> Phaser<'a> {
                 .collect_vec();
 
             // possibly save haplotypes and start a new phased block
-            if !unsupported_haplotypes.is_empty() && phasedblock.haplotypes().values().next().unwrap().raw_size() >= self.opts.min_snv && (var_position - phasedblock.begin() + 1 > self.opts.lookback) {
+            if !unsupported_haplotypes.is_empty() && (var_position - phasedblock.begin() + 1 > self.opts.lookback) { // if !unsupported_haplotypes.is_empty() && phasedblock.haplotypes().values().next().unwrap().raw_size() >= self.opts.min_snv && (var_position - phasedblock.begin() + 1 > self.opts.lookback) {
                 // eprintln!("Saving haplotypes after impossible extension");
                 // for ht in phasedblock.haplotypes().values() {
                 //     eprintln!("{ht}");
@@ -282,8 +280,6 @@ impl<'a> Phaser<'a> {
                 lookback_positions.push_back(var_position);
                 continue
             }
-
-            // remove haplotypes unsupported by the edges
             for hid in unsupported_haplotypes { 
                 phasedblock.remove_haplotype(hid)
             }
@@ -304,23 +300,19 @@ impl<'a> Phaser<'a> {
             let candidate_records = supporting_sreads.iter()
                 .filter(|&sr_id| succinct_records[sr_id].positions()[0] <= min_position)
                 .collect_vec();
-            
-            // let candidate_records = succinct_records.iter()
-            //     .filter(|&(_,sr_seq)| sr_seq.positions()[0] <= min_position)
-            //     .map(|(sr_id,_)| sr_id)
-            //     .collect_vec();
 
             // eprintln!("min_position: {}", min_position);
             // eprintln!("supporting_records: {}", succinct_records.len());
             // eprintln!("candidate_records: {}", candidate_records.len());
 
             let (unsupported_haplotypes, ambiguous_haplotypes) = self.validate_haplotypes(&succinct_records, &candidate_records, &phasedblock, min_position);
+            // eprintln!("  haplotypes: candidates={} unsupported={} ambiguous={}", phasedblock.len(), unsupported_haplotypes.len(), ambiguous_haplotypes.len());
 
-            if !unsupported_haplotypes.is_empty() && phasedblock.haplotypes().values().next().unwrap().raw_size() >= self.opts.min_snv && (var_position - phasedblock.begin() + 1 > self.opts.lookback) {
+            if !unsupported_haplotypes.is_empty() && (var_position - phasedblock.begin() + 1 > self.opts.lookback) { // if !unsupported_haplotypes.is_empty() && phasedblock.haplotypes().values().next().unwrap().raw_size() >= self.opts.min_snv && (var_position - phasedblock.begin() + 1 > self.opts.lookback) {
                 phasedblock.split_and_init(0);
                 // eprintln!("Saved haplotypes after finding unsupported ones:");
                 // for ht in phasedblock.haplotypes().values() {
-                //     eprintln!("{ht}");
+                //     eprintln!("  {ht}");
                 // }
                 for ht in phasedblock.drain() {
                     haplotypes.insert(ht.uid(), ht);
@@ -338,10 +330,11 @@ impl<'a> Phaser<'a> {
             // for hid in ambiguous_haplotypes.iter() {
             //     eprintln!("ambiguous: {}", phasedblock.haplotypes().get(&hid).unwrap());
             // }
+
             is_ambiguous |= !ambiguous_haplotypes.is_empty();
 
             // if ambiguous extension, create a new phaseset (should a minimum of 3 SNVs be requested here too?)
-            if is_ambiguous && phasedblock.haplotypes().values().next().unwrap().raw_size() >= self.opts.min_snv && (var_position - phasedblock.begin() + 1 > self.opts.lookback) {
+            if is_ambiguous && (var_position - phasedblock.begin() + 1 > self.opts.lookback) { // if is_ambiguous && phasedblock.haplotypes().values().next().unwrap().raw_size() >= self.opts.min_snv && (var_position - phasedblock.begin() + 1 > self.opts.lookback) {
                 let mut new_phasedblock = phasedblock.split_and_init(self.opts.lookback);
                 for ht in phasedblock.drain() {
                     haplotypes.insert(ht.uid(), ht);
@@ -358,18 +351,16 @@ impl<'a> Phaser<'a> {
 
             // eprintln!("Validated haplotypes:");
             // for ht in phasedblock.haplotypes().values() {
-            //     eprintln!("{ht}");
+            //     eprintln!("  {ht}");
             // }
         }
 
         // eprintln!("Saving remaining haplotypes:");
         // for ht in phasedblock.haplotypes().values() {
-        //     eprintln!("{ht}");
+        //     eprintln!("  {ht}");
         // }
-        if phasedblock.haplotypes().values().next().unwrap().raw_size() >= self.opts.min_snv {
-            for ht in phasedblock.drain() {
-                haplotypes.insert(ht.uid(), ht);
-            }
+        for ht in phasedblock.drain() { // previously only if phasedblock.haplotypes().values().next().unwrap().raw_size() >= self.opts.min_snv
+            haplotypes.insert(ht.uid(), ht);
         }
         
         (haplotypes, succinct_records.into_values().collect_vec())
@@ -478,7 +469,7 @@ impl<'a> Phaser<'a> {
 
             let srec_positions = srec.positions();
             let srec_len = srec.len();
-            if srec_len > 1 && srec_positions[srec_len-1] - srec_positions[srec_len-2] < self.opts.lookback {
+            if srec_len > 1 && (srec_positions[srec_len-1] - srec_positions[srec_len-2] < self.opts.lookback) {
                 let srec_nucleotides = srec.nucleotides();
                 let edge = (srec_nucleotides[srec_len-2], srec_nucleotides[srec_len-1]);
                 if var_nucleotides.contains(&edge.1) {
@@ -498,7 +489,7 @@ impl<'a> Phaser<'a> {
         //     .collect_vec();
 
         // let edge_total_obs = edge_counter.values().sum::<usize>() as f64;
-        let _x = edge_counter.iter().map(|(&(u,v),&cnt)| (format!("{}{}",u as char, v as char),cnt)).collect_vec();
+        // let _x = edge_counter.iter().map(|(&(u,v),&cnt)| (format!("{}{}",u as char, v as char),cnt)).collect_vec();
         // eprintln!("|E|:{edge_total_obs}, Edge: {_x:?}");
         let edges = edge_counter.iter()
             .filter(|&(_edge,&cnt)| cnt >= self.opts.min_alt_count && (cnt as f64) >= self.opts.min_alt_frac * (edge_total_obs as f64))
