@@ -161,7 +161,7 @@ pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contig
         let sa_id = sa.record_id();
 
         let idx = aware_contigs.partition_point(|ctg| ctg.tid() < sa.tid() || (ctg.tid() == sa.tid() && ctg.end() <= sa.target_beg()));
-        for (i,ctg) in aware_contigs[idx..].iter().take_while(|ctg| ctg.beg() < sa.target_end()).enumerate() {
+        for (i,ctg) in aware_contigs[idx..].iter().take_while(|ctg| ctg.tid() == sa.tid() && ctg.beg() < sa.target_end()).enumerate() {
             
             if ctg.is_phased() && (!seq2haplo.contains_key(&sa_id) || !seq2haplo[&sa_id].contains(&ctg.haplotype_id().unwrap())) {
                 continue
