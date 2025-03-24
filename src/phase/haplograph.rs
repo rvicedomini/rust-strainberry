@@ -1,6 +1,6 @@
-// use std::fs::File;
-// use std::io::{BufWriter, Write};
-// use std::path::Path;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::Path;
 
 use itertools::Itertools;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -22,6 +22,7 @@ pub struct HaploGraph {
 
 impl HaploGraph {
 
+    //TODO: do not allow "transitive" edges (due to reads not assigned to haplotypes when ambiguous)
     pub fn new(haplotypes: FxHashMap<HaplotypeId,Haplotype>, sread_haplotypes: &FxHashMap<BamRecordId, Vec<HaplotypeId>>) -> HaploGraph {
         let mut succ: AdjList = AdjList::default();
         let mut pred: AdjList = AdjList::default();
@@ -133,7 +134,6 @@ impl HaploGraph {
         scaffolds
     }
 
-    // TODO: move from recursive to iterative
     // Prerequisite: linear path from hid in the graph, no loops
     fn scaffold_from(&self, mut hid:HaplotypeId) -> Vec<HaplotypeId> {
         let mut haplotype_nodes = vec![];
@@ -144,7 +144,8 @@ impl HaploGraph {
         haplotype_nodes.push(hid);
         haplotype_nodes.reverse();
         haplotype_nodes
-        // old iterative version:
+
+        // old recursive version:
         // if self.out_degree(hid) == 0 {
         //     return vec![*hid];
         // }
@@ -154,34 +155,28 @@ impl HaploGraph {
         // haplotype_nodes
     }
 
-    // pub fn write_dot(&self, path:&Path) -> std::io::Result<()> {
+    pub fn write_dot(&self, path:&Path) -> std::io::Result<()> {
+        let file = File::create(path)?;
+        
+        let mut dot = BufWriter::new(file);
+        dot.write_all(b"digraph \"\" {\n")?;
+        dot.write_all(b"\tgraph [rankdir=LR, splines=true];\n")?;
+        dot.write_all(b"\tnode [label=\"\\N\"];\n")?;
 
-    //     let file = File::create(path)?;
-    //     let mut dot = BufWriter::new(file);
+        for node in self.succ.keys() {
+            let node_line = format!("\t\"{node}\" [style=filled, fillcolor=white];\n");
+            dot.write_all(node_line.as_bytes())?;
+        }
 
-    //     dot.write_all(b"digraph \"\" {\n")?;
-    //     dot.write_all(b"\tgraph [rankdir=LR, splines=true];\n")?;
+        for (from, adj) in self.succ.iter() {
+            for Edge(to,count) in adj {
+                let edge_line = format!("\t\"{from}\" -> \"{to}\" [label={count}];\n");
+                dot.write_all(edge_line.as_bytes())?;
+            }
+        }
 
-    //     dot.write_all(b"\tnode [label=\"\\N\"];\n")?;
-
-    //     for node in self.graph.keys() {
-    //         let node_line = format!("\t\"{node:?}\" [style=filled, fillcolor=white];\n");
-    //         dot.write_all(node_line.as_bytes())?;
-    //     }
-
-    //     for (a, succ) in self.graph.iter() {
-    //         let a_name = format!("{a:?}");
-    //         for (b,cnt) in succ.iter() {
-    //             let b_name = format!("{b:?}");
-    //             let edge_line = format!("\t\"{a_name}\" -> \"{b_name}\" [label={cnt}];\n");
-    //             dot.write_all(edge_line.as_bytes())?;
-    //         }
-    //     }
-
-    //     dot.write_all(b"}\n")?;
-
-    //     Ok(())
-    // }
+        dot.write_all(b"}\n")
+    }
 }
 
 

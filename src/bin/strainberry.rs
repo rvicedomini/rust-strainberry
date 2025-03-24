@@ -22,7 +22,7 @@ use strainberry::utils;
 use strainberry::variant;
 
 
-fn main() -> ExitCode{
+fn main() -> ExitCode {
     
     let t_start = Instant::now();
 
@@ -70,14 +70,9 @@ fn main() -> ExitCode{
     let read_sequences = load_bam_sequences(bam_path, &opts);
     println!("  {} reads loaded", read_sequences.len());
 
-    let phased_dir = output_dir.join("20-phased");
-    if fs::create_dir_all(phased_dir.as_path()).is_err() {
-        eprintln!("Cannot create phasing work directory: \"{}\"", phased_dir.display());
-        return ExitCode::FAILURE;
-    };
-    
+    let phased_dir = output_dir.join("20-phased");    
     println!("Phasing strains");
-    let phaser = phase::Phaser::new(bam_path, &target_names, &target_intervals, &read_sequences, phased_dir, &opts);
+    let phaser = phase::Phaser::new(bam_path, &target_names, &target_intervals, &read_sequences, phased_dir, &opts).unwrap();
     let haplotypes = phaser.phase(&variants);
     println!("  {} haplotypes phased", haplotypes.len());
 
