@@ -246,15 +246,18 @@ impl<'a> AwareGraph<'a> {
             .count()
     }
 
-    // TODO: do not remove a weak edge if it is the only incident one
     pub fn remove_weak_edges(&mut self, min_obs:usize) {
         let weak_edges = self.edges.values()
             .filter_map(|&edge_id| {
                 let edge = self.get_biedge_idx(edge_id);
-                if edge.observations < min_obs { return Some(&edge.key) }
-                let a_degree = self.node_degree(edge.key.id_from, edge.key.strand_from);
-                let b_degree = self.node_degree(edge.key.id_to, edge.key.strand_to);
-                if a_degree != 1 && b_degree != 1 { Some(&edge.key) } else { None }
+                if edge.observations < min_obs {
+                    let a_degree = self.node_degree(edge.key.id_from, edge.key.strand_from);
+                    let b_degree = self.node_degree(edge.key.id_to, edge.key.strand_to);
+                    if a_degree != 1 && b_degree != 1 { // delete only edges that would not disconnect another node
+                        return Some(&edge.key)
+                    }
+                }
+                None
             }).cloned().collect_vec();
         self.remove_biedges_from(&weak_edges);
     }
