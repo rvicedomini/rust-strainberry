@@ -23,6 +23,13 @@ pub struct HaplotypeId {
     pub hid: usize
 }
 
+impl fmt::Display for HaplotypeId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}_{}-{}_h{}", self.tid, self.beg, self.end, self.hid)
+    }
+}
+
+
 #[derive(Debug, Clone)]
 pub struct Haplotype {
     hid: usize,
