@@ -76,12 +76,7 @@ impl HaploGraph {
                     });
             }
         }
-
-        // TODO: possibly create method for the following loop (also done at the end of this function)
-        for (a,b) in deleted_edges.drain() {
-            self.succ.get_mut(&a).unwrap().retain(|Edge(succ,_)| succ != &b);
-            self.pred.get_mut(&b).unwrap().retain(|Edge(pred,_)| pred != &a);
-        }
+        deleted_edges.drain().for_each(|(a,b)| self.delete_edge(a,b));
 
         let mut phased_map: FxHashMap<(usize,usize),TinyVec<[HaplotypeId;10]>> = FxHashMap::default();
         for hid in self.succ.keys() {
@@ -104,12 +99,12 @@ impl HaploGraph {
                 );
             }
         }
+        deleted_edges.drain().for_each(|(a,b)| self.delete_edge(a,b));
+    }
 
-        // TODO: possibly create method for the following loop
-        for (a,b) in deleted_edges {
-            self.succ.get_mut(&a).unwrap().retain(|Edge(succ,_)| succ != &b);
-            self.pred.get_mut(&b).unwrap().retain(|Edge(pred,_)| pred != &a);
-        }
+    pub fn delete_edge(&mut self, from: HaplotypeId, to:HaplotypeId) {
+        self.succ.get_mut(&from).unwrap().retain(|Edge(succ,_)| succ != &to);
+        self.pred.get_mut(&to).unwrap().retain(|Edge(pred,_)| pred != &from);
     }
 
     pub fn scaffold_haplotypes(&mut self, variant_positions:&FxHashSet<(usize,usize)>, min_reads:usize, min_frac:f64, min_snv:usize) -> FxHashMap<HaplotypeId,Haplotype> {
@@ -178,30 +173,3 @@ impl HaploGraph {
         dot.write_all(b"}\n")
     }
 }
-
-
-// def write_dot(self, path, id_as_name=True, output_transitives=True):
-//     with open(f'{path}','w') as dot:
-//         dot.write('digraph "" {\n')
-//         dot.write('\tgraph [rankdir=LR, splines=true];\n')
-//         # dot.write('\tnode [label="\\N"];\n')
-//         for node_id, node in self.nodes.items():
-//             node_name = f'{node_id}' if id_as_name else f'{node.ctg.name()}'
-//             node_length = node.ctg.length()
-//             node_depth = node.ctg.alignedbases/node_length
-//             fillcolor = 'orange' if node.ctg.phased else 'white'
-//             dot.write(f'\t{node_id}\t[label="{node_name} ({int(node_depth)}X)", style=filled, fillcolor={fillcolor}];\n')
-//         for edge in self.edges.values():
-//             first_id,first_dir,second_id,second_dir = edge.key
-//             arrowtail = 'normal' if first_dir=='+' else 'inv'
-//             arrowhead = 'normal' if second_dir=='+' else 'inv'
-//             edge_gap = 0 if len(edge.gaps) == 0 else int(statistics.median(edge.gaps))
-//             dot.write(f'\t{first_id} -> {second_id}\t[arrowtail={arrowtail}, arrowhead={arrowhead}, dir=both, label="{edge.observations}/{edge_gap}bp"];\n')
-//         if output_transitives:
-//             for tedge in self.transitives.values():
-//                 first_id,first_dir,second_id,second_dir = tedge.key
-//                 arrowtail = 'normal' if first_dir=='+' else 'inv'
-//                 arrowhead = 'normal' if second_dir=='+' else 'inv'
-//                 tedge_gap = 0 if len(tedge.gaps) == 0 else int(statistics.median(tedge.gaps))
-//                 dot.write(f'\t{first_id} -> {second_id}\t[arrowtail={arrowtail}, arrowhead={arrowhead}, dir=both, color="red", label="{tedge.observations}/{tedge_gap}bp"];\n')
-//         dot.write('}')
