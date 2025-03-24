@@ -121,6 +121,8 @@ fn main() -> ExitCode {
     let mut aware_graph = strainberry::awaregraph::AwareGraph::build(&aware_contigs);
     aware_graph.add_edges_from_aware_alignments(&read2aware);
     aware_graph.write_gfa(graphs_dir.join("aware_graph.raw.gfa"), &target_names).unwrap();
+    aware_graph.write_dot(graphs_dir.join("aware_graph.raw.dot")).unwrap();
+
     aware_graph.remove_weak_edges(5);
     aware_graph.write_gfa(graphs_dir.join("aware_graph.gfa"), &target_names).unwrap();
 

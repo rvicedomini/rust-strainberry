@@ -341,7 +341,7 @@ impl<'a> AwareGraph<'a> {
             let EdgeKey { id_from, strand_from, id_to, strand_to } = edge.key;
             let arrow_tail = if strand_from == b'+' { "normal" } else { "inv" };
             let arrow_head = if strand_to == b'+' { "normal" } else { "inv" };
-            let edge_gap = if edge.gaps.is_empty() { 0 } else { *edge.gaps.iter().sorted_unstable().take(edge.gaps.len()/2).last().unwrap() };
+            let edge_gap = if edge.gaps.is_empty() { 0 } else { *edge.gaps.iter().sorted_unstable().nth(edge.gaps.len()/2).unwrap() };
             let edge_label = format!("{}/{}bp", edge.observations, edge_gap);
             let edge_line = format!("\t{id_from} -> {id_to}\t[arrowtail={arrow_tail}, arrowhead={arrow_head}, dir=both, label=\"{edge_label}\"];\n");
             dot.write_all(edge_line.as_bytes())?;
@@ -356,8 +356,7 @@ impl<'a> AwareGraph<'a> {
             let edge_line = format!("\t{id_from} -> {id_to}\t[arrowtail={arrow_tail}, arrowhead={arrow_head}, dir=both, color=\"red\", label=\"{edge_label}\"];\n");
             dot.write_all(edge_line.as_bytes())?;
         }
-        dot.write_all(b"}\n")?;
-        Ok(())
+        dot.write_all(b"}\n")
     }
 
 }
