@@ -1,7 +1,8 @@
 use std::fmt;
 
 use itertools::Itertools;
-use rustc_hash::{FxHashMap,FxHashSet};
+use ahash::AHashMap as HashMap;
+use ahash::AHashSet as HashSet;
 
 use crate::phase::haplotype::{HaplotypeId,Haplotype};
 use crate::seq::SeqInterval;
@@ -78,7 +79,7 @@ pub struct AwareAlignment {
 }
 
 
-fn retrieve_unphased_intervals(target_intervals:&Vec<SeqInterval>, haplotypes:&FxHashMap<HaplotypeId,Haplotype>, min_length:usize) -> Vec<SeqInterval> {
+fn retrieve_unphased_intervals(target_intervals:&Vec<SeqInterval>, haplotypes:&HashMap<HaplotypeId,Haplotype>, min_length:usize) -> Vec<SeqInterval> {
 
     let mut unphased_intervals: Vec<SeqInterval> = vec![];
     let phased_intervals = haplotypes.values().map(|ht| ht.region()).unique().sorted_unstable().collect_vec();
@@ -106,7 +107,7 @@ fn retrieve_unphased_intervals(target_intervals:&Vec<SeqInterval>, haplotypes:&F
 }
 
 
-pub fn build_aware_contigs(target_sequences:&[Vec<u8>], target_intervals:&Vec<SeqInterval>, haplotypes:&FxHashMap<HaplotypeId,Haplotype>, min_length:usize) -> Vec<AwareContig> {
+pub fn build_aware_contigs(target_sequences:&[Vec<u8>], target_intervals:&Vec<SeqInterval>, haplotypes:&HashMap<HaplotypeId,Haplotype>, min_length:usize) -> Vec<AwareContig> {
     
     let mut aware_contigs = retrieve_unphased_intervals(target_intervals, haplotypes, min_length)
         .into_iter()
@@ -136,9 +137,9 @@ pub fn build_aware_contigs(target_sequences:&[Vec<u8>], target_intervals:&Vec<Se
 }
 
 
-pub fn map_sequences_to_aware_contigs(seq_alignments: &FxHashMap<String,Vec<SeqAlignment>>, aware_contigs: &mut[AwareContig], seq2haplo: &FxHashMap<BamRecordId,Vec<HaplotypeId>>, ambiguous_reads:&FxHashSet<String>) -> FxHashMap<String,Vec<AwareAlignment>> {
+pub fn map_sequences_to_aware_contigs(seq_alignments: &HashMap<String,Vec<SeqAlignment>>, aware_contigs: &mut[AwareContig], seq2haplo: &HashMap<BamRecordId,Vec<HaplotypeId>>, ambiguous_reads:&HashSet<String>) -> HashMap<String,Vec<AwareAlignment>> {
 
-    let mut read2aware: FxHashMap<String,Vec<AwareAlignment>> = FxHashMap::default();
+    let mut read2aware: HashMap<String,Vec<AwareAlignment>> = HashMap::new();
     for (name, alignments) in seq_alignments {
         if ambiguous_reads.contains(name) {
             continue
@@ -153,7 +154,7 @@ pub fn map_sequences_to_aware_contigs(seq_alignments: &FxHashMap<String,Vec<SeqA
 
 
 // aware_contigs should be sorted by interval
-pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contigs: &[AwareContig], seq2haplo: &FxHashMap<BamRecordId,Vec<HaplotypeId>>) -> Vec<AwareAlignment> {
+pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contigs: &[AwareContig], seq2haplo: &HashMap<BamRecordId,Vec<HaplotypeId>>) -> Vec<AwareAlignment> {
     
     let mut aware_alignments: Vec<AwareAlignment> = vec![];
 

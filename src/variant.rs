@@ -5,8 +5,8 @@ use std::path::Path;
 
 use itertools::Itertools;
 
-use rustc_hash::{FxHashMap,FxHashSet};
-
+use ahash::AHashMap as HashMap;
+use ahash::AHashSet as HashSet;
 use rust_htslib::bam;
 use rust_htslib::bam::{Read,IndexedReader};
 
@@ -26,8 +26,8 @@ pub struct Var {
     pub alleles: ArrayVec<[(char,usize);5]>,
 }
 
-pub type VarDict = FxHashMap<usize,Vec<Var>>;
-type VarPositions = FxHashMap<usize,FxHashSet<usize>>;
+pub type VarDict = HashMap<usize,Vec<Var>>;
+type VarPositions = HashMap<usize,HashSet<usize>>;
 
 
 fn load_variants_at_positions_threaded(bam_path: &Path, positions: Option<&VarPositions>, opts: &Options) -> VarDict {
@@ -66,7 +66,7 @@ fn load_variants_at_positions_threaded(bam_path: &Path, positions: Option<&VarPo
 }
 
 
-fn load_variants_at_positions(bam_reader: &mut IndexedReader, tid: usize, positions: Option<&FxHashSet<usize>>, opts: &Options) -> Vec<Var> {
+fn load_variants_at_positions(bam_reader: &mut IndexedReader, tid: usize, positions: Option<&HashSet<usize>>, opts: &Options) -> Vec<Var> {
 
     let mut variants: Vec<Var> = vec![];
 
@@ -170,9 +170,9 @@ pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, opts:&Options) -> 
 
 // From longshot: https://github.com/pjedge/longshot/blob/99ace95bada7b360dc338deae65073590d6dc35d/src/main.rs#L478
 // use Fishers exact test to filter variants for which allele observations are biased toward one strand or the other
-pub fn filter_variants(vardict:FxHashMap<usize,Vec<Var>>) -> FxHashMap<usize,Vec<Var>> {
+pub fn filter_variants(vardict:HashMap<usize,Vec<Var>>) -> HashMap<usize,Vec<Var>> {
 
-    let mut _retained = FxHashMap::default();
+    let mut _retained = HashMap::new();
 
     for var in vardict.into_values().flatten() {
         if var.alleles.len() != 2 {

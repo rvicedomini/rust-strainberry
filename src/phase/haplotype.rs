@@ -1,5 +1,4 @@
-use std::fmt;
-use rustc_hash::FxHashSet;
+use ahash::AHashSet as HashSet;
 
 use crate::seq::SeqInterval;
 
@@ -23,8 +22,8 @@ pub struct HaplotypeId {
     pub hid: usize
 }
 
-impl fmt::Display for HaplotypeId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl std::fmt::Display for HaplotypeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}_{}-{}_h{}", self.tid, self.beg, self.end, self.hid)
     }
 }
@@ -117,7 +116,7 @@ impl Haplotype {
     //     self.split_off(idx, hid, dist)
     // }
 
-    pub fn trim(&mut self, variant_positions:&FxHashSet<(usize,usize)>, lookback:usize) {
+    pub fn trim(&mut self, variant_positions:&HashSet<(usize,usize)>, lookback:usize) {
         // left trim
         let first_i = (0..self.vars.len()).find(|&i| variant_positions.contains(&(self.tid(),self.vars[i].pos)));
         if first_i.is_none() { // no variant positions -> delete haplotype
@@ -158,8 +157,8 @@ impl Haplotype {
 }
 
 
-impl fmt::Display for Haplotype {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl std::fmt::Display for Haplotype {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "h{}: {} ({}:{}..={})", self.hid(), self.seq_string(), self.tid(), self.first_pos(), self.last_pos())
     }
 }

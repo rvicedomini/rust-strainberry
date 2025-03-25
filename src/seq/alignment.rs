@@ -1,12 +1,10 @@
 use std::path::Path;
 
+use ahash::AHashMap as HashMap;
 use itertools::Itertools;
-
 use rust_htslib::bam::{HeaderView,Read,IndexedReader};
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Aux, Cigar, Record};
-
-use rustc_hash::FxHashMap;
 
 use crate::cli::Options;
 use crate::utils::BamRecordId;
@@ -302,9 +300,9 @@ impl Iterator for IterAlignedBlocks<'_> {
 }
 
 
-pub fn load_bam_alignments(bam_path: &Path, opts: &Options) -> FxHashMap<String,Vec<SeqAlignment>> {
+pub fn load_bam_alignments(bam_path: &Path, opts: &Options) -> HashMap<String,Vec<SeqAlignment>> {
 
-    let mut read_alignments = FxHashMap::default();
+    let mut read_alignments = HashMap::new();
     let mut bam_reader = IndexedReader::from_path(bam_path).unwrap();
     let bam_header = bam_reader.header().clone();
 

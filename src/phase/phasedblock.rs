@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use rustc_hash::FxHashMap;
+use ahash::AHashMap as HashMap;
 
 use super::haplotree::{HaploTree,Snv};
 use super::haplotype::Haplotype;
@@ -7,8 +7,8 @@ use super::haplotype::Haplotype;
 pub struct PhasedBlock {
     tid: usize,
     haplotree: HaploTree,
-    haplotypes: FxHashMap<usize,Haplotype>,
-    haplotype_node: FxHashMap<usize,usize>,
+    haplotypes: HashMap<usize,Haplotype>,
+    haplotype_node: HashMap<usize,usize>,
     begin: usize,
 }
 
@@ -18,8 +18,8 @@ impl PhasedBlock {
         PhasedBlock { 
             tid,
             haplotree: HaploTree::new(),
-            haplotypes: FxHashMap::default(),
-            haplotype_node: FxHashMap::default(),
+            haplotypes: HashMap::new(),
+            haplotype_node: HashMap::new(),
             begin: 0,
         }
     }
@@ -42,8 +42,8 @@ impl PhasedBlock {
 
     pub fn len(&self) -> usize { self.haplotypes.len() }
     pub fn is_empty(&self) -> bool { self.len() == 0 }
-    pub fn haplotypes(&self) -> &FxHashMap<usize,Haplotype> { &self.haplotypes }
-    pub fn haplotypes_mut(&mut self) -> &mut FxHashMap<usize,Haplotype> { &mut self.haplotypes }
+    pub fn haplotypes(&self) -> &HashMap<usize,Haplotype> { &self.haplotypes }
+    pub fn haplotypes_mut(&mut self) -> &mut HashMap<usize,Haplotype> { &mut self.haplotypes }
 
     // pub fn get(&self, hid:usize) -> &Haplotype { &self.haplotypes[&hid] }
 
@@ -94,7 +94,7 @@ impl PhasedBlock {
 
     pub fn split_and_init(&mut self, lookback:usize) -> PhasedBlock {
 
-        let mut out_edges: FxHashMap<usize,Vec<usize>> = FxHashMap::default();
+        let mut out_edges: HashMap<usize,Vec<usize>> = HashMap::new();
         for hid in self.haplotypes.keys() {
             let key = self.haplotree.get_parent(self.haplotype_node[hid]);
             out_edges.entry(key).or_default().push(*hid);

@@ -2,8 +2,8 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
 
+use ahash::AHashMap as HashMap;
 use rust_htslib::bam::{Read,IndexedReader};
-use rustc_hash::FxHashMap;
 
 use crate::cli::Options;
 use crate::utils;
@@ -36,7 +36,7 @@ fn revcomp(seq: &[u8]) -> Vec<u8> {
 }
 
 
-pub fn load_bam_sequences(bam_path: &Path, opts: &Options) -> FxHashMap<String,Vec<u8>> {
+pub fn load_bam_sequences(bam_path: &Path, opts: &Options) -> HashMap<String,Vec<u8>> {
     
     let mut target_intervals = utils::bam_target_intervals(bam_path);
     target_intervals.sort_unstable_by_key(|siv| siv.end - siv.beg);
@@ -47,7 +47,7 @@ pub fn load_bam_sequences(bam_path: &Path, opts: &Options) -> FxHashMap<String,V
             let sender = tx.clone();
             let target_intervals_ref = &target_intervals;
             scope.spawn(move || {
-                let mut seq_dict = FxHashMap::default();
+                let mut seq_dict = HashMap::new();
                 let mut bam_reader = IndexedReader::from_path(bam_path).unwrap();
                 for &siv in target_intervals_ref.iter().skip(thread_id).step_by(opts.nb_threads) {
                     bam_reader.fetch(siv.tid as u32).unwrap();

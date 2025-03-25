@@ -1,0 +1,110 @@
+use std::borrow::Cow;
+use tinyvec::{tiny_vec,TinyVec};
+
+use crate::awarecontig::{AwareContig,AwareAlignment};
+
+#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct EdgeKey {
+    pub id_from: usize,
+    pub strand_from: u8,
+    pub id_to: usize,
+    pub strand_to: u8,
+}
+
+impl EdgeKey {
+
+    pub fn new(id_from:usize, strand_from:u8, id_to:usize, strand_to:u8) -> Self {
+        Self { id_from, strand_from, id_to, strand_to }
+    }
+
+    pub fn from_alignments(a:&AwareAlignment, b:&AwareAlignment) -> EdgeKey {
+        EdgeKey::new(
+            a.aware_id,
+            crate::utils::flip_strand(a.strand),
+            b.aware_id,
+            b.strand
+        )
+    }
+
+    pub fn flip(&mut self) {
+        std::mem::swap(&mut self.id_from, &mut self.id_to);
+        std::mem::swap(&mut self.strand_from, &mut self.strand_to);
+    }
+
+    pub fn is_canonical(&self) -> bool {
+        self.id_from < self.id_to || (self.id_from == self.id_to && self.strand_from <= self.strand_to)
+    }
+
+    pub fn canonicalize(&mut self) {
+        if !self.is_canonical() {
+            self.flip();
+        }
+    }
+
+}
+
+impl std::fmt::Display for EdgeKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "EdgeKey({},{},{},{})", self.id_from, self.strand_from, self.id_to, self.strand_to)
+    }
+}
+
+
+#[inline(always)]
+pub fn flip_edgekey(key:&EdgeKey) -> EdgeKey {
+    let mut key = *key;
+    key.flip();
+    key
+}
+
+
+#[inline(always)]
+pub fn canonical_edgekey(edge_key:&EdgeKey) -> Cow<'_, EdgeKey> {
+    if edge_key.is_canonical() {
+        return Cow::Borrowed(edge_key)
+    }
+    let mut edge_key = *edge_key;
+    edge_key.flip();
+    Cow::Owned(edge_key)
+}
+
+
+#[derive(Debug)]
+pub struct BiEdge {
+    pub key: EdgeKey, // TODO: check whether I really need to store the key in the struct
+    pub observations: usize,
+    pub gaps: Vec<i32>,
+    // self.gapseq = {} # defaultdict(list)
+}
+
+impl BiEdge {
+
+    pub fn new(key:EdgeKey) -> Self {
+        Self {
+            key,
+            observations:0,
+            gaps:vec![]
+        }
+    }
+}
+
+
+#[derive(Debug)]
+pub struct Node<'a> {
+    pub id: usize,
+    pub ctg: &'a AwareContig,
+    pub edges: TinyVec<[EdgeKey;10]>,
+    pub transitives: TinyVec<[EdgeKey;10]>,
+}
+
+impl<'a> Node<'a> {
+
+    pub fn new(id:usize, ctg:&'a AwareContig) -> Self {
+        Self {
+            id,
+            ctg,
+            edges: tiny_vec![],
+            transitives: tiny_vec![]
+        }
+    }
+}

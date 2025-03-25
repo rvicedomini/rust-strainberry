@@ -5,13 +5,10 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::time::Instant;
 
+use ahash::AHashSet as HashSet;
 use clap::Parser;
-
 use itertools::Itertools;
-use rustc_hash::FxHashMap;
-use rustc_hash::FxHashSet;
 
-use strainberry::awarecontig::AwareAlignment;
 use strainberry::cli;
 use strainberry::misassembly;
 use strainberry::phase;
@@ -82,9 +79,9 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    println!("Building aware contigs");
+    println!("Building strain-aware contigs");
     let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&target_sequences, &target_intervals, &haplotypes, opts.min_aware_ctg_len);
-    println!("  {} aware contigs built", aware_contigs.len());
+    println!("  {} strain-aware contigs built", aware_contigs.len());
 
     // # to be added from python implementation:
     // logger.info('Defining reference-adjacent aware contigs')
@@ -104,12 +101,12 @@ fn main() -> ExitCode {
     let succinct_reads = build_succinct_sequences(bam_path, &variants, &opts);
 
     println!("Read realignment to haplotypes");
-    let variant_positions = variants.values().flatten().map(|var| (var.tid,var.pos)).collect::<FxHashSet<_>>();
+    let variant_positions = variants.values().flatten().map(|var| (var.tid,var.pos)).collect::<HashSet<_>>();
     let (seq2haplo, ambiguous_reads) = strainberry::phase::separate_reads(&succinct_reads, &haplotypes, &variant_positions, opts.min_shared_snv);
     println!("  unique={} ambiguous={}", seq2haplo.len(), ambiguous_reads.len());
 
-    println!("Mapping reads to aware contigs");
-    let read2aware: FxHashMap<String,Vec<AwareAlignment>> = strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut aware_contigs, &seq2haplo, &ambiguous_reads);
+    println!("Mapping reads to strain-aware contigs");
+    let read2aware = strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut aware_contigs, &seq2haplo, &ambiguous_reads);
 
     let graphs_dir = output_dir.join("40-graphs");
     if fs::create_dir_all(graphs_dir.as_path()).is_err() {
@@ -141,6 +138,17 @@ fn main() -> ExitCode {
     // awaregraph.patch_sequences(htig2aware)
     aware_graph.write_dot(graphs_dir.join("aware_graph.dot")).unwrap();
     println!("  {} read bridges added", nb_tedges);
+
+    let mut num_iter = 1;
+    let mut num_resolved = aware_graph.resolve_read_bridges(opts.min_alt_count);
+    let mut tot_resolved = num_resolved;
+    while num_resolved > 0 {
+        num_iter += 1;
+        num_resolved = aware_graph.resolve_read_bridges(opts.min_alt_count);
+        tot_resolved += num_resolved;
+    }
+    println!("{tot_resolved} junctions resolved after {num_iter} iterations");
+    aware_graph.write_gfa(graphs_dir.join("aware_graph.resolved.gfa"), &target_names).unwrap();
 
     println!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
 

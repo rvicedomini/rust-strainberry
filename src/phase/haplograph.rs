@@ -3,7 +3,8 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 
 use itertools::Itertools;
-use rustc_hash::{FxHashMap, FxHashSet};
+use ahash::AHashMap as HashMap;
+use ahash::AHashSet as HashSet;
 use tinyvec::{tiny_vec, TinyVec};
 
 use crate::utils::BamRecordId;
@@ -12,10 +13,10 @@ use super::haplotype::{HaplotypeId, Haplotype};
 #[derive(Debug, Default, Clone)]
 struct Edge(HaplotypeId,usize);
 
-type AdjList = FxHashMap<HaplotypeId,TinyVec<[Edge;10]>>;
+type AdjList = HashMap<HaplotypeId,TinyVec<[Edge;10]>>;
 
 pub struct HaploGraph {
-    haplotypes: FxHashMap<HaplotypeId,Haplotype>,
+    haplotypes: HashMap<HaplotypeId,Haplotype>,
     succ: AdjList,
     pred: AdjList,
 }
@@ -23,7 +24,7 @@ pub struct HaploGraph {
 impl HaploGraph {
 
     //TODO: do not allow "transitive" edges (due to reads not assigned to haplotypes when ambiguous)
-    pub fn new(haplotypes: FxHashMap<HaplotypeId,Haplotype>, sread_haplotypes: &FxHashMap<BamRecordId, Vec<HaplotypeId>>) -> HaploGraph {
+    pub fn new(haplotypes: HashMap<HaplotypeId,Haplotype>, sread_haplotypes: &HashMap<BamRecordId, Vec<HaplotypeId>>) -> HaploGraph {
         let mut succ: AdjList = AdjList::default();
         let mut pred: AdjList = AdjList::default();
         
@@ -57,7 +58,7 @@ impl HaploGraph {
 
     pub fn remove_weak_edges(&mut self, min_reads:usize, min_frac:f64) {
 
-        let mut deleted_edges = FxHashSet::default();
+        let mut deleted_edges = HashSet::new();
         for node in self.succ.keys() {
             if self.out_degree(node) > 0 {
                 let out_reads: usize = self.succ[node].iter().map(|&Edge(_,n)| n).sum();
@@ -78,7 +79,7 @@ impl HaploGraph {
         }
         deleted_edges.drain().for_each(|(a,b)| self.delete_edge(a,b));
 
-        let mut phased_map: FxHashMap<(usize,usize),TinyVec<[HaplotypeId;10]>> = FxHashMap::default();
+        let mut phased_map: HashMap<(usize,usize),TinyVec<[HaplotypeId;10]>> = HashMap::new();
         for hid in self.succ.keys() {
             phased_map.entry((hid.beg, hid.end))
                 .or_default()
@@ -107,11 +108,11 @@ impl HaploGraph {
         self.pred.get_mut(&to).unwrap().retain(|Edge(pred,_)| pred != &from);
     }
 
-    pub fn scaffold_haplotypes(&mut self, variant_positions:&FxHashSet<(usize,usize)>, min_reads:usize, min_frac:f64, min_snv:usize) -> FxHashMap<HaplotypeId,Haplotype> {
+    pub fn scaffold_haplotypes(&mut self, variant_positions:&HashSet<(usize,usize)>, min_reads:usize, min_frac:f64, min_snv:usize) -> HashMap<HaplotypeId,Haplotype> {
         assert!(min_frac > 0.5);
         self.remove_weak_edges(min_reads, min_frac);
         assert!(self.succ.keys().all(|hid| self.out_degree(hid) < 2 && self.in_degree(hid) < 2));
-        let mut scaffolds: FxHashMap<HaplotypeId,Haplotype> = FxHashMap::default();
+        let mut scaffolds: HashMap<HaplotypeId,Haplotype> = HashMap::new();
         for ht_from in self.succ.keys().filter(|&hid| self.in_degree(hid) == 0) {
             let mut haplotype_nodes = self.scaffold_from(*ht_from);
             assert!(!haplotype_nodes.is_empty());
