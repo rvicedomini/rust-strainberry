@@ -142,14 +142,15 @@ pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, opts:&Options) -> 
     let vcf_reader = utils::get_file_reader(vcf_path);
     let positions = vcf_reader.lines()
         .map_while(Result::ok)
-        .map(|line| line.trim().to_string())
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .map(|line| {
+        .filter_map(|line| { // CHROM POS ID REF ALT QUAL FILTER INFO FORMAT SAMPLE
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') { return None }
             let mut record = line.split('\t');
             let chrom = record.next().unwrap();
             let tid = *chrom2tid.get(chrom).unwrap();
             let pos = record.next().unwrap().parse::<usize>().unwrap();
-            (tid,pos-1)
+            let qual = record.nth(3).unwrap().parse::<usize>().unwrap();
+            if qual >= opts.min_var_qual { Some((tid,pos-1)) } else { None }
         })
         .sorted_unstable()
         .collect_vec();

@@ -41,6 +41,10 @@ pub struct Options {
     #[arg(long = "no-split")]
     pub no_split: bool,
 
+    /// Minimum QUAL value for loaded variants (effective only with --vcf)
+    #[arg(long = "min-var-qual", value_name = "NUM", default_value_t = 0)]
+    pub min_var_qual: usize,
+
     /// Minimum number of phased variants to retain a haplotype
     #[arg(long = "min-snv", value_name = "NUM", default_value_t = 3)]
     pub min_snv: usize,
