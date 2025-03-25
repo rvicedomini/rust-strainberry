@@ -133,7 +133,7 @@ impl<'a> AwareGraph<'a> {
                 .get_mut(nid).unwrap()
                 .transitives.iter().cloned()
                 .collect();
-            self.remove_biedges_from(&tedge_keys);
+            self.remove_transitives_from(&tedge_keys);
             self.nodes.remove(nid);
         }
     }
@@ -146,12 +146,33 @@ impl<'a> AwareGraph<'a> {
     fn remove_biedges_from(&mut self, edge_keys: impl IntoIterator<Item = impl Borrow<EdgeKey>>) {
         for ekey in edge_keys {
             let ekey = ekey.borrow();
-            let node = self.nodes.get_mut(&ekey.id_from).unwrap();
-            node.edges.retain(|key| key != ekey);
+            if let Some(node) = self.nodes.get_mut(&ekey.id_from) {
+                node.edges.retain(|key| key != ekey);
+            }
             let ekey = biedge::flip_edgekey(ekey);
-            let node = self.nodes.get_mut(&ekey.id_from).unwrap();
-            node.edges.retain(|key| key != &ekey);
+            if let Some(node) = self.nodes.get_mut(&ekey.id_from) {
+                node.edges.retain(|key| key != &ekey);
+            }
             self.remove_biedge(&ekey);
+        }
+    }
+
+    fn remove_transitive(&mut self, edge_key:&EdgeKey) {
+        let edge_key = biedge::canonical_edgekey(edge_key);
+        self.transitives.remove(&edge_key);
+    }
+
+    fn remove_transitives_from(&mut self, edge_keys: impl IntoIterator<Item = impl Borrow<EdgeKey>>) {
+        for ekey in edge_keys {
+            let ekey = ekey.borrow();
+            if let Some(node) = self.nodes.get_mut(&ekey.id_from) {
+                node.transitives.retain(|key| key != ekey);
+            }
+            let ekey = biedge::flip_edgekey(ekey);
+            if let Some(node) = self.nodes.get_mut(&ekey.id_from) {
+                node.transitives.retain(|key| key != &ekey);
+            }
+            self.remove_transitive(&ekey);
         }
     }
 
@@ -310,8 +331,10 @@ impl<'a> AwareGraph<'a> {
         let out_nodes: HashSet<usize> = HashSet::from_iter(junc.output_nodes());
         let ndeg: HashMap<usize, usize> = crate::utils::counter_from_iter(bridges.iter().flat_map(|key| [key.id_from,key.id_to]));
 
-        let is_fully_covered = in_nodes.iter().chain(&out_nodes).all(|n| ndeg[n] > 0);
-        let is_strictly_covered = is_fully_covered && bridges.iter().all(|key| ndeg[&key.id_from]==1 || ndeg[&key.id_to]==1);
+        let is_fully_covered = in_nodes.iter().chain(&out_nodes).all(|n| ndeg.get(n).is_some_and(|c| *c > 0));
+        let is_strictly_covered = is_fully_covered && bridges.iter().all(|key| {
+            ndeg.get(&key.id_from).is_some_and(|c| *c == 1) || ndeg.get(&key.id_to).is_some_and(|c| *c == 1)
+        });
 
         if !is_fully_covered {
             // self.remove_biedges_from(&bridges);
@@ -319,9 +342,9 @@ impl<'a> AwareGraph<'a> {
         }
 
         if !is_strictly_covered {
-            bridges.retain(|key| self.get_biedge(key).is_some_and(|e| e.observations >= min_reads));
+            bridges.retain(|key| self.get_transitive(key).is_some_and(|e| e.observations >= min_reads));
             let ndeg: HashMap<usize, usize> = crate::utils::counter_from_iter(bridges.iter().flat_map(|key| [key.id_from,key.id_to]));
-            if in_nodes.iter().chain(&out_nodes).any(|n| ndeg[n] == 0) {
+            if in_nodes.iter().chain(&out_nodes).any(|n| ndeg.get(n).is_some_and(|c| *c == 0)) {
                 // self.remove_biedges_from(&bridges);
                 return false
             }
@@ -359,7 +382,7 @@ impl<'a> AwareGraph<'a> {
         //         return False
 
         self.resolve_read_bridged_paths(&bridge_paths,junc);
-        self.remove_biedges_from(&bridges);
+        self.remove_transitives_from(&bridges);
 
         true
     }
