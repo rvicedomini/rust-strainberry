@@ -43,6 +43,10 @@ impl Junction {
         self.out_edges.iter().map(|key| key.id_to)
     }
 
+    pub fn inout_nodes(&self) -> impl Iterator<Item = usize> {
+        self.input_nodes().chain(self.output_nodes())
+    }
+
     pub fn input_dir(&self) -> u8 {
         self.in_edges[0].strand_from
     }
@@ -67,6 +71,6 @@ impl std::fmt::Display for Junction {
         let in_nodes = self.input_nodes().join(",");
         let mid_nodes = self.inner_nodes().join(",");
         let out_nodes = self.output_nodes().join(",");
-        write!(f, "Junction({in_nodes}|{mid_nodes}|{out_nodes}")
+        write!(f, "Junction({in_nodes}|{mid_nodes}|{out_nodes})")
     }
 }

@@ -198,7 +198,7 @@ impl<'a> AwareGraph<'a> {
         self.remove_biedges_from(&weak_edges);
     }
 
-    fn clear_transitive_edges(&mut self) {
+    pub fn clear_transitive_edges(&mut self) {
         self.nodes.values_mut().for_each(|node| node.transitives.clear());
         self.transitives.clear();
     }
@@ -298,17 +298,14 @@ impl<'a> AwareGraph<'a> {
     }
 
     pub fn resolve_read_bridges(&mut self, min_reads:usize) -> usize {
-        let mut attempted = 0;
         let mut resolved = 0;
         let mut junctions = self.find_junctions();
         junctions.sort_unstable_by_key(|j| j.size());
-
         for junc in &junctions {
-            attempted += 1;
+            // println!("Resolving junction: {junc}");
             resolved += self.resolve_read_junction(junc, min_reads) as usize;
         }
-        println!("Junction resolution: found={} attempted={attempted} resolved={resolved}", junctions.len());
-
+        // println!("Junction resolution: found={} resolved={resolved}", junctions.len());
         resolved
     }
 
@@ -327,28 +324,33 @@ impl<'a> AwareGraph<'a> {
             }
         }
 
-        let in_nodes: HashSet<usize> = HashSet::from_iter(junc.input_nodes());
-        let out_nodes: HashSet<usize> = HashSet::from_iter(junc.output_nodes());
         let ndeg: HashMap<usize, usize> = crate::utils::counter_from_iter(bridges.iter().flat_map(|key| [key.id_from,key.id_to]));
 
-        let is_fully_covered = in_nodes.iter().chain(&out_nodes).all(|n| ndeg.get(n).is_some_and(|c| *c > 0));
+        let is_fully_covered = junc.inout_nodes().all(|n| ndeg.get(&n).is_some_and(|c| *c > 0));
         let is_strictly_covered = is_fully_covered && bridges.iter().all(|key| {
             ndeg.get(&key.id_from).is_some_and(|c| *c == 1) || ndeg.get(&key.id_to).is_some_and(|c| *c == 1)
         });
 
         if !is_fully_covered {
-            // self.remove_biedges_from(&bridges);
+            // println!("  not fully covered");
+            self.remove_transitives_from(&bridges);
             return false
         }
 
         if !is_strictly_covered {
+            // println!("  not strictly covered");
             bridges.retain(|key| self.get_transitive(key).is_some_and(|e| e.observations >= min_reads));
             let ndeg: HashMap<usize, usize> = crate::utils::counter_from_iter(bridges.iter().flat_map(|key| [key.id_from,key.id_to]));
-            if in_nodes.iter().chain(&out_nodes).any(|n| ndeg.get(n).is_some_and(|c| *c == 0)) {
-                // self.remove_biedges_from(&bridges);
+            if junc.inout_nodes().any(|n| ndeg.get(&n).is_none_or(|c| *c == 0)) {
+                self.remove_transitives_from(&bridges);
                 return false
             }
         }
+
+        // println!("  strictly covered with bridges:");
+        // for edge in &bridges {
+        //     println!("    * {edge}");
+        // }
 
         let mut bridge_paths = vec![];
         for EdgeKey { id_from, strand_from, id_to, strand_to } in &bridges {
@@ -388,6 +390,11 @@ impl<'a> AwareGraph<'a> {
     }
 
     fn resolve_read_bridged_paths(&mut self, bridge_paths:&[Vec<EdgeKey>], _junc:&Junction) {
+
+        // println!("  resolving with:");
+        // for path in bridge_paths {
+        //     println!("    * {path:?}");
+        // }
         
         let deleted_nodes: HashSet<usize> = bridge_paths.iter()
             .flat_map(|path| path.iter().skip(1))

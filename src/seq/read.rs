@@ -6,7 +6,6 @@ use ahash::AHashMap as HashMap;
 use rust_htslib::bam::{Read,IndexedReader};
 
 use crate::cli::Options;
-use crate::utils;
 
 
 // from ffforf: https://github.com/jguhlin/ffforf/blob/master/src/lib.rs
@@ -38,7 +37,7 @@ fn revcomp(seq: &[u8]) -> Vec<u8> {
 
 pub fn load_bam_sequences(bam_path: &Path, opts: &Options) -> HashMap<String,Vec<u8>> {
     
-    let mut target_intervals = utils::bam_target_intervals(bam_path);
+    let mut target_intervals = crate::utils::bam_target_intervals(bam_path);
     target_intervals.sort_unstable_by_key(|siv| siv.end - siv.beg);
     
     let (tx, rx) = mpsc::channel();

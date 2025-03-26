@@ -91,7 +91,7 @@ impl SuccinctSeq {
             return None
         }
 
-        let record_id = crate::utils::bam_record_id(record);
+        let record_id = BamRecordId::from(record);
         let target_id = record.tid() as usize;
         let mut sseq = SuccinctSeq::build(record_id, target_id);
 

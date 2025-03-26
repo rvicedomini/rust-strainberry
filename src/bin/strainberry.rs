@@ -147,8 +147,9 @@ fn main() -> ExitCode {
         num_resolved = aware_graph.resolve_read_bridges(opts.min_alt_count);
         tot_resolved += num_resolved;
     }
-    println!("{tot_resolved} junctions resolved after {num_iter} iterations");
+    println!("  {tot_resolved} junctions resolved after {num_iter} iterations");
     aware_graph.write_gfa(graphs_dir.join("aware_graph.resolved.gfa"), &target_names).unwrap();
+    aware_graph.clear_transitive_edges();
 
     println!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
 

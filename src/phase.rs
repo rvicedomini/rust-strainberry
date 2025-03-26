@@ -17,8 +17,7 @@ use ahash::AHashMap as HashMap;
 use ahash::AHashSet as HashSet;
 
 use crate::cli::Options;
-use crate::utils;
-use crate::utils::BamRecordId;
+use crate::utils::{self,BamRecordId};
 use crate::seq::{SeqInterval,SuccinctSeq};
 use crate::variant::{Var,VarDict};
 
@@ -450,7 +449,7 @@ impl<'a> Phaser<'a> {
 
             // total_obs += 1;
             
-            let record_id = utils::bam_record_id(&record);
+            let record_id = BamRecordId::from(&record);
             let record_nuc = if !alignment.is_del() && !alignment.is_refskip() { 
                 alignment.record().seq()[alignment.qpos().unwrap()] 
             } else { 

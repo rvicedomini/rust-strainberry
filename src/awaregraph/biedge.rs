@@ -45,7 +45,7 @@ impl EdgeKey {
 
 impl std::fmt::Display for EdgeKey {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "EdgeKey({},{},{},{})", self.id_from, self.strand_from, self.id_to, self.strand_to)
+        write!(f, "EdgeKey({},{},{},{})", self.id_from, self.strand_from as char, self.id_to, self.strand_to as char)
     }
 }
 

@@ -81,7 +81,7 @@ pub struct SeqAlignment {
 impl SeqAlignment {
 
     pub fn tid(&self) -> usize { self.tid }
-    pub fn record_id(&self) -> BamRecordId { BamRecordId(self.query_name.to_string(), self.query_beg, self.query_end) }
+    pub fn record_id(&self) -> BamRecordId { BamRecordId(self.query_name.clone(), self.query_beg, self.query_end) }
 
     pub fn query_name(&self) -> &str { &self.query_name }
     pub fn query_length(&self) -> usize { self.query_length }
