@@ -3,7 +3,8 @@ use std::sync::mpsc;
 use std::thread;
 
 use ahash::AHashMap as HashMap;
-use rust_htslib::bam::{Read,IndexedReader};
+use rust_htslib::bam::{IndexedReader, Read};
+use rust_htslib::htslib;
 
 use crate::cli::Options;
 
@@ -71,3 +72,19 @@ pub fn load_bam_sequences(bam_path: &Path, opts: &Options) -> HashMap<String,Vec
         .collect()
 }
 
+
+pub fn build_read_index(bam_path: &Path) -> HashMap<String,usize> {
+
+    let mut bam = IndexedReader::from_path(bam_path).unwrap();
+    bam.fetch(".").unwrap();
+    let read_index = bam.rc_records()
+        .map(|x| x.expect("Error parsing BAM file"))
+        .filter(|rec| rec.flags() & (htslib::BAM_FSECONDARY|htslib::BAM_FSUPPLEMENTARY) as u16 == 0) // consider only primary alignments
+        .enumerate()
+        .map(|(index,record)| (
+            std::str::from_utf8(record.qname()).unwrap().to_string(),
+            index
+        )).collect();
+
+    read_index
+}
