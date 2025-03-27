@@ -14,7 +14,7 @@ use strainberry::misassembly;
 use strainberry::phase;
 use strainberry::seq::build_succinct_sequences;
 use strainberry::seq::alignment::load_bam_alignments;
-use strainberry::seq::read::load_bam_sequences;
+use strainberry::seq::read::build_read_index;
 use strainberry::utils;
 use strainberry::variant;
 
@@ -45,7 +45,7 @@ fn main() -> ExitCode {
     println!("  {} variants found", variants.values().map(|vars| vars.len()).sum::<usize>());
 
     println!("Loading sequences from: {}", fasta_path.canonicalize().unwrap().display());
-    let target_names = utils::bam_target_names(bam_path);
+    let (target_names, target_index) = utils::bam_target_names(bam_path);
     let target_sequences = utils::load_sequences(fasta_path, bam_path);
     println!("  {} sequences loaded", target_sequences.len());
 
@@ -64,12 +64,13 @@ fn main() -> ExitCode {
     };
 
     println!("Loading reads from BAM");
-    let read_sequences = load_bam_sequences(bam_path, &opts);
-    println!("  {} reads loaded", read_sequences.len());
+    // let read_sequences = load_bam_sequences(bam_path, &opts);
+    let read_index = build_read_index(bam_path);
+    println!("  {} reads loaded", read_index.len());
 
     let phased_dir = output_dir.join("20-phased");    
     println!("Phasing strains");
-    let phaser = phase::Phaser::new(bam_path, &target_names, &target_intervals, &read_sequences, phased_dir, &opts).unwrap();
+    let phaser = phase::Phaser::new(bam_path, &target_names, &target_intervals, /*&read_sequences,*/ phased_dir, &opts).unwrap();
     let haplotypes = phaser.phase(&variants);
     println!("  {} haplotypes phased", haplotypes.len());
 
@@ -80,7 +81,7 @@ fn main() -> ExitCode {
     }
 
     println!("Building strain-aware contigs");
-    let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&target_sequences, &target_intervals, &haplotypes, opts.min_aware_ctg_len);
+    let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&target_intervals, &haplotypes, opts.min_aware_ctg_len);
     println!("  {} strain-aware contigs built", aware_contigs.len());
 
     // # to be added from python implementation:
