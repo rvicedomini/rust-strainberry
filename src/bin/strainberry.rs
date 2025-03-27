@@ -10,6 +10,7 @@ use clap::Parser;
 use itertools::Itertools;
 
 use strainberry::cli;
+use strainberry::graph::awaregraph::AwareGraph;
 use strainberry::misassembly;
 use strainberry::phase;
 use strainberry::seq::build_succinct_sequences;
@@ -105,7 +106,7 @@ fn main() -> ExitCode {
     };
     
     println!("Building strain-aware graph");
-    let mut aware_graph = strainberry::awaregraph::AwareGraph::build(&aware_contigs);
+    let mut aware_graph = AwareGraph::build(&aware_contigs);
     aware_graph.add_edges_from_aware_alignments(&read2aware);
     aware_graph.write_gfa(graphs_dir.join("aware_graph.raw.gfa"), &target_names).unwrap();
     aware_graph.write_dot(graphs_dir.join("aware_graph.raw.dot")).unwrap();

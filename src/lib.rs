@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 pub mod awarecontig;
-pub mod awaregraph;
+pub mod graph;
 pub mod cli;
 pub mod misassembly;
 pub mod phase;

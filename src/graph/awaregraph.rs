@@ -1,6 +1,3 @@
-mod biedge;
-mod junction;
-
 use std::borrow::Borrow;
 use std::path::PathBuf;
 use itertools::Itertools;
@@ -9,8 +6,8 @@ use tinyvec::TinyVec;
 
 use crate::awarecontig::{AwareAlignment, AwareContig, ContigType};
 
-use biedge::{BiEdge, EdgeKey, Node};
-use junction::Junction;
+use super::biedge::{self, BiEdge, EdgeKey, Node};
+use super::junction::Junction;
 
 
 #[derive(Debug, Default)]

@@ -1,6 +1,6 @@
 use itertools::Itertools;
 
-use super::EdgeKey;
+use super::biedge::EdgeKey;
 
 pub struct Junction {
     pub in_edges: Vec<EdgeKey>,
