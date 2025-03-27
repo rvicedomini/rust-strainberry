@@ -40,7 +40,7 @@ pub struct Phaser<'a> {
     bam_path: &'a Path,
     target_names: &'a Vec<String>,
     target_intervals: &'a Vec<SeqInterval>,
-    // read_sequences: &'a HashMap<String,Vec<u8>>,
+    read_index: &'a HashMap<String,usize>,
     fragments_dir: PathBuf,
     dots_dir: PathBuf,
     opts: &'a Options,
@@ -48,7 +48,7 @@ pub struct Phaser<'a> {
 
 impl<'a> Phaser<'a> {
 
-    pub fn new(bam_path: &'a Path, target_names: &'a Vec<String>, target_intervals: &'a Vec<SeqInterval>, /*read_sequences: &'a HashMap<String, Vec<u8>>,*/ work_dir: PathBuf, opts: &'a Options) -> Result<Phaser<'a>> {
+    pub fn new(bam_path: &'a Path, target_names: &'a Vec<String>, target_intervals: &'a Vec<SeqInterval>, read_index: &'a HashMap<String,usize>, work_dir: PathBuf, opts: &'a Options) -> Result<Phaser<'a>> {
 
         let fragments_dir = work_dir.join("fragments");
         fs::create_dir_all(&fragments_dir)
@@ -62,7 +62,7 @@ impl<'a> Phaser<'a> {
             bam_path,
             target_names,
             target_intervals,
-            // read_sequences,
+            read_index,
             fragments_dir,
             dots_dir,
             opts
@@ -449,7 +449,7 @@ impl<'a> Phaser<'a> {
 
             // total_obs += 1;
             
-            let record_id = BamRecordId::from(&record);
+            let record_id = BamRecordId::from_record(&record, self.read_index);
             let record_nuc = if !alignment.is_del() && !alignment.is_refskip() { 
                 alignment.record().seq()[alignment.qpos().unwrap()] 
             } else { 
@@ -503,7 +503,7 @@ impl<'a> Phaser<'a> {
 
 
 pub fn separate_reads(succinct_records: &[SuccinctSeq], haplotypes: &HashMap<HaplotypeId,Haplotype>, variant_positions: &HashSet<(usize,usize)>, min_shared_snv: usize)
-    ->  (HashMap<BamRecordId,Vec<HaplotypeId>>, HashSet<String>) {
+    ->  (HashMap<BamRecordId,Vec<HaplotypeId>>, HashSet<usize>) {
 
     let haplotypes = haplotypes.values().sorted_unstable_by_key(|ht| ht.uid()).collect_vec();
     let mut sread_haplotypes = HashMap::new();

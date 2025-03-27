@@ -6,6 +6,7 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
 
+use ahash::AHashMap as HashMap;
 use rust_htslib::bam::{Read,IndexedReader};
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Cigar, Record};
@@ -85,13 +86,13 @@ impl SuccinctSeq {
         self.nucleotides.push(nuc);
     }
 
-    pub fn from_bam_record(record: &Record, target_variants: &[Var], mut var_idx: usize) -> Option<SuccinctSeq> {
+    pub fn from_bam_record(record: &Record, target_variants: &[Var], mut var_idx: usize, read_index: &HashMap<String,usize>) -> Option<SuccinctSeq> {
         
         if var_idx >= target_variants.len() {
             return None
         }
 
-        let record_id = BamRecordId::from(record);
+        let record_id = BamRecordId::from_record(record, read_index);
         let target_id = record.tid() as usize;
         let mut sseq = SuccinctSeq::build(record_id, target_id);
 
@@ -173,7 +174,7 @@ impl SuccinctSeq {
 
 
 
-pub fn build_succinct_sequences(bam_path: &Path, variants: &VarDict, opts: &Options) -> Vec<SuccinctSeq> {
+pub fn build_succinct_sequences(bam_path: &Path, variants: &VarDict, read_index: &HashMap<String,usize>, opts: &Options) -> Vec<SuccinctSeq> {
     
     let mut target_intervals = utils::bam_target_intervals(bam_path);
     target_intervals.sort_unstable_by_key(|siv| siv.end - siv.beg);
@@ -200,7 +201,7 @@ pub fn build_succinct_sequences(bam_path: &Path, variants: &VarDict, opts: &Opti
                                 continue
                             }
                             let var_idx = target_variants.partition_point(|var| var.pos < record.reference_start() as usize);
-                            if let Some(sseq) = SuccinctSeq::from_bam_record(&record, target_variants, var_idx) {
+                            if let Some(sseq) = SuccinctSeq::from_bam_record(&record, target_variants, var_idx, read_index) {
                                 succinct_sequences.push(sseq);
                             }
                         }

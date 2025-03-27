@@ -45,8 +45,10 @@ pub fn chrom2tid(bam_header:&HeaderView) -> HashMap<String,usize> {
     bam_header
         .target_names().iter()
         .enumerate()
-        .map(|(tid,&name)| (String::from_utf8_lossy(name).to_string(),tid))
-        .collect()
+        .map(|(target_index, name)| (
+            std::str::from_utf8(name).unwrap().to_string(),
+            target_index
+        )).collect()
 }
 
 
@@ -153,14 +155,15 @@ pub fn estimate_lookback(bam_path: &Path, n: usize) -> Option<usize> {
 
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct BamRecordId(pub String, pub usize, pub usize);
+pub struct BamRecordId(pub usize, pub usize, pub usize); // query_index, query_beg, query_end
 
 impl BamRecordId {
 
-    pub fn from(record: &bam::record::Record) -> BamRecordId {
+    pub fn from_record(record: &bam::record::Record, read_index: &HashMap<String,usize>) -> BamRecordId {
         let cigar = record.cigar();
     
-        let query_name = std::str::from_utf8(record.qname()).unwrap().to_string();
+        let query_name = std::str::from_utf8(record.qname()).unwrap();
+        let query_index = read_index[query_name];
         let query_length = record.seq_len_from_cigar(true);
 
         let mut query_start = match *cigar.first().unwrap() {
@@ -168,18 +171,18 @@ impl BamRecordId {
             Cigar::SoftClip(len) => len as usize,
             _ => 0,
         };
-
         let mut query_end = query_length - match *cigar.last().unwrap() {
             Cigar::HardClip(len) => len as usize,
             Cigar::SoftClip(len) => len as usize,
             _ => 0,
         };
 
+        // start/end positions should be relative to the forward strand of the read
         if record.is_reverse() {
             (query_start, query_end) = (query_length-query_end, query_length-query_start);
         }
 
-        BamRecordId(query_name, query_start, query_end)
+        BamRecordId(query_index, query_start, query_end)
     }
     
 }

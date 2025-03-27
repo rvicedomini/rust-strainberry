@@ -44,7 +44,7 @@ impl<'a> AwareGraph<'a> {
     pub fn len(&self) -> usize { self.nb_nodes() }
     pub fn is_empty(&self) -> bool { self.len() == 0 }
 
-    pub fn add_edges_from_aware_alignments(&mut self, aware_alignments:&HashMap<String,Vec<AwareAlignment>>) {
+    pub fn add_edges_from_aware_alignments(&mut self, aware_alignments:&HashMap<usize,Vec<AwareAlignment>>) {
         for alignments in aware_alignments.values() {
             for (a, b) in alignments.iter().tuple_windows() {
                 self.add_edge_from_consecutive_alignments(a,b);
@@ -207,10 +207,10 @@ impl<'a> AwareGraph<'a> {
 
     /* GRAPH SIMPLIFICATION METHODS */
 
-    pub fn add_bridges(&mut self, aware_alignments:&HashMap<String,Vec<AwareAlignment>>) -> usize {
+    pub fn add_bridges(&mut self, aware_alignments:&HashMap<usize,Vec<AwareAlignment>>) -> usize {
         self.clear_transitive_edges();
         // add bridges from aware alignments
-        for (_query_name, alignments) in aware_alignments.iter() {
+        for (_query_idx, alignments) in aware_alignments.iter() {
             let mut first_indices: Vec<usize> = vec![];
             let mut last_indices: Vec<usize> = vec![];
             // find bifurcation nodes

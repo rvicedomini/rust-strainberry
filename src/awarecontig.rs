@@ -78,13 +78,13 @@ impl AwareContig {
 
 #[derive(Debug, Clone)]
 pub struct AwareAlignment {
-    pub query_name: String,
-    pub query_length: usize,
+    pub aware_id: usize,
+    pub query_idx: usize,
+    pub query_len: usize,
     pub query_beg: usize,
     pub query_end: usize,
     pub strand: u8,
-    pub aware_id: usize,
-    pub target_name: String,
+    pub target_idx: usize,
     pub target_beg: usize,
     pub target_end: usize,
     pub mapq: u8,
@@ -152,16 +152,16 @@ pub fn build_aware_contigs(target_intervals:&Vec<SeqInterval>, haplotypes:&HashM
 }
 
 
-pub fn map_sequences_to_aware_contigs(seq_alignments: &HashMap<String,Vec<SeqAlignment>>, aware_contigs: &mut[AwareContig], seq2haplo: &HashMap<BamRecordId,Vec<HaplotypeId>>, ambiguous_reads:&HashSet<String>) -> HashMap<String,Vec<AwareAlignment>> {
+pub fn map_sequences_to_aware_contigs(seq_alignments: &HashMap<usize,Vec<SeqAlignment>>, aware_contigs: &mut[AwareContig], seq2haplo: &HashMap<BamRecordId,Vec<HaplotypeId>>, ambiguous_reads:&HashSet<usize>) -> HashMap<usize,Vec<AwareAlignment>> {
 
-    let mut read2aware: HashMap<String,Vec<AwareAlignment>> = HashMap::new();
-    for (name, alignments) in seq_alignments {
-        if ambiguous_reads.contains(name) {
+    let mut read2aware = HashMap::new();
+    for (read_idx, alignments) in seq_alignments {
+        if ambiguous_reads.contains(read_idx) {
             continue
         }
         let aware_alignments = map_alignments_to_aware_contigs(alignments, aware_contigs, seq2haplo);
         let aware_alignments = filter_aware_alignments(aware_alignments, aware_contigs);
-        read2aware.insert(name.clone(), aware_alignments);
+        read2aware.insert(*read_idx, aware_alignments);
     }
 
     read2aware
@@ -209,13 +209,13 @@ pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contig
 
             if matches!(maptype, MappingType::QueryContained|MappingType::ReferenceContained|MappingType::DovetailPrefix|MappingType::DovetailSuffix) {
                 aware_alignments.push(AwareAlignment{
-                    query_name: sa.query_name().to_string(),
-                    query_length: sa.query_length(),
+                    aware_id,
+                    query_idx: sa.query_index(),
+                    query_len: sa.query_length(),
                     query_beg: aware_query_beg,
                     query_end: aware_query_end,
                     strand: sa.strand(),
-                    aware_id,
-                    target_name: sa.target_name().to_string(),
+                    target_idx: sa.target_index(),
                     target_beg: aware_target_beg,
                     target_end: aware_target_end,
                     mapq: sa.mapq(),

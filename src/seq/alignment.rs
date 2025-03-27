@@ -60,13 +60,14 @@ pub fn classify_mapping(query_range:(usize,usize,usize), target_range:(usize,usi
 
 #[derive(Debug)]
 pub struct SeqAlignment {
-    tid: usize,
-    query_name: String,
+    // tid: usize,
+    query_idx: usize,
     query_length: usize,
     query_beg: usize,
     query_end: usize,
     strand: u8,
-    target_name: String,
+    // target_name: String,
+    target_idx: usize,
     target_length: usize,
     target_beg: usize,
     target_end: usize,
@@ -80,10 +81,10 @@ pub struct SeqAlignment {
 
 impl SeqAlignment {
 
-    pub fn tid(&self) -> usize { self.tid }
-    pub fn record_id(&self) -> BamRecordId { BamRecordId(self.query_name.clone(), self.query_beg, self.query_end) }
+    pub fn record_id(&self) -> BamRecordId { BamRecordId(self.query_idx, self.query_beg, self.query_end) }
 
-    pub fn query_name(&self) -> &str { &self.query_name }
+    // pub fn query_name(&self) -> &str { &self.query_name }
+    pub fn query_index(&self) -> usize { self.query_idx }
     pub fn query_length(&self) -> usize { self.query_length }
     pub fn query_beg(&self) -> usize { self.query_beg }
     pub fn query_end(&self) -> usize { self.query_end }
@@ -92,7 +93,9 @@ impl SeqAlignment {
     pub fn is_forward(&self) -> bool { self.strand() == b'+' }
     pub fn is_reverse(&self) -> bool { self.strand() == b'-' }
 
-    pub fn target_name(&self) -> &str { &self.target_name }
+    // pub fn target_name(&self) -> &str { &self.target_name }
+    pub fn tid(&self) -> usize { self.target_idx }
+    pub fn target_index(&self) -> usize { self.target_idx }
     pub fn target_length(&self) -> usize { self.target_length }
     pub fn target_beg(&self) -> usize { self.target_beg }
     pub fn target_end(&self) -> usize { self.target_end }
@@ -104,9 +107,10 @@ impl SeqAlignment {
     pub fn cigar(&self) -> &Vec<Cigar> { &self.cigar }
     pub fn cigar_string(&self) -> String { self.cigar.iter().map(|op| op.to_string()).join("") }
 
-    pub fn from_bam_record(record: &Record, header: &HeaderView) -> SeqAlignment {
+    pub fn from_bam_record(record: &Record, header: &HeaderView, read_index: &HashMap<String,usize>) -> SeqAlignment {
 
-        let query_name = String::from_utf8_lossy(record.qname()).to_string();
+        let query_name = std::str::from_utf8(record.qname()).unwrap();
+        let query_idx = read_index[query_name];
         let query_length = record.seq_len_from_cigar(true);
 
         let cigar = record.cigar();
@@ -128,11 +132,11 @@ impl SeqAlignment {
 
         let strand = if is_reverse { b'-' } else { b'+' };
 
-        let tid = record.tid() as u32;
-        let target_name = String::from_utf8_lossy(header.tid2name(tid)).to_string();
+        let target_idx: usize = record.tid().try_into().unwrap();
+        // let target_name = String::from_utf8_lossy(header.tid2name(target_idx)).to_string();
         let target_beg = record.reference_start() as usize;
         let target_end = record.reference_end() as usize;
-        let target_length = header.target_len(tid).unwrap() as usize;
+        let target_length = header.target_len(target_idx as u32).unwrap() as usize;
 
         let (matches,indels) = cigar.iter().fold((0,0), |(matches,indels),op| match *op {
             Cigar::Match(len) | Cigar::Equal(len) | Cigar::Diff(len) => (matches + len as usize, indels),
@@ -163,10 +167,9 @@ impl SeqAlignment {
             .collect_vec();
 
         SeqAlignment {
-            tid: tid as usize,
-            query_name, query_length, query_beg, query_end,
+            query_idx, query_length, query_beg, query_end,
             strand,
-            target_name, target_length, target_beg, target_end,
+            target_idx, target_length, target_beg, target_end,
             matches: exact_matches, mapping_length, mapq,
             is_secondary,
             cigar
@@ -194,13 +197,14 @@ impl SeqAlignment {
                 },
                 Cigar::Del(len) | Cigar::Ins(len) if (*len as usize) >= min_indel => {
                     alignments.push(SeqAlignment {
-                        tid: self.tid(),
-                        query_name: self.query_name().to_string(),
+                        //query_name: self.query_name().to_string(),
+                        query_idx: self.query_index(),
                         query_length: self.query_length(),
                         query_beg: if self.is_forward() { query_beg } else { self.query_length() - query_end },
                         query_end: if self.is_forward() { query_end } else { self.query_length() - query_beg },
                         strand: self.strand(),
-                        target_name: self.target_name().to_string(),
+                        // target_name: self.target_name().to_string(),
+                        target_idx: self.target_index(),
                         target_length: self.target_length(), target_beg, target_end,
                         matches,
                         mapping_length,
@@ -230,13 +234,12 @@ impl SeqAlignment {
 
         if !cigar.is_empty() {
             alignments.push(SeqAlignment {
-                tid: self.tid(),
-                query_name: self.query_name().to_string(),
+                query_idx: self.query_index(),
                 query_length: self.query_length(),
                 query_beg: if self.is_forward() { query_beg } else { self.query_length() - query_end },
                 query_end: if self.is_forward() { query_end } else { self.query_length() - query_beg },
                 strand: self.strand(),
-                target_name: self.target_name().to_string(),
+                target_idx: self.target_index(),
                 target_length: self.target_length(), target_beg, target_end,
                 matches,
                 mapping_length,
@@ -300,9 +303,9 @@ impl Iterator for IterAlignedBlocks<'_> {
 }
 
 
-pub fn load_bam_alignments(bam_path: &Path, opts: &Options) -> HashMap<String,Vec<SeqAlignment>> {
+pub fn load_bam_alignments(bam_path: &Path, read_index: &HashMap<String,usize>, opts: &Options) -> HashMap<usize,Vec<SeqAlignment>> {
 
-    let mut read_alignments = HashMap::new();
+    let mut read_alignments: HashMap<usize, Vec<SeqAlignment>> = HashMap::new();
     let mut bam_reader = IndexedReader::from_path(bam_path).unwrap();
     let bam_header = bam_reader.header().clone();
 
@@ -318,15 +321,13 @@ pub fn load_bam_alignments(bam_path: &Path, opts: &Options) -> HashMap<String,Ve
             continue
         }
 
-        let seqalign = SeqAlignment::from_bam_record(&record, &bam_header);
-        if !read_alignments.contains_key(seqalign.query_name()) {
-            read_alignments.insert(seqalign.query_name().to_string(), vec![]);
-        }
-        read_alignments.get_mut(seqalign.query_name()).unwrap().push(seqalign);
+        let seqalign = SeqAlignment::from_bam_record(&record, &bam_header, read_index);
+        read_alignments.entry(seqalign.query_index())
+            .or_default()
+            .push(seqalign);
     }
 
     read_alignments
-
 }
 
 

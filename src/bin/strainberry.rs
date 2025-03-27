@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use ahash::AHashSet as HashSet;
+use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use clap::Parser;
 use itertools::Itertools;
 
@@ -35,6 +35,11 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
 
+    println!("Loading sequences from: {}", fasta_path.canonicalize().unwrap().display());
+    let (target_names, target_index) = utils::bam_target_names(bam_path);
+    let target_sequences = utils::load_sequences(fasta_path, bam_path);
+    println!("  {} sequences loaded", target_sequences.len());
+
     let variants = if let Some(vcf_file) = &opts.vcf_file {
         println!("Loading and filtering variants from: {vcf_file}");
         variant::load_variants_from_vcf(Path::new(vcf_file), bam_path, &opts)
@@ -44,33 +49,28 @@ fn main() -> ExitCode {
     };
     println!("  {} variants found", variants.values().map(|vars| vars.len()).sum::<usize>());
 
-    println!("Loading sequences from: {}", fasta_path.canonicalize().unwrap().display());
-    let (target_names, target_index) = utils::bam_target_names(bam_path);
-    let target_sequences = utils::load_sequences(fasta_path, bam_path);
-    println!("  {} sequences loaded", target_sequences.len());
-
     // TODO:
     // Consider estimating lookback length when a flag "--auto-lookback" is provided
     // utils::estimate_lookback(bam_path, 1000)
     println!("Lookback {} bp", opts.lookback);
 
+    println!("Loading reads from BAM");
+    // let read_sequences = load_bam_sequences(bam_path, &opts);
+    let read_index: HashMap<String, usize> = build_read_index(bam_path);
+    println!("  {} reads loaded", read_index.len());
+
     let target_intervals = if opts.no_split { 
         utils::bam_target_intervals(bam_path).into_iter().collect_vec()
     } else {
         println!("Splitting reference at putative misjoins");
-        let target_intervals = misassembly::partition_reference(bam_path, &opts);
+        let target_intervals = misassembly::partition_reference(bam_path, &target_index, &read_index, &opts);
         println!("  {} sequences after split", target_intervals.len());
         target_intervals
     };
 
-    println!("Loading reads from BAM");
-    // let read_sequences = load_bam_sequences(bam_path, &opts);
-    let read_index = build_read_index(bam_path);
-    println!("  {} reads loaded", read_index.len());
-
     let phased_dir = output_dir.join("20-phased");    
     println!("Phasing strains");
-    let phaser = phase::Phaser::new(bam_path, &target_names, &target_intervals, /*&read_sequences,*/ phased_dir, &opts).unwrap();
+    let phaser = phase::Phaser::new(bam_path, &target_names, &target_intervals, &read_index, phased_dir, &opts).unwrap();
     let haplotypes = phaser.phase(&variants);
     println!("  {} haplotypes phased", haplotypes.len());
 
@@ -84,7 +84,6 @@ fn main() -> ExitCode {
     let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&target_intervals, &haplotypes, opts.min_aware_ctg_len);
     println!("  {} strain-aware contigs built", aware_contigs.len());
 
-    // # to be added from python implementation:
     // logger.info('Defining reference-adjacent aware contigs')
     // aware_adjacent = defaultdict(set)
     // for reference_id,reference_intervals in aware_intervals.items():
@@ -96,10 +95,10 @@ fn main() -> ExitCode {
     //         aware_adjacent[reference_id].add((b,a))
 
     println!("Loading read alignments");
-    let read_alignments = load_bam_alignments(bam_path, &opts);
+    let read_alignments = load_bam_alignments(bam_path, &read_index, &opts);
 
     println!("Building succinct reads");
-    let succinct_reads = build_succinct_sequences(bam_path, &variants, &opts);
+    let succinct_reads = build_succinct_sequences(bam_path, &variants, &read_index, &opts);
 
     println!("Read realignment to haplotypes");
     let variant_positions = variants.values().flatten().map(|var| (var.tid,var.pos)).collect::<HashSet<_>>();
