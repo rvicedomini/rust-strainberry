@@ -7,7 +7,7 @@ use itertools::Itertools;
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use tinyvec::TinyVec;
 
-use crate::awarecontig::{AwareAlignment, AwareContig};
+use crate::awarecontig::{AwareAlignment, AwareContig, ContigType};
 
 use biedge::{BiEdge, EdgeKey, Node};
 use junction::Junction;
@@ -19,7 +19,7 @@ pub struct AwareGraph<'a> {
     edges: HashMap<EdgeKey,usize>,
     transitives: HashMap<EdgeKey,usize>,
     edge_data: Vec<BiEdge>,
-    // next_node_id: usize,
+    next_node_id: usize,
 }
 
 impl<'a> AwareGraph<'a> {
@@ -28,11 +28,13 @@ impl<'a> AwareGraph<'a> {
         let contigs_iter = aware_contigs.iter().enumerate()
             .map(|(node_id,aware_contig)| (node_id, Node::new(node_id, aware_contig)));
         let nodes = HashMap::from_iter(contigs_iter);
+        let next_node_id = nodes.len();
         Self {
             nodes,
             edges: HashMap::new(),
             transitives: HashMap::new(),
-            edge_data: vec![]
+            edge_data: vec![],
+            next_node_id
         }
     }
 
@@ -40,7 +42,7 @@ impl<'a> AwareGraph<'a> {
     pub fn nb_edges(&self) -> usize { self.edges.len() }
 
     pub fn len(&self) -> usize { self.nb_nodes() }
-    pub fn is_empty(&self) -> bool { self.nb_nodes() == 0 }
+    pub fn is_empty(&self) -> bool { self.len() == 0 }
 
     pub fn add_edges_from_aware_alignments(&mut self, aware_alignments:&HashMap<String,Vec<AwareAlignment>>) {
         for alignments in aware_alignments.values() {
@@ -448,17 +450,30 @@ impl<'a> AwareGraph<'a> {
         gfa.write_all(b"H\tVN:Z:1.0\n")?;
         for (node_id, node) in self.nodes.iter() {
             let node_ctg = node.ctg;
-            let node_name = format!("{}_{}-{}_h{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), node_ctg.hid().unwrap_or_default(), node_id);
+            let node_name = match node_ctg.contig_type() {
+                ContigType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, node_id),
+                ContigType::Unphased => format!("{}_{}-{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), node_id),
+                ContigType::Read(_) => unimplemented!()
+            };
             let node_line = format!("S\t{}\t*\tLN:i:{}\tdp:i:{}\n", node_name, node_ctg.length(), node_ctg.depth() as usize);
             gfa.write_all(node_line.as_bytes())?;
         }
+
         for edge_id in self.edges.values() {
             let edge = self.get_biedge_idx(*edge_id);
             let EdgeKey { id_from, strand_from, id_to, strand_to } = edge.key;
             let node_ctg = self.nodes[&id_from].ctg;
-            let name_from = format!("{}_{}-{}_h{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), node_ctg.hid().unwrap_or_default(), id_from);
+            let name_from = match node_ctg.contig_type() {
+                ContigType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, id_from),
+                ContigType::Unphased => format!("{}_{}-{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), id_from),
+                ContigType::Read(_) => unimplemented!()
+            };
             let node_ctg = self.nodes[&id_to].ctg;
-            let name_to = format!("{}_{}-{}_h{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), node_ctg.hid().unwrap_or_default(), id_to);
+            let name_to = match node_ctg.contig_type() {
+                ContigType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, id_to),
+                ContigType::Unphased => format!("{}_{}-{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), id_to),
+                ContigType::Read(_) => unimplemented!()
+            };
             let edge_line = format!("L\t{}\t{}\t{}\t{}\t0M\tRC:i:{}\n", name_from, crate::utils::flip_strand(strand_from) as char, name_to, strand_to as char, edge.observations );
             gfa.write_all(edge_line.as_bytes())?;
         }
