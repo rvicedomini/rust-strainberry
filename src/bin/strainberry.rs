@@ -84,16 +84,6 @@ fn main() -> ExitCode {
     let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&target_intervals, &haplotypes, opts.min_aware_ctg_len);
     println!("  {} strain-aware contigs built", aware_contigs.len());
 
-    // logger.info('Defining reference-adjacent aware contigs')
-    // aware_adjacent = defaultdict(set)
-    // for reference_id,reference_intervals in aware_intervals.items():
-    //     reference_intervals = sorted((iv.begin,iv.end) for iv in reference_intervals)
-    //     for i in range(len(reference_intervals)-1):
-    //         a = reference_intervals[i]
-    //         b = reference_intervals[i+1]
-    //         aware_adjacent[reference_id].add((a,b))
-    //         aware_adjacent[reference_id].add((b,a))
-
     println!("Loading read alignments");
     let read_alignments = load_bam_alignments(bam_path, &read_index, &opts);
 
@@ -123,18 +113,14 @@ fn main() -> ExitCode {
     aware_graph.remove_weak_edges(5);
     aware_graph.write_gfa(graphs_dir.join("aware_graph.gfa"), &target_names).unwrap();
 
-    // # to be added from python implementation:
-    // # assign reference sequence to reference-adjacent contigs
-    // awaregraph.patch_edges(aware_adjacent)
-
-    // # to be added from python implementation:
+    // # to be added from python implementation if needed:
     // logger.debug(f'Removing inconsistent edges')
     // inconsistent_edges = awaregraph.get_htig_inconsistent_edges(htig2aware)
     // awaregraph.remove_htig_inconsistent_edges(inconsistent_edges)
 
     println!("Resolving strain-aware graph using reads");
     let nb_tedges = aware_graph.add_bridges(&read2aware);
-    // # to be added from python implementation:
+    // # to be added from python implementation if needed:
     // awaregraph.patch_sequences(htig2aware)
     aware_graph.write_dot(graphs_dir.join("aware_graph.dot")).unwrap();
     println!("  {} read bridges added", nb_tedges);
