@@ -12,14 +12,18 @@ use tinyvec::{tiny_vec,TinyVec};
 use crate::seq::SeqInterval;
 
 
-pub fn bam_target_names(bam_path:&Path) -> Vec<String> {
+pub fn bam_target_names(bam_path:&Path) -> (Vec<String>,HashMap<String,usize>) {
     let bam_reader = bam::IndexedReader::from_path(bam_path).unwrap();
-    bam_reader
-        .header()
+    let target_names = bam_reader.header()
         .target_names()
         .iter()
         .map(|&name| String::from_utf8_lossy(name).to_string())
-        .collect_vec()
+        .collect_vec();
+    let name_to_index = target_names.iter()
+        .enumerate()
+        .map(|(idx,name)| (name.clone(),idx))
+        .collect::<HashMap<String,usize>>();
+    (target_names,name_to_index)
 }
 
 
