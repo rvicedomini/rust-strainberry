@@ -82,11 +82,15 @@ pub struct AwareAlignment {
 fn retrieve_unphased_intervals(target_intervals:&Vec<SeqInterval>, haplotypes:&HashMap<HaplotypeId,Haplotype>, min_length:usize) -> Vec<SeqInterval> {
 
     let mut unphased_intervals: Vec<SeqInterval> = vec![];
-    let phased_intervals = haplotypes.values().map(|ht| ht.region()).unique().sorted_unstable().collect_vec();
+    let phased_intervals = haplotypes.values()
+        .map(|ht| ht.region())
+        .unique()
+        .sorted_unstable()
+        .collect_vec();
 
     for iv in target_intervals {
 
-        let first = phased_intervals.partition_point(|x| x < iv);
+        let first = phased_intervals.partition_point(|x| x.tid < iv.tid || (x.tid == iv.tid && x.beg < iv.beg));
         
         let mut beg = iv.beg;
         for &piv in phased_intervals[first..].iter().take_while(|piv| piv.tid == iv.tid && piv.end <= iv.end) {
