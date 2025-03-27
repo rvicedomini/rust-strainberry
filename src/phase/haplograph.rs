@@ -140,15 +140,6 @@ impl HaploGraph {
         haplotype_nodes.push(hid);
         haplotype_nodes.reverse();
         haplotype_nodes
-
-        // old recursive version:
-        // if self.out_degree(hid) == 0 {
-        //     return vec![*hid];
-        // }
-        // let succ = unsafe { &self.succ[hid].first().unwrap_unchecked().0 }; // out_degree > 0
-        // let mut haplotype_nodes = self.scaffold_from(succ);
-        // haplotype_nodes.push(*hid);
-        // haplotype_nodes
     }
 
     pub fn write_dot(&self, path:&Path) -> std::io::Result<()> {
