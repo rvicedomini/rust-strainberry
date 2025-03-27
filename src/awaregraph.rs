@@ -24,18 +24,37 @@ pub struct AwareGraph<'a> {
 
 impl<'a> AwareGraph<'a> {
 
+    // Prerequisite: aware_contigs must be sorted by interval for the following to work
     pub fn build(aware_contigs:&'a [AwareContig]) -> Self {
+
         let contigs_iter = aware_contigs.iter().enumerate()
             .map(|(node_id,aware_contig)| (node_id, Node::new(node_id, aware_contig)));
         let nodes = HashMap::from_iter(contigs_iter);
         let next_node_id = nodes.len();
-        Self {
+
+        let mut aware_graph = Self {
             nodes,
             edges: HashMap::new(),
             transitives: HashMap::new(),
             edge_data: vec![],
             next_node_id
-        }
+        };
+
+        // insert edges between contigs adjacent on reference
+        aware_contigs.iter().tuple_windows().enumerate()
+            .filter_map(|(i,(a,b))| {
+                if a.tid() == b.tid() && !a.is_phased() && !b.is_phased() {
+                    Some(EdgeKey::new(i, b'-', i+1, b'+'))
+                } else { 
+                    None
+                }
+            })
+            .for_each(|mut edge_key| {
+                edge_key.canonicalize();
+                aware_graph.get_biedge_or_create(&edge_key);
+            });
+
+        aware_graph
     }
 
     pub fn nb_nodes(&self) -> usize { self.nodes.len() }
@@ -215,7 +234,7 @@ impl<'a> AwareGraph<'a> {
             let mut last_indices: Vec<usize> = vec![];
             // find bifurcation nodes
             for (idx,(a,b)) in alignments.iter().tuple_windows().enumerate() {
-                let EdgeKey { id_from, strand_from, id_to, strand_to } = EdgeKey::from_alignments(a, b);
+                let EdgeKey { id_from, strand_from, id_to, strand_to } = EdgeKey::from_alignments(a,b);
                 if a.aware_id == b.aware_id || !self.nodes.contains_key(&id_from) || !self.nodes.contains_key(&id_to) {
                     continue
                 }
