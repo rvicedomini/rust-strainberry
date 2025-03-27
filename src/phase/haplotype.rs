@@ -84,9 +84,8 @@ impl Haplotype {
     pub fn last_pos(&self) -> usize { self.last().pos }
     pub fn last_nuc(&self) -> u8 { self.last().nuc }
 
-    pub fn region(&self) -> SeqInterval {
-        SeqInterval{ tid:self.tid, beg:self.beg(), end:self.end() }
-    }
+    pub fn region(&self) -> SeqInterval { SeqInterval{ tid:self.tid, beg:self.beg(), end:self.end() } }
+    pub fn interval(&self) -> SeqInterval { self.region() }
 
     pub fn extend(&mut self, mut other: Haplotype) {
         self.vars.extend(other.vars.drain(other.offset..));
