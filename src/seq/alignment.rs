@@ -1,16 +1,17 @@
 use std::path::Path;
 
+use anyhow::{Context, Error, Result};
 use ahash::AHashMap as HashMap;
 use itertools::Itertools;
 use rust_htslib::bam::{HeaderView,Read,IndexedReader};
 use rust_htslib::bam::ext::BamRecordExtensions;
-use rust_htslib::bam::record::{Aux, Cigar, Record};
+use rust_htslib::bam::record::{Aux, Cigar, CigarString, Record};
 
 use crate::cli::Options;
 use crate::bam::BamRecordId;
 
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MappingType {
     DovetailSuffix,
     QueryPrefix,
@@ -401,4 +402,69 @@ pub fn last_match_until(position:usize, mut query_beg:usize, mut target_beg:usiz
         return Some((query_match_pos,target_match_pos))
     }
     None
+}
+
+
+pub struct PafAlignment {
+    pub query_name: String,
+    pub query_length: usize,
+    pub query_beg: usize,
+    pub query_end: usize,
+    pub strand: u8,
+    pub target_name: String,
+    pub target_length: usize,
+    pub target_beg: usize,
+    pub target_end: usize,
+    pub matches: usize, // exact matches
+    pub mapping_length: usize,
+    pub mapq: u8,
+    pub is_secondary: bool,
+    pub cigar: CigarString,
+}
+
+impl std::str::FromStr for PafAlignment {
+
+    type Err = Error;
+    
+    fn from_str(line: &str) -> Result<Self,Self::Err> {
+        let cols: [&str; 13] = line.splitn(13, '\t').collect_array().context("cannot parse PAF line")?;
+        
+        let query_name = cols[0].to_string();
+        let [query_length, query_beg, query_end] = cols[1..4].iter().map(|s|s.parse::<usize>().unwrap()).collect_array().unwrap();
+        
+        let strand = cols[4].bytes().next().with_context(|| format!("bad strand field in PAF line: {}", cols[4]))?;
+        if ! b"+-".contains(&strand) { anyhow::bail!("Unexpected strand field in PAF line: {}", strand as char); }
+        
+        let target_name = cols[5].to_string();
+        let [target_length, target_beg, target_end] = cols[6..9].iter().map(|s|s.parse::<usize>().unwrap()).collect_array().unwrap();
+        
+        let matches = cols[9].parse().unwrap();
+        let mapping_length = cols[10].parse().unwrap();
+        let mapq = cols[11].parse().unwrap();
+        
+        let tags: HashMap<&str,&str> = cols[12].split('\n').filter_map(|s| {
+                let [key,_,val] = s.splitn(3,':').collect_array()?;
+                Some((key,val))
+            }).collect();
+        let tp = tags.get("tp").context("missing \"tp\" tag in PAF line")?;
+        let is_secondary = *tp == "S";
+        let cigar = crate::bam::parse_cigar_bytes(tags.get("cg").unwrap_or(&"").as_bytes());
+        
+        Ok(PafAlignment {
+            query_name,
+            query_length,
+            query_beg,
+            query_end,
+            strand,
+            target_name,
+            target_length,
+            target_beg,
+            target_end,
+            matches,
+            mapping_length,
+            mapq,
+            is_secondary,
+            cigar
+        })
+    }
 }

@@ -37,6 +37,12 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
 
+    // Assembly pre-process
+    // println!("Purging duplications from: {}", fasta_path.canonicalize().unwrap().display());
+    // let derep_dir = output_dir.join("10-preprocess");    
+    // let derep_path = strainberry::derep::derep_assembly(fasta_path, derep_dir, &opts).unwrap();
+    // println!("  dereplicated assembly written to: {:?}", derep_path);
+
     println!("Loading sequences from: {}", fasta_path.canonicalize().unwrap().display());
     let (target_names, target_index) = bam::bam_target_names(bam_path);
     let target_sequences = bam::load_sequences(fasta_path, bam_path);
@@ -70,7 +76,7 @@ fn main() -> ExitCode {
         target_intervals
     };
 
-    let phased_dir = output_dir.join("20-phased");    
+    let phased_dir = output_dir.join("20-phased");
     println!("Phasing strains");
     let phaser = phase::Phaser::new(bam_path, &target_names, &target_intervals, &read_index, phased_dir, &opts).unwrap();
     let haplotypes = phaser.phase(&variants);
