@@ -3,17 +3,12 @@ use std::sync::mpsc;
 use std::thread;
 use std::path::Path;
 
+use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use itertools::Itertools;
-
-use ahash::AHashMap as HashMap;
-use ahash::AHashSet as HashSet;
-use rust_htslib::bam;
-use rust_htslib::bam::{Read,IndexedReader};
-
+use rust_htslib::bam::{self, Read,IndexedReader};
 use tinyvec::ArrayVec;
 
 use crate::cli::Options;
-use crate::utils;
 
 
 const BASES: [char;5] = ['A', 'C', 'G', 'T', 'N'];
@@ -39,7 +34,7 @@ fn load_variants_at_positions_threaded(bam_path: &Path, positions: Option<&VarPo
             .map(|(tid,target_positions)| (*tid,Some(target_positions)))
             .collect_vec()
     } else {
-        utils::bam_target_intervals(bam_path)
+        crate::bam::bam_target_intervals(bam_path)
             .into_iter()
             .map(|siv| (siv.tid, None))
             .collect_vec()
@@ -137,9 +132,9 @@ pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, opts:&Options) -> 
 
     let bam_reader = bam::Reader::from_path(bam_path).unwrap();
     let bam_header = bam_reader.header();
-    let chrom2tid = utils::chrom2tid(bam_header);
+    let chrom2tid = crate::bam::chrom2tid(bam_header);
 
-    let vcf_reader = utils::get_file_reader(vcf_path);
+    let vcf_reader = crate::utils::get_file_reader(vcf_path);
     let positions = vcf_reader.lines()
         .map_while(Result::ok)
         .filter_map(|line| { // CHROM POS ID REF ALT QUAL FILTER INFO FORMAT SAMPLE

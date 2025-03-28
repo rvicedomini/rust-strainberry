@@ -4,14 +4,12 @@ use std::path::Path;
 
 use ahash::AHashMap as HashMap;
 use itertools::Itertools;
-use rust_htslib::bam::HeaderView;
-use rust_htslib::bam::{Reader, Read, IndexedReader};
+use rust_htslib::bam::{Reader, Read, IndexedReader, HeaderView};
 use rust_htslib::bam::record::Aux;
 
 use crate::cli::Options;
 use crate::seq::SeqInterval;
 use crate::seq::alignment::SeqAlignment;
-use crate::utils;
 
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -33,7 +31,7 @@ pub fn partition_reference(bam_path: &Path, target_index: &HashMap<String,usize>
 
     let (tx, rx) = mpsc::channel();
     
-    let target_intervals = utils::bam_target_intervals(bam_path)
+    let target_intervals = crate::bam::bam_target_intervals(bam_path)
         .into_iter()
         .sorted_unstable_by_key(|iv| -((iv.end-iv.beg) as isize))
         .collect_vec();
@@ -120,9 +118,9 @@ fn find_misassemblies(bam_reader: &mut IndexedReader, region: &SeqInterval, targ
                     let target_beg = sa[1].parse::<usize>().unwrap() - 1;
                     let strand = sa[2].as_bytes()[0];
                     assert!(strand == b'+' || strand == b'-');
-                    let cigar = utils::parse_cigar_bytes(sa[3].as_bytes());
-                    let [mut query_beg,mut query_end,target_beg,target_end] = utils::intervals_from_cigar(&cigar, target_beg, 0);
-                    let query_length = utils::seq_length_from_cigar(&cigar, true);
+                    let cigar = crate::bam::parse_cigar_bytes(sa[3].as_bytes());
+                    let [mut query_beg,mut query_end,target_beg,target_end] = crate::bam::intervals_from_cigar(&cigar, target_beg, 0);
+                    let query_length = crate::bam::seq_length_from_cigar(&cigar, true);
                     if strand == b'-' {
                         (query_beg,query_end) = (query_length-query_end, query_length-query_beg);
                     }

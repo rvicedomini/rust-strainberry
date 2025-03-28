@@ -9,6 +9,7 @@ use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use clap::Parser;
 use itertools::Itertools;
 
+use strainberry::bam;
 use strainberry::cli;
 use strainberry::graph::awaregraph::AwareGraph;
 use strainberry::misassembly;
@@ -37,8 +38,8 @@ fn main() -> ExitCode {
     };
 
     println!("Loading sequences from: {}", fasta_path.canonicalize().unwrap().display());
-    let (target_names, target_index) = utils::bam_target_names(bam_path);
-    let target_sequences = utils::load_sequences(fasta_path, bam_path);
+    let (target_names, target_index) = bam::bam_target_names(bam_path);
+    let target_sequences = bam::load_sequences(fasta_path, bam_path);
     println!("  {} sequences loaded", target_sequences.len());
 
     let variants = if let Some(vcf_file) = &opts.vcf_file {
@@ -61,7 +62,7 @@ fn main() -> ExitCode {
     println!("  {} reads loaded", read_index.len());
 
     let target_intervals = if opts.no_split { 
-        utils::bam_target_intervals(bam_path).into_iter().collect_vec()
+        bam::bam_target_intervals(bam_path).into_iter().collect_vec()
     } else {
         println!("Splitting reference at putative misjoins");
         let target_intervals = misassembly::partition_reference(bam_path, &target_index, &read_index, &opts);

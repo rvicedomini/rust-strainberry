@@ -7,7 +7,7 @@ use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Aux, Cigar, Record};
 
 use crate::cli::Options;
-use crate::utils::BamRecordId;
+use crate::bam::BamRecordId;
 
 
 #[derive(Debug, Clone, Copy)]

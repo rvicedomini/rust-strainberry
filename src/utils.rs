@@ -1,5 +1,3 @@
-mod bam;
-
 use std::fs::File;
 use std::io::{BufRead,BufReader,Write,BufWriter};
 use std::mem::MaybeUninit;
@@ -9,17 +7,6 @@ use ahash::AHashMap as HashMap;
 use flate2::Compression;
 use flate2::read::MultiGzDecoder;
 use flate2::write::GzEncoder;
-
-pub use self::bam::bam_target_names;
-pub use self::bam::bam_target_intervals;
-pub use self::bam::chrom2tid;
-pub use self::bam::load_sequences;
-pub use self::bam::parse_cigar_bytes;
-pub use self::bam::intervals_from_cigar;
-pub use self::bam::seq_length_from_cigar;
-pub use self::bam::estimate_lookback;
-pub use self::bam::BamRecordId;
-pub use self::bam::BamReadIndex;
 
 pub fn get_maxrss() -> f64 {
     let usage = unsafe {

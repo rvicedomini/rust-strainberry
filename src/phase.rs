@@ -17,7 +17,7 @@ use ahash::AHashMap as HashMap;
 use ahash::AHashSet as HashSet;
 
 use crate::cli::Options;
-use crate::utils::BamRecordId;
+use crate::bam::BamRecordId;
 use crate::seq::{SeqInterval,SuccinctSeq};
 use crate::variant::{Var,VarDict};
 

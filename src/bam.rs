@@ -236,5 +236,3 @@ impl BamReadIndex {
         false
     }
 }
-
-

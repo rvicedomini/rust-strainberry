@@ -12,7 +12,7 @@ use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Cigar, Record};
 
 use crate::cli::Options;
-use crate::utils::{self,BamRecordId};
+use crate::bam::BamRecordId;
 use crate::variant::{Var,VarDict};
 
 
@@ -176,7 +176,7 @@ impl SuccinctSeq {
 
 pub fn build_succinct_sequences(bam_path: &Path, variants: &VarDict, read_index: &HashMap<String,usize>, opts: &Options) -> Vec<SuccinctSeq> {
     
-    let mut target_intervals = utils::bam_target_intervals(bam_path);
+    let mut target_intervals = crate::bam::bam_target_intervals(bam_path);
     target_intervals.sort_unstable_by_key(|siv| siv.end - siv.beg);
     
     let (tx, rx) = mpsc::channel();

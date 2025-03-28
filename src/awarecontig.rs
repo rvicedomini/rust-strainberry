@@ -7,7 +7,7 @@ use ahash::AHashSet as HashSet;
 use crate::phase::haplotype::{HaplotypeId,Haplotype};
 use crate::seq::SeqInterval;
 use crate::seq::alignment::{MappingType, SeqAlignment};
-use crate::utils::BamRecordId;
+use crate::bam::BamRecordId;
 
 
 #[derive(Debug, Clone, Copy)]

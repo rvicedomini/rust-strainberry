@@ -7,7 +7,7 @@ use ahash::AHashMap as HashMap;
 use ahash::AHashSet as HashSet;
 use tinyvec::{tiny_vec, TinyVec};
 
-use crate::utils::BamRecordId;
+use crate::bam::BamRecordId;
 use super::haplotype::{HaplotypeId, Haplotype};
 
 #[derive(Debug, Default, Clone)]

@@ -38,7 +38,7 @@ fn revcomp(seq: &[u8]) -> Vec<u8> {
 
 pub fn load_bam_sequences(bam_path: &Path, opts: &Options) -> HashMap<String,Vec<u8>> {
     
-    let mut target_intervals = crate::utils::bam_target_intervals(bam_path);
+    let mut target_intervals = crate::bam::bam_target_intervals(bam_path);
     target_intervals.sort_unstable_by_key(|siv| siv.end - siv.beg);
     
     let (tx, rx) = mpsc::channel();
