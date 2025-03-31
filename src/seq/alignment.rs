@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use anyhow::{Context, Error, Result};
+use anyhow::{bail, Context, Error, Result};
 use ahash::AHashMap as HashMap;
 use itertools::Itertools;
 use rust_htslib::bam::{HeaderView,Read,IndexedReader};
@@ -33,7 +33,7 @@ pub fn classify_mapping(query_range:(usize,usize,usize), target_range:(usize,usi
     let left_overhang = std::cmp::min(b1,b2);
     let right_overhang = std::cmp::min(l1-e1,l2-e2);
     let maplen = std::cmp::max(e1-b1,e2-b2);
-    let oh_threshold = std::cmp::max(overhang, ((maplen as f64)*r) as usize);
+    let oh_threshold = std::cmp::min(overhang, ((maplen as f64)*r) as usize);
 
     if b2 <= b1 && b2 <= oh_threshold && right_overhang > oh_threshold {
         ReferencePrefix
@@ -405,6 +405,7 @@ pub fn last_match_until(position:usize, mut query_beg:usize, mut target_beg:usiz
 }
 
 
+#[derive(Debug)]
 pub struct PafAlignment {
     pub query_name: String,
     pub query_length: usize,
@@ -432,8 +433,11 @@ impl std::str::FromStr for PafAlignment {
         let query_name = cols[0].to_string();
         let [query_length, query_beg, query_end] = cols[1..4].iter().map(|s|s.parse::<usize>().unwrap()).collect_array().unwrap();
         
-        let strand = cols[4].bytes().next().with_context(|| format!("bad strand field in PAF line: {}", cols[4]))?;
-        if ! b"+-".contains(&strand) { anyhow::bail!("Unexpected strand field in PAF line: {}", strand as char); }
+        let strand = match cols[4] {
+            "+" => b'+',
+            "-" => b'-',
+            _ => bail!("unrecognised strand field: {}", cols[4])
+        };
         
         let target_name = cols[5].to_string();
         let [target_length, target_beg, target_end] = cols[6..9].iter().map(|s|s.parse::<usize>().unwrap()).collect_array().unwrap();
@@ -442,7 +446,7 @@ impl std::str::FromStr for PafAlignment {
         let mapping_length = cols[10].parse().unwrap();
         let mapq = cols[11].parse().unwrap();
         
-        let tags: HashMap<&str,&str> = cols[12].split('\n').filter_map(|s| {
+        let tags: HashMap<&str,&str> = cols[12].split('\t').filter_map(|s| {
                 let [key,_,val] = s.splitn(3,':').collect_array()?;
                 Some((key,val))
             }).collect();
@@ -466,5 +470,17 @@ impl std::str::FromStr for PafAlignment {
             is_secondary,
             cigar
         })
+    }
+}
+
+impl std::fmt::Display for PafAlignment {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let PafAlignment {
+            query_name, query_length, query_beg, query_end,
+            strand,
+            target_name, target_length, target_beg, target_end,
+            matches:_, mapping_length:_, mapq:_, is_secondary:_,
+            cigar:_ } = self;
+        write!(f, "PafAlignment({query_name},{query_length},{query_beg},{query_end},{},{target_name},{target_length},{target_beg},{target_end})", *strand as char)
     }
 }
