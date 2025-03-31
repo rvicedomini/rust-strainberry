@@ -106,7 +106,7 @@ pub fn derep_assembly(fasta_path: &Path, work_dir: PathBuf, opts: &Options) -> R
     
     for it in 1usize.. {
 
-        println!("  derep iteration #{it} on \"{}\"", asm_path.display());
+        // println!("  derep iteration #{it} on \"{}\"", asm_path.display());
 
         let mut modified = false;
         let matching_intervals = self::compute_matching_intervals(&asm_path, opts)?;
