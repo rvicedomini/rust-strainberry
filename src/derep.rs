@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::str::FromStr;
 
-use anyhow::{Context, Error, Result};
+use anyhow::{bail, Context, Error, Result};
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use itertools::Itertools;
 // use flate2::read::MultiGzDecoder;
@@ -29,9 +29,9 @@ fn compute_matching_intervals(fasta_path: &Path, opts: &Options) -> Result<HashM
 
     let fasta_path_str = fasta_path.to_str().unwrap();
 
-    // if which::which("minimap2").is_err() {
-    //     bail!("cannot execute minimap2, please check it is in your system PATH");
-    // }
+    if which::which("minimap2").is_err() {
+        bail!("missing minimap2 dependency, please check your system PATH");
+    }
 
     let args = ["-t", &opts.nb_threads.to_string(), "-cDP", "--dual=no", "--no-long-join", "-r85", fasta_path_str, fasta_path_str];
     let stdout = Command::new("minimap2").args(args)
@@ -41,18 +41,20 @@ fn compute_matching_intervals(fasta_path: &Path, opts: &Options) -> Result<HashM
         .stdout
         .with_context(|| "Could not capture standard output.")?;
     
+    // eprintln!("  running command: minimap2 {}", args.join(" "));
     let reader = BufReader::new(stdout);
     let alignments: Vec<PafAlignment> = reader.lines()
         .map_while(Result::ok)
         .map(|line| line.trim().to_string())
         .filter(|line| !line.is_empty())
-        .filter_map(|line| PafAlignment::from_str(&line).ok())
+        .map(|line| PafAlignment::from_str(&line).with_context(||format!("error parsing line:\n{line}")).unwrap())
         .collect();
 
     let mut matching_intervals: HashMap<String,Vec<(usize,usize,String)>> = HashMap::new();
     for a in alignments {
         let map_type = self::map_type(&a, 200, 0.5);
         let identity = if a.mapping_length > 0 { (100.0 * a.matches as f64)/(a.mapping_length as f64) } else { 0.0 };
+        // println!("{a} => {map_type:?} / {identity:.2}");
         if a.query_name == a.target_name || identity < 95.0 {
             continue
         }
@@ -62,19 +64,23 @@ fn compute_matching_intervals(fasta_path: &Path, opts: &Options) -> Result<HashM
             },
             MappingType::QueryPrefix => {
                 let (query_beg, query_end) = if a.strand == b'+' { (0,a.query_end) } else { (a.query_beg,a.query_length) };
+                // println!("{} => {map_type:?} | {} | ({},{},{})", a.query_name, a.strand as char, query_beg, query_end, a.target_name);
                 matching_intervals.entry(a.query_name).or_default().push((query_beg, query_end,a.target_name));
             },
             MappingType::QuerySuffix => {
                 let (query_beg, query_end) = if a.strand == b'+' { (a.query_beg,a.query_length) } else { (0,a.query_end) };
+                // println!("{} => {map_type:?} | {} | ({},{},{})", a.query_name, a.strand as char, query_beg, query_end, a.target_name);
                 matching_intervals.entry(a.query_name).or_default().push((query_beg, query_end,a.target_name));
             },
             MappingType::ReferenceContained => {
                 matching_intervals.entry(a.target_name).or_default().push((0,a.target_length,a.query_name));
             },
             MappingType::ReferencePrefix => {
+                // println!("{} => {map_type:?} | {} | ({},{},{})", a.target_name, a.strand as char, 0,a.target_end, a.query_name);
                 matching_intervals.entry(a.target_name).or_default().push((0,a.target_end,a.query_name));
             },
             MappingType::ReferenceSuffix => {
+                // println!("{} => {map_type:?} | {} | ({},{},{})", a.target_name, a.strand as char, a.target_beg,a.target_length, a.query_name);
                 matching_intervals.entry(a.target_name).or_default().push((a.target_beg,a.target_length,a.query_name));
             },
             MappingType::DovetailPrefix => {
@@ -91,9 +97,6 @@ fn compute_matching_intervals(fasta_path: &Path, opts: &Options) -> Result<HashM
         }
     }
 
-    // let mut fasta_reader = needletail::parse_fastx_file(fasta_path)
-    //     .with_context(|| format!("Cannot open fasta file: {}", fasta_path.display()))?;
-
     Ok(matching_intervals)
 }
 
@@ -101,6 +104,7 @@ fn compute_matching_intervals(fasta_path: &Path, opts: &Options) -> Result<HashM
 pub fn derep_assembly(fasta_path: &Path, work_dir: PathBuf, opts: &Options) -> Result<PathBuf> {
     assert!(fasta_path.is_file());
 
+    // TODO: delete temporary directory at the end
     let tmp_dir = work_dir.join("tmp");
     std::fs::create_dir_all(&tmp_dir)
         .with_context(|| format!("Cannot create output directory: \"{}\"", tmp_dir.display()))?;
@@ -108,16 +112,16 @@ pub fn derep_assembly(fasta_path: &Path, work_dir: PathBuf, opts: &Options) -> R
     let output_path = work_dir.join("assembly_derep.fasta");
     let mut asm_path = fasta_path.to_path_buf();
     
-    for it in 1.. {
+    for it in 1usize.. {
+
+        println!("  derep iteration #{it} on \"{}\"", asm_path.display());
 
         let mut modified = false;
         let matching_intervals = self::compute_matching_intervals(&asm_path, opts)?;
 
-        eprintln!("minimap2 successfully run in iteration {it}");
-
         let mut seq_dict: HashMap<String,String> = HashMap::new();
-        let mut fasta_reader = needletail::parse_fastx_file(fasta_path).context("Cannot open fasta file")?;
-        while let Some(record) = fasta_reader.next() {
+        let mut asm_reader = needletail::parse_fastx_file(asm_path).context("Cannot open fasta file")?;
+        while let Some(record) = asm_reader.next() {
             let record = record.unwrap();
             let name = std::str::from_utf8(record.id()).unwrap().to_string();
             let sequence = std::str::from_utf8(&record.normalize(false)).unwrap().to_string();
@@ -132,19 +136,21 @@ pub fn derep_assembly(fasta_path: &Path, work_dir: PathBuf, opts: &Options) -> R
             if let Some(intervals) = matching_intervals.get(seq_id.as_str()) {
                 let sorted_intervals = intervals.iter()
                     .filter_map(|(beg,end,name)| {
-                        if processed.contains(name.as_str()) { Some((*beg,*end,name.clone())) } else { None }
+                        if !processed.contains(name.as_str()) { Some((*beg,*end,name.clone())) } else { None }
                     }).sorted_unstable().collect_vec();
                 
                 let mut merged_intervals = Vec::with_capacity(sorted_intervals.len());
-                for iv in sorted_intervals {
-                    if merged_intervals.is_empty() {
-                        merged_intervals.push(iv);
-                        continue;
+                for (beg,end,_) in sorted_intervals {
+                    if let Some((_last_beg,last_end)) = merged_intervals.last_mut() {
+                        if beg <= *last_end {
+                            *last_end = std::cmp::max(*last_end, end);
+                            continue
+                        }
                     }
-                    let last = unsafe { merged_intervals.last_mut().unwrap_unchecked() };
-                    if iv.0 <= last.1 { last.1 = std::cmp::max(last.1, iv.1); }
+                    merged_intervals.push((beg,end));
                 }
-                modified = !merged_intervals.is_empty();
+
+                modified = modified || !merged_intervals.is_empty();
                 for iv in &merged_intervals {
                     assert!(iv.0 < iv.1);
                     let first = seq_intervals.partition_point(|(_,end)| *end <= iv.0);
@@ -171,9 +177,13 @@ pub fn derep_assembly(fasta_path: &Path, work_dir: PathBuf, opts: &Options) -> R
             // Sequences are processed in increasing length and only alignments involving the suffix/prefix are retained
             // This means I cannot get more than 1 interval
             assert!(seq_intervals.len() <= 1);
+            
             for (beg,end) in seq_intervals {
-                let record = format!(">{seq_id}\n{}\n", &sequence[beg..end]);
-                derep_writer.write_all(record.as_bytes())?;
+                let header = format!(">{seq_id}\n");
+                derep_writer.write_all(header.as_bytes())?;
+                let sequence = crate::utils::insert_newlines(&sequence[beg..end], 120);
+                derep_writer.write_all(sequence.as_bytes())?;
+                derep_writer.write_all(b"\n")?;
             }
         }
 
@@ -189,40 +199,3 @@ pub fn derep_assembly(fasta_path: &Path, work_dir: PathBuf, opts: &Options) -> R
     Ok(output_path)
 }
 
-// def main(argv=None):
-    
-//     with TemporaryDirectory(dir='.', prefix='derep') as tmpdir:
-
-//         logger.debug(f'tmpdir: {tmpdir}')
-    
-//         asmfile = opt.ASM
-//         modified = True
-//         while modified:
-
-//             modified = False
-//             with derep_asmfile as derep:
-//                 processed = set()
-//                 for seq_id, sequence in sorted(seq_dict.items(), key=lambda x:len(x[1])):
-//                     seq_length = len(sequence)
-//                     seq_intervals = IntervalTree([Interval(0,seq_length)])
-//                     if seq_id in matching_intervals:
-//                         matching_intervals[seq_id] = IntervalTree.from_tuples((iv.begin,iv.end,iv.data) for iv in matching_intervals[seq_id] if (iv.data not in processed))
-//                         matching_intervals[seq_id].merge_overlaps()
-//                         for iv in matching_intervals[seq_id]:
-//                             assert(iv.end > iv.begin)
-//                             seq_intervals.chop(iv.begin,iv.end)
-//                             modified = True
-//                         processed.add(seq_id)
-//                     assert(len(seq_intervals) <= 1)
-//                     for iv in seq_intervals:
-//                         if iv.end - iv.begin >= opt.min_length:
-//                             derep.write(f'>{seq_id}\n{insert_newlines(sequence[iv.begin:iv.end])}\n')
-            
-//             if not modified:
-//                 Path(derep_asmfile.name).rename(opt.outfile)
-//                 logger.debug(f'outfile: {opt.outfile}')
-//                 break
-
-//             asmfile = derep_asmfile.name
-    
-//     return 0
