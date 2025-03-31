@@ -2,10 +2,10 @@
 
 use std::fs;
 use std::path::Path;
-use std::process::ExitCode;
 use std::time::Instant;
 
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
+use anyhow::Context;
 use clap::Parser;
 use itertools::Itertools;
 
@@ -21,7 +21,7 @@ use strainberry::utils;
 use strainberry::variant;
 
 
-fn main() -> ExitCode {
+fn main() -> anyhow::Result<(), anyhow::Error> {
     
     let t_start = Instant::now();
 
@@ -32,15 +32,12 @@ fn main() -> ExitCode {
     let output_dir = Path::new(&opts.output_dir);
 
     // TODO - consider creating output directory in cli module (after option validation)
-    if fs::create_dir_all(output_dir).is_err() {
-        println!("Cannot create output directory: \"{}\"", output_dir.display());
-        return ExitCode::FAILURE;
-    };
+    fs::create_dir_all(output_dir).with_context(|| format!("Cannot create output directory: \"{}\"", output_dir.display()))?;
 
     // Assembly pre-process
     // println!("Purging duplications from: {}", fasta_path.canonicalize().unwrap().display());
     // let derep_dir = output_dir.join("10-preprocess");    
-    // let derep_path = strainberry::derep::derep_assembly(fasta_path, derep_dir, &opts).unwrap();
+    // let derep_path = strainberry::derep::derep_assembly(fasta_path, derep_dir, &opts)?;
     // println!("  dereplicated assembly written to: {:?}", derep_path);
 
     println!("Loading sequences from: {}", fasta_path.canonicalize().unwrap().display());
@@ -85,7 +82,7 @@ fn main() -> ExitCode {
     if opts.phase_only {
         println!("Finished!");
         println!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
-        return ExitCode::SUCCESS;
+        return Ok(());
     }
 
     println!("Building strain-aware contigs");
@@ -107,10 +104,7 @@ fn main() -> ExitCode {
     let read2aware = strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut aware_contigs, &seq2haplo, &ambiguous_reads);
 
     let graphs_dir = output_dir.join("40-graphs");
-    if fs::create_dir_all(graphs_dir.as_path()).is_err() {
-        eprintln!("Cannot create graphs directory: \"{}\"", graphs_dir.display());
-        return ExitCode::FAILURE;
-    };
+    fs::create_dir_all(graphs_dir.as_path()).with_context(|| format!("Cannot create graphs directory: \"{}\"", graphs_dir.display()))?;
     
     println!("Building strain-aware graph");
     let mut aware_graph = AwareGraph::build(&aware_contigs);
@@ -147,5 +141,5 @@ fn main() -> ExitCode {
 
     println!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
 
-    ExitCode::SUCCESS
+    Ok(())
 }
