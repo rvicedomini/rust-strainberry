@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::str::FromStr;
 
-use anyhow::{bail, Context, Error, Result};
+use anyhow::{bail, Context, Result};
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use itertools::Itertools;
 // use flate2::read::MultiGzDecoder;
@@ -15,17 +15,9 @@ use crate::cli::Options;
 use crate::seq::alignment::{MappingType, PafAlignment};
 
 
-fn map_type(a: &PafAlignment, overhang: usize, r: f64) -> MappingType {
-    let query_range = if a.strand == b'+' {
-        (a.query_beg, a.query_end, a.query_length)
-    } else {
-        (a.query_length-a.query_end, a.query_length-a.query_beg, a.query_length)
-    };
-    let target_range = (a.target_beg, a.target_end, a.target_length);
-    crate::seq::alignment::classify_mapping(query_range, target_range, overhang, r)
-}
+type MatchInterval = (usize,usize,String);
 
-fn compute_matching_intervals(fasta_path: &Path, opts: &Options) -> Result<HashMap<String,Vec<(usize,usize,String)>>,Error> {
+fn compute_matching_intervals(fasta_path: &Path, opts: &Options) -> Result<HashMap<String,Vec<MatchInterval>>> {
 
     let fasta_path_str = fasta_path.to_str().unwrap();
 
@@ -52,7 +44,7 @@ fn compute_matching_intervals(fasta_path: &Path, opts: &Options) -> Result<HashM
 
     let mut matching_intervals: HashMap<String,Vec<(usize,usize,String)>> = HashMap::new();
     for a in alignments {
-        let map_type = self::map_type(&a, 200, 0.5);
+        let map_type = a.map_type(200, 0.5);
         let identity = if a.mapping_length > 0 { (100.0 * a.matches as f64)/(a.mapping_length as f64) } else { 0.0 };
         // println!("{a} => {map_type:?} / {identity:.2}");
         if a.query_name == a.target_name || identity < 95.0 {
