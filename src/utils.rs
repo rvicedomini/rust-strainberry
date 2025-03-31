@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::fs::File;
 use std::io::{BufRead,BufReader,Write,BufWriter};
 use std::mem::MaybeUninit;
@@ -42,6 +43,27 @@ pub fn get_file_writer(path: &Path) -> Box<dyn Write> {
         _ => Box::new(BufWriter::new(file)),
     }
 }
+
+pub fn insert_newlines(string:&str, every:usize) -> Cow<'_, str> {
+
+    if string.len() <= every || every == 0 {
+        return Cow::Borrowed(string)
+    }
+
+    let nb_newlines = (string.len()-1)/every;
+    let mut res = String::with_capacity(string.len()+nb_newlines);
+    for i in 0..nb_newlines {
+        let beg = i * every;
+        let end = (i+1) * every;
+        res.push_str(&string[beg..end]);
+        res.push('\n');
+    }
+    res.push_str(&string[nb_newlines*every..]);
+    Cow::Owned(res)
+}
+
+// def insert_newlines(string:str, every:int=120) -> str:
+//     return string if every <= 0 else '\n'.join(string[i:i+every] for i in range(0, len(string), every))
 
 
 // flip strand as u8 character
