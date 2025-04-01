@@ -23,20 +23,20 @@ fn complement(nuc: u8) -> u8 {
     }
 }
 
-fn revcomp_inplace(seq: &mut [u8]) {
+pub fn revcomp_inplace(seq: &mut [u8]) {
     seq.reverse();
     seq.iter_mut().for_each(|nuc| { *nuc = complement(*nuc) });
 }
 
 
-fn revcomp(seq: &[u8]) -> Vec<u8> {
+pub fn revcomp(seq: &[u8]) -> Vec<u8> {
     let mut rev_seq = seq.to_vec();
     revcomp_inplace(&mut rev_seq);
     rev_seq
 }
 
 
-pub fn load_bam_sequences(bam_path: &Path, opts: &Options) -> HashMap<String,Vec<u8>> {
+pub fn load_bam_sequences(bam_path: &Path, read_index: &HashMap<String, usize>, opts: &Options) -> HashMap<usize,Vec<u8>> {
     
     let mut target_intervals = crate::bam::bam_target_intervals(bam_path);
     target_intervals.sort_unstable_by_key(|siv| siv.end - siv.beg);
@@ -53,12 +53,12 @@ pub fn load_bam_sequences(bam_path: &Path, opts: &Options) -> HashMap<String,Vec
                     bam_reader.fetch(siv.tid as u32).unwrap();
                     for record in bam_reader.rc_records().map(|x| x.expect("Failure parsing BAM file")) {
                         if !record.is_unmapped() && !record.is_secondary() && !record.is_supplementary() {
-                            let qname = String::from_utf8_lossy(record.qname()).to_string();
+                            let qname = std::str::from_utf8(record.qname()).unwrap().to_string();
                             let mut qseq = record.seq().as_bytes();
                             if record.is_reverse() {
                                 revcomp_inplace(&mut qseq)
                             };
-                            seq_dict.insert(qname, qseq);
+                            seq_dict.insert(read_index[&qname], qseq);
                         }
                     }
                 }
