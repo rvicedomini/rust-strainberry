@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use anyhow::{anyhow, Result};
 use ahash::AHashMap as HashMap;
 use itertools::Itertools;
 use needletail::Sequence;
@@ -7,6 +8,7 @@ use rust_htslib::bam::{self, HeaderView};
 use rust_htslib::bam::Read;
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Cigar,CigarString};
+use rust_htslib::htslib::{BAM_FSECONDARY,BAM_FSUPPLEMENTARY};
 use tinyvec::{tiny_vec,TinyVec};
 
 use crate::seq::SeqInterval;
@@ -224,15 +226,25 @@ impl BamReadIndex {
         }
     }
 
-    pub fn read(&mut self, record:&mut bam::Record) -> bool {
+    pub fn read(&mut self, record:&mut bam::Record) -> Result<()> {
         if let Some(offset) = self.fetched.get(self.idx) {
             self.bam.seek(*offset).unwrap();
             if let Some(Ok(())) = self.bam.read(record) {
                 self.idx += 1;
-                return true;
+                return Ok(());
             };
         }
         self.idx = self.fetched.len();
-        false
+        Err(anyhow!("no more records"))
+    }
+
+    pub fn read_primary(&mut self, qname:&str, record:&mut bam::Record) -> Result<()> {
+        self.fetch(qname);
+        while self.read(record).is_ok() {
+            if record.flags() & (BAM_FSECONDARY|BAM_FSUPPLEMENTARY) as u16 == 0 {
+                return Ok(());
+            }
+        }
+        Err(anyhow!("no primary record found"))
     }
 }
