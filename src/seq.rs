@@ -16,7 +16,7 @@ use crate::bam::BamRecordId;
 use crate::variant::{Var,VarDict};
 
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SeqInterval {
     pub tid: usize,
     pub beg: usize,
