@@ -2,30 +2,40 @@ use std::borrow::Borrow;
 use std::path::PathBuf;
 use itertools::Itertools;
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
-use tinyvec::TinyVec;
+use tinyvec::{TinyVec, ArrayVec};
 
-use crate::awarecontig::{AwareAlignment, AwareContig, ContigType};
+use crate::awarecontig::{AwareAlignment, AwareContig, SeqType};
+use crate::graph::asmgraph::AsmGraph;
+use crate::seq::SeqInterval;
+use crate::utils::flip_strand;
 
 use super::biedge::{self, BiEdge, EdgeKey, Node};
 use super::junction::Junction;
 
+#[derive(Debug)]
+pub struct Unitig {
+    pub id: usize,
+    pub nodes: Vec<usize>,
+    pub edges: Vec<EdgeKey>,
+}
+
 
 #[derive(Debug, Default)]
-pub struct AwareGraph<'a> {
-    nodes: HashMap<usize,Node<'a>>,
+pub struct AwareGraph {
+    nodes: HashMap<usize,Node>,
     edges: HashMap<EdgeKey,usize>,
     transitives: HashMap<EdgeKey,usize>,
     edge_data: Vec<BiEdge>,
     next_node_id: usize,
 }
 
-impl<'a> AwareGraph<'a> {
+impl AwareGraph {
 
     // Prerequisite: aware_contigs must be sorted by interval for the following to work
-    pub fn build(aware_contigs:&'a [AwareContig]) -> Self {
+    pub fn build(aware_contigs:&[AwareContig]) -> Self {
 
         let contigs_iter = aware_contigs.iter().enumerate()
-            .map(|(node_id,aware_contig)| (node_id, Node::new(node_id, aware_contig)));
+            .map(|(node_id,aware_contig)| (node_id, Node::new(node_id, *aware_contig)));
         let nodes = HashMap::from_iter(contigs_iter);
         let next_node_id = nodes.len();
 
@@ -39,16 +49,15 @@ impl<'a> AwareGraph<'a> {
 
         // insert edges between contigs adjacent on reference
         aware_contigs.iter().tuple_windows().enumerate()
-            .filter_map(|(i,(a,b))| {
-                if a.tid() == b.tid() && !a.is_phased() && !b.is_phased() {
-                    Some(EdgeKey::new(i, b'-', i+1, b'+'))
-                } else { 
-                    None
-                }
-            })
-            .for_each(|mut edge_key| {
-                edge_key.canonicalize();
-                aware_graph.get_biedge_or_create(&edge_key);
+            .filter(|(_,(a,b))| a.tid() == b.tid() && !a.is_phased() && !b.is_phased())
+            .for_each(|(i,(a,b))| {
+                let edge_key = EdgeKey::new(i, b'-', i+1, b'+');
+                let canon_key = biedge::canonical_edgekey(&edge_key);
+                let edge = aware_graph.get_biedge_or_create(&canon_key);
+                let interval = SeqInterval{ tid: a.tid(), beg: a.end(), end: b.beg() };
+                // strand of edge sequence is defined according to the "direction" of the canonical edge
+                let aware_contig = AwareContig::new(SeqType::Unphased, interval, b'-', 0);
+                edge.seq_desc.push(aware_contig);
             });
 
         aware_graph
@@ -60,6 +69,13 @@ impl<'a> AwareGraph<'a> {
     pub fn len(&self) -> usize { self.nb_nodes() }
     pub fn is_empty(&self) -> bool { self.len() == 0 }
 
+    pub fn add_node(&mut self, ctg: AwareContig) -> usize {
+        let node_id = self.next_node_id;
+        self.nodes.insert(node_id, Node::new(node_id, ctg));
+        self.next_node_id += 1;
+        node_id
+    }
+
     pub fn add_edges_from_aware_alignments(&mut self, aware_alignments:&HashMap<usize,Vec<AwareAlignment>>) {
         for alignments in aware_alignments.values() {
             for (a, b) in alignments.iter().tuple_windows() {
@@ -69,13 +85,17 @@ impl<'a> AwareGraph<'a> {
     }
 
     fn add_edge_from_consecutive_alignments(&mut self, a:&AwareAlignment, b:&AwareAlignment) {
-        let edge_key: EdgeKey = EdgeKey::from_alignments(a, b);
+        let mut edge_key: EdgeKey = EdgeKey::from_alignments(a, b);
+        let was_canonical = edge_key.canonicalize();
         let edge = self.get_biedge_or_create(&edge_key);
         edge.observations += 1;
         edge.gaps.push((b.query_beg as i32) - (a.query_end as i32));
-        // gapseq = self.read_dict[a.query_id].sequence[a.query_end:b.query_start]
-        // edge.gapseq[(key[0],key[1])] = gapseq
-        // edge.gapseq[(key[2],key[3])] = reverse_complement(gapseq)
+        if edge.seq_desc.is_empty() && b.query_beg > a.query_end {
+            let interval = SeqInterval{ tid: a.query_idx, beg: a.query_end, end: b.query_beg };
+            let strand = if was_canonical { b'+' } else { b'-' };
+            let aware_contig = AwareContig::new(SeqType::Read, interval, strand, 0);
+            edge.seq_desc.push(aware_contig);
+        }
     }
 
     fn contains_edge(&self, edge_key: &EdgeKey) -> bool {
@@ -249,13 +269,17 @@ impl<'a> AwareGraph<'a> {
                     if first_ctg_id != last_ctg_id {
                         let a = &alignments[first_idx];
                         let b = &alignments[last_idx];
-                        let tedge_key = EdgeKey::from_alignments(a, b);
+                        let mut tedge_key = EdgeKey::from_alignments(a, b);
+                        let was_canonical = tedge_key.canonicalize();
                         let tedge = self.get_transitive_or_create(&tedge_key);
                         tedge.observations += 1;
                         tedge.gaps.push((b.query_beg as i32) - (a.query_end as i32));
-                        // # gapseq = self.read_dict[query_name].sequence[a.query_end:b.query_start]
-                        // # tedge.gapseq[(tedge_key[0],tedge_key[1])] = gapseq # (query_name,a.query_end,b.query_start,'+')
-                        // # tedge.gapseq[(tedge_key[2],tedge_key[3])] = reverse_complement(gapseq) # (query_name,a.query_end,b.query_start,'-')
+                        if tedge.seq_desc.is_empty() && b.query_beg > a.query_end {
+                            let interval = SeqInterval{ tid: a.query_idx, beg: a.query_end, end: b.query_beg };
+                            let strand = if was_canonical { b'+' } else { b'-' };
+                            let aware_contig = AwareContig::new(SeqType::Read, interval, strand, 0);
+                            tedge.seq_desc.push(aware_contig);
+                        }
                     }
                 }
             }
@@ -284,7 +308,7 @@ impl<'a> AwareGraph<'a> {
                 let mut in_dir = node_dir;
                 let mut node = &self.nodes[&node_id];
                 loop {
-                    let out_dir = crate::utils::flip_strand(in_dir);
+                    let out_dir = flip_strand(in_dir);
                     let out_edges = node.edges.iter()
                         .filter(|key| key.strand_from == out_dir)
                         .cloned().collect_vec();
@@ -424,40 +448,158 @@ impl<'a> AwareGraph<'a> {
             assert!(path.len() >= 2);
             let first = unsafe { path.first().unwrap_unchecked() };
             let last = unsafe { path.last().unwrap_unchecked() };
-            let bkey = EdgeKey::new(first.id_from, first.strand_from, last.id_to, last.strand_to);
-            let tedge = self.get_transitive(&bkey).unwrap();
+            let tkey = EdgeKey::new(first.id_from, first.strand_from, last.id_to, last.strand_to);
+            let tedge = self.get_transitive(&tkey).unwrap();
             let tedge_observations = tedge.observations;
             let tedge_gaps = tedge.gaps.clone();
-            
-            // from python: define edge sequence
-            // if (bkey[0],bkey[1]) in tedge.gapseq:
-            //     junc_seq = tedge.gapseq[(bkey[0],bkey[1])]
-            // else:
-            //     junc_seq = self._get_junction_sequence(junc)
-            //     first_edge = self._get_biedge(path[0])
-            //     first_gaplen = int(statistics.median(first_edge.gaps)) if len(first_edge.gaps) > 0 else 0
-            //     if first_gaplen > 0:
-            //         junc_seq = first_edge.gapseq[(path[0][0],path[0][1])] + junc_seq
-            //     elif first_gaplen < 0:
-            //         junc_seq = junc_seq[-first_gaplen:]
-            //     last_edge = self._get_biedge(path[-1])
-            //     last_gaplen = int(statistics.median(last_edge.gaps)) if len(last_edge.gaps) > 0 else 0
-            //     if last_gaplen > 0:
-            //         junc_seq += last_edge.gapseq[(path[-1][0],path[-1][1])]
-            //     elif last_gaplen < 0:
-            //         junc_seq = junc_seq[:last_gaplen]
+            let tedge_seq_desc = tedge.seq_desc.clone();
 
             // create new edge
-            let edge = self.get_biedge_or_create(&bkey);
+            let edge = self.get_biedge_or_create(&tkey);
             edge.observations = tedge_observations;
             edge.gaps = tedge_gaps; // junc_seq
-            //edge.gapseq[(bkey[0],bkey[1])] = junc_seq
-            //edge.gapseq[(bkey[2],bkey[3])] = reverse_complement(junc_seq)
+            edge.seq_desc = tedge_seq_desc;
         }
         // delete old nodes/edges
         self.remove_biedges_from(&deleted_edges);
         self.remove_nodes_from(&deleted_nodes);
     }
+
+
+    fn expand_edges(&mut self) {
+        
+        let nonempty_edges = self.edges.iter()
+            .filter_map(|(key,id)| if !self.edge_data[*id].seq_desc.is_empty() { Some(key) } else { None })
+            .cloned().collect_vec();
+
+        for edge_key in nonempty_edges.iter() {
+            let edge = self.get_biedge(edge_key).unwrap();
+            assert!(edge_key.is_canonical());
+            let node_id = self.add_node(edge.seq_desc[0]);
+            let new_edge_key = EdgeKey::new(edge_key.id_from, edge_key.strand_from, node_id, b'+');
+            self.get_biedge_or_create(&new_edge_key);
+            let new_edge_key = EdgeKey::new( node_id, b'-', edge_key.id_to, edge_key.strand_to);
+            self.get_biedge_or_create(&new_edge_key);
+        }
+
+        self.remove_biedges_from(nonempty_edges);
+    }
+
+
+    fn unitig_partition(&self) -> (Vec<Unitig>, HashMap<usize,usize>) {
+        let mut visited: HashSet<usize> = HashSet::new();
+        let mut unitigs: Vec<Unitig> = Vec::new();
+        let mut node_to_unitig: HashMap<usize, usize> = HashMap::new();
+        for node_id in self.nodes.keys() {
+            if visited.insert(*node_id) {
+                let edges = self.unitig_from(*node_id, &mut visited);
+                let nodes = if edges.is_empty() {
+                    vec![*node_id]
+                } else {
+                    let first = unsafe { edges.first().unwrap_unchecked().id_from };
+                    std::iter::once(first).chain(edges.iter().map(|key| key.id_to)).collect_vec()
+                };
+                let unitig_id = unitigs.len();
+                nodes.iter().for_each(|n| { node_to_unitig.insert(*n, unitig_id); });
+                unitigs.push(Unitig{ id:unitig_id, nodes, edges });
+            }
+        }
+        (unitigs, node_to_unitig)
+    }
+
+    fn unitig_from(&self, start_id:usize, visited: &mut HashSet<usize>) -> Vec<EdgeKey> {
+
+        let mut linear_path_from = |mut node_id:usize, mut node_dir:u8| -> Vec<EdgeKey> {
+            let mut path_edges = vec![];
+            loop {
+                let node = &self.nodes[&node_id];
+                let mut outedges = node.edges.iter().cloned().filter(|key| key.strand_from == node_dir).take(2).collect::<ArrayVec<[EdgeKey;2]>>();
+                if outedges.len() != 1 {
+                    break
+                }
+                let outkey = unsafe { outedges.pop().unwrap_unchecked() };
+                if visited.contains(&outkey.id_to) || self.nodes[&outkey.id_to].edges.iter().filter(|key| key.strand_from == outkey.strand_to).count() > 1 {
+                    break
+                }
+                (node_id, node_dir) = (outkey.id_to, flip_strand(outkey.strand_to));
+                path_edges.push(outkey);
+                visited.insert(node_id);
+            }
+            path_edges
+        };
+        
+        let mut path_edges = linear_path_from(start_id, b'+');
+        path_edges.reverse();
+        path_edges.iter_mut().for_each(|key| key.flip());
+        path_edges.append(&mut linear_path_from(start_id, b'-'));
+        path_edges
+    }
+
+    // TODO: handle self loops
+    // TODO: handle negative gaps
+    pub fn compact_graph(&mut self, target_sequences: &[Vec<u8>], read_sequences: &HashMap<usize,Vec<u8>>) -> super::asmgraph::AsmGraph<Unitig> {
+
+        self.expand_edges();
+
+        let (unitigs, node_to_unitig) = self.unitig_partition();
+        let mut unitig_graph: AsmGraph<Unitig> = super::asmgraph::AsmGraph::new();
+
+        for unitig in unitigs {
+            // TODO: build unitig sequence from nodes/edges of the path
+            if unitig.nodes.len() == 1 {
+                let node_id= unsafe { unitig.nodes.first().unwrap_unchecked() };
+                let aware_contig = &self.nodes[node_id].ctg;
+                let SeqInterval { tid, beg, end } = aware_contig.interval();
+                let mut sequence = match aware_contig.contig_type() {
+                    SeqType::Haplotype(_) | SeqType::Unphased => { target_sequences[tid][beg..end].to_vec() },
+                    SeqType::Read => { read_sequences[&tid][beg..end].to_vec() },
+                };
+                if aware_contig.strand() == b'-' { crate::seq::read::revcomp_inplace(&mut sequence); }
+                unitig_graph.add_node(unitig.id, sequence, Some(unitig));
+                continue
+            }
+            // TODO: handle negative gaps
+            assert!(unitig.nodes.len() > 1);
+            let mut unitig_sequence = vec![];
+            let node_iter = std::iter::once(
+                    (unitig.edges[0].id_from, flip_strand(unitig.edges[0].strand_from))
+                ).chain(unitig.edges.iter().map(|key| (key.id_to, key.strand_to)));
+            for (node_id, node_dir) in node_iter {
+                let aware_contig = &self.nodes[&node_id].ctg;
+                let SeqInterval { tid, beg, end } = aware_contig.interval();
+                let mut sequence = match aware_contig.contig_type() {
+                    SeqType::Haplotype(_) | SeqType::Unphased => { target_sequences[tid][beg..end].to_vec() },
+                    SeqType::Read => { read_sequences[&tid][beg..end].to_vec() },
+                };
+                if node_dir != aware_contig.strand() { crate::seq::read::revcomp_inplace(&mut sequence); }
+                unitig_sequence.append(&mut sequence);
+            }
+            unitig_graph.add_node(unitig.id, unitig_sequence, Some(unitig));
+        }
+
+        for edge_key in self.edges.keys() {
+            let node_from = unitig_graph.get_node(node_to_unitig[&edge_key.id_from]).unwrap();
+            let node_to = unitig_graph.get_node(node_to_unitig[&edge_key.id_to]).unwrap();
+            let utg_from = node_from.data.as_ref().unwrap();
+            let utg_to = node_to.data.as_ref().unwrap();
+            if utg_from.id != utg_to.id || edge_key.id_from == edge_key.id_to {
+                let dir_from = if utg_from.nodes.len() == 1 {
+                    edge_key.strand_from
+                } else {
+                    b"-+"[(edge_key.id_from == utg_from.nodes[0]) as usize]
+                };
+                let dir_to = if utg_to.nodes.len() == 1 {
+                    edge_key.strand_to
+                } else {
+                    b"-+"[(edge_key.id_to == utg_to.nodes[0]) as usize]
+                };
+                unitig_graph.add_edge(EdgeKey::new(utg_from.id, dir_from, utg_to.id, dir_to));
+            }
+        }
+
+        unitig_graph
+    }
+
 
     /* OUTPUT METHODS */
 
@@ -467,9 +609,9 @@ impl<'a> AwareGraph<'a> {
         for (node_id, node) in self.nodes.iter() {
             let node_ctg = node.ctg;
             let node_name = match node_ctg.contig_type() {
-                ContigType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, node_id),
-                ContigType::Unphased => format!("{}_{}-{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), node_id),
-                ContigType::Read(_) => unimplemented!()
+                SeqType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, node_id),
+                SeqType::Unphased => format!("{}_{}-{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), node_id),
+                SeqType::Read => format!("read{}_{}-{}_id{}", node_ctg.tid(), node_ctg.beg(), node_ctg.end(), node_id),
             };
             let node_line = format!("S\t{}\t*\tLN:i:{}\tdp:i:{}\n", node_name, node_ctg.length(), node_ctg.depth() as usize);
             gfa.write_all(node_line.as_bytes())?;
@@ -480,15 +622,15 @@ impl<'a> AwareGraph<'a> {
             let EdgeKey { id_from, strand_from, id_to, strand_to } = edge.key;
             let node_ctg = self.nodes[&id_from].ctg;
             let name_from = match node_ctg.contig_type() {
-                ContigType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, id_from),
-                ContigType::Unphased => format!("{}_{}-{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), id_from),
-                ContigType::Read(_) => unimplemented!()
+                SeqType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, id_from),
+                SeqType::Unphased => format!("{}_{}-{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), id_from),
+                SeqType::Read => format!("read{}_{}-{}_id{}", node_ctg.tid(), node_ctg.beg(), node_ctg.end(), id_from),
             };
             let node_ctg = self.nodes[&id_to].ctg;
             let name_to = match node_ctg.contig_type() {
-                ContigType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, id_to),
-                ContigType::Unphased => format!("{}_{}-{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), id_to),
-                ContigType::Read(_) => unimplemented!()
+                SeqType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, id_to),
+                SeqType::Unphased => format!("{}_{}-{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), id_to),
+                SeqType::Read => format!("read{}_{}-{}_id{}", node_ctg.tid(), node_ctg.beg(), node_ctg.end(), id_to),
             };
             let edge_line = format!("L\t{}\t{}\t{}\t{}\t0M\tRC:i:{}\n", name_from, crate::utils::flip_strand(strand_from) as char, name_to, strand_to as char, edge.observations );
             gfa.write_all(edge_line.as_bytes())?;

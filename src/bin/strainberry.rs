@@ -16,7 +16,7 @@ use strainberry::misassembly;
 use strainberry::phase;
 use strainberry::seq::build_succinct_sequences;
 use strainberry::seq::alignment::load_bam_alignments;
-use strainberry::seq::read::build_read_index;
+use strainberry::seq::read::{build_read_index,load_bam_sequences};
 use strainberry::utils;
 use strainberry::variant;
 
@@ -60,8 +60,8 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     println!("Lookback {} bp", opts.lookback);
 
     println!("Loading reads from BAM");
-    // let read_sequences = load_bam_sequences(bam_path, &opts);
     let read_index: HashMap<String, usize> = build_read_index(bam_path);
+    let read_sequences = load_bam_sequences(bam_path, &read_index, &opts);
     println!("  {} reads loaded", read_index.len());
 
     let target_intervals = if opts.no_split { 
@@ -136,8 +136,12 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
         tot_resolved += num_resolved;
     }
     println!("  {tot_resolved} junctions resolved after {num_iter} iterations");
-    aware_graph.write_gfa(graphs_dir.join("aware_graph.resolved.gfa"), &target_names).unwrap();
+    aware_graph.write_gfa(graphs_dir.join("aware_graph.resolved.gfa"), &target_names)?;
     aware_graph.clear_transitive_edges();
+
+    let unitig_graph = aware_graph.compact_graph(&target_sequences, &read_sequences);
+    unitig_graph.write_gfa(graphs_dir.join("assembly_graph.gfa"))?;
+    unitig_graph.write_fasta(output_dir.join("assembly.fasta.gz"))?;
 
     println!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
 

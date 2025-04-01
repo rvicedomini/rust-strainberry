@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use tinyvec::{tiny_vec,TinyVec};
 
-use crate::awarecontig::{AwareContig,AwareAlignment};
+use crate::awarecontig::{AwareContig, AwareAlignment};
 
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EdgeKey {
@@ -35,10 +35,13 @@ impl EdgeKey {
         self.id_from < self.id_to || (self.id_from == self.id_to && self.strand_from <= self.strand_to)
     }
 
-    pub fn canonicalize(&mut self) {
+    // returns whether the key was already canonical
+    pub fn canonicalize(&mut self) -> bool {
         if !self.is_canonical() {
             self.flip();
+            return false
         }
+        true
     }
 
 }
@@ -68,13 +71,12 @@ pub fn canonical_edgekey(edge_key:&EdgeKey) -> Cow<'_, EdgeKey> {
     Cow::Owned(edge_key)
 }
 
-
 #[derive(Debug)]
 pub struct BiEdge {
     pub key: EdgeKey, // TODO: check whether I really need to store the key in the struct
     pub observations: usize,
     pub gaps: Vec<i32>,
-    // self.gapseq = {} # defaultdict(list)
+    pub seq_desc: Vec<AwareContig>,
 }
 
 impl BiEdge {
@@ -83,23 +85,24 @@ impl BiEdge {
         Self {
             key,
             observations:0,
-            gaps:vec![]
+            gaps: Vec::new(),
+            seq_desc: Vec::new()
         }
     }
 }
 
 
 #[derive(Debug)]
-pub struct Node<'a> {
+pub struct Node {
     pub id: usize,
-    pub ctg: &'a AwareContig,
+    pub ctg: AwareContig,
     pub edges: TinyVec<[EdgeKey;10]>,
     pub transitives: TinyVec<[EdgeKey;10]>,
 }
 
-impl<'a> Node<'a> {
+impl Node {
 
-    pub fn new(id:usize, ctg:&'a AwareContig) -> Self {
+    pub fn new(id:usize, ctg: AwareContig) -> Self {
         Self {
             id,
             ctg,

@@ -10,43 +10,54 @@ use crate::seq::alignment::{MappingType, SeqAlignment};
 use crate::bam::BamRecordId;
 
 
-#[derive(Debug, Clone, Copy)]
-pub enum ContigType {
+#[derive(Debug, Default, Clone, Copy)]
+pub enum SeqType {
     Haplotype(usize),
-    Unphased,
-    Read(u8), // read strand
+    #[default] Unphased,
+    Read, // read strand
 }
 
-impl fmt::Display for ContigType {
+impl fmt::Display for SeqType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ContigType::Haplotype(hid) => {  write!(f, "Haplotype({hid})") }
-            ContigType::Unphased => {  write!(f, "Unphased") }
-            ContigType::Read(strand) => {  write!(f, "Read({})", *strand as char) }
+            SeqType::Haplotype(hid) => {  write!(f, "Haplotype({hid})") }
+            SeqType::Unphased => {  write!(f, "Unphased") }
+            SeqType::Read => {  write!(f, "Read") }
         }
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct AwareContig {
-    contig_type: ContigType,
+    contig_type: SeqType,
     interval: SeqInterval,
+    strand: u8,
     aligned_bases: usize,
 }
 
 impl AwareContig {
 
+    pub fn new(contig_type:SeqType, interval:SeqInterval, strand:u8, aligned_bases:usize) -> Self {
+        Self {
+            contig_type,
+            interval,
+            strand,
+            aligned_bases
+        }
+    }
+
     pub fn tid(&self) -> usize { self.interval.tid }
     pub fn beg(&self) -> usize { self.interval.beg }
     pub fn end(&self) -> usize { self.interval.end }
     pub fn length(&self) -> usize { self.interval.length() }
+    pub fn strand(&self) -> u8 { self.strand }
 
-    pub fn contig_type(&self) -> &ContigType { &self.contig_type }
-    pub fn is_phased(&self) -> bool { matches!(self.contig_type, ContigType::Haplotype(_)) }
+    pub fn contig_type(&self) -> &SeqType { &self.contig_type }
+    pub fn is_phased(&self) -> bool { matches!(self.contig_type, SeqType::Haplotype(_)) }
     
     pub fn hid(&self) -> Option<usize> {
         match self.contig_type {
-            ContigType::Haplotype(hid) => Some(hid),
+            SeqType::Haplotype(hid) => Some(hid),
             _ => None
         }
     }
@@ -132,16 +143,18 @@ pub fn build_aware_contigs(target_intervals:&Vec<SeqInterval>, haplotypes:&HashM
     let mut aware_contigs = retrieve_unphased_intervals(target_intervals, haplotypes, min_length)
         .into_iter()
         .map(|interval| AwareContig{
-            contig_type: ContigType::Unphased,
+            contig_type: SeqType::Unphased,
             interval,
+            strand: b'+',
             aligned_bases: 0
         }).collect_vec();
 
     aware_contigs.extend(haplotypes.values()
         .map(|ht| {
             AwareContig {
-                contig_type: ContigType::Haplotype(ht.hid()),
+                contig_type: SeqType::Haplotype(ht.hid()),
                 interval: ht.region(),
+                strand: b'+',
                 aligned_bases: 0
             }
         })

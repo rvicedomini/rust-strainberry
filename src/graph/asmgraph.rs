@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use ahash::AHashMap as HashMap;
 use tinyvec::{tiny_vec, TinyVec};
 
@@ -23,33 +25,35 @@ impl AsmEdge {
 
 
 #[derive(Debug)]
-pub struct AsmNode {
+pub struct AsmNode<T> {
     pub id: usize,
-    pub sequence: String,
+    pub sequence: Vec<u8>,
     pub edges: TinyVec<[EdgeKey;10]>,
+    pub data: Option<T>,
 }
 
-impl AsmNode {
+impl<T> AsmNode<T> {
 
-    pub fn new(id:usize, sequence:String) -> Self {
+    pub fn new(id:usize, sequence:Vec<u8>, data:Option<T>) -> Self {
         Self {
             id,
             sequence,
             edges: tiny_vec![],
+            data
         }
     }
 }
 
 
 #[derive(Debug, Default)]
-pub struct AsmGraph {
-    nodes: HashMap<usize,AsmNode>,
+pub struct AsmGraph<N> {
+    nodes: HashMap<usize,AsmNode<N>>,
     edges: HashMap<EdgeKey,usize>,
     edge_data: Vec<AsmEdge>,
     next_node_id: usize,
 }
 
-impl AsmGraph {
+impl<N> AsmGraph<N> {
     
     pub fn new() -> Self {
         Self {
@@ -66,27 +70,41 @@ impl AsmGraph {
     pub fn len(&self) -> usize { self.nb_nodes() }
     pub fn is_empty(&self) -> bool { self.len() == 0 }
 
+    pub fn add_node(&mut self, id:usize, sequence:Vec<u8>, data: Option<N>) {
+        let node = AsmNode::new(id, sequence, data);
+        self.nodes.insert(id, node);
+    }
+
+    pub fn get_node(&self, id:usize) -> Option<&AsmNode<N>> {
+        self.nodes.get(&id)
+    }
+
+    pub fn add_edge(&mut self, edge_key:EdgeKey) -> &AsmEdge {
+        let biedge = self.get_edge_or_create(&edge_key);
+        biedge
+    }
+
     fn contains_edge(&self, edge_key: &EdgeKey) -> bool {
         let edge_key = biedge::canonical_edgekey(edge_key);
         self.edges.contains_key(&edge_key)
     }
 
-    fn get_biedge_idx(&self, idx: usize) -> &AsmEdge { &self.edge_data[idx] }
-    fn get_biedge_idx_mut(&mut self, idx: usize) -> &mut AsmEdge { &mut self.edge_data[idx] }
+    fn get_edge_idx(&self, idx: usize) -> &AsmEdge { &self.edge_data[idx] }
+    fn get_edge_idx_mut(&mut self, idx: usize) -> &mut AsmEdge { &mut self.edge_data[idx] }
 
-    fn get_biedge(&self, edge_key:&EdgeKey) -> Option<&AsmEdge> {
+    fn get_edge(&self, edge_key:&EdgeKey) -> Option<&AsmEdge> {
         let edge_key = biedge::canonical_edgekey(edge_key);
         let edge_idx = *self.edges.get(&edge_key)?;
         self.edge_data.get(edge_idx)
     }
 
-    fn get_biedge_mut(&mut self, edge_key:&EdgeKey) -> Option<&mut AsmEdge> {
+    fn get_edge_mut(&mut self, edge_key:&EdgeKey) -> Option<&mut AsmEdge> {
         let edge_key = biedge::canonical_edgekey(edge_key);
         let edge_idx = *self.edges.get(&edge_key)?;
         self.edge_data.get_mut(edge_idx)
     }
 
-    fn get_biedge_or_create(&mut self, edge_key:&EdgeKey) -> &mut AsmEdge {
+    fn get_edge_or_create(&mut self, edge_key:&EdgeKey) -> &mut AsmEdge {
         let edge_key= biedge::canonical_edgekey(edge_key).into_owned();
         let edge_id = *self.edges.entry(edge_key).or_insert_with_key(|edge_key| {
             let node_from = self.nodes.get_mut(&edge_key.id_from).unwrap();
@@ -100,104 +118,55 @@ impl AsmGraph {
         unsafe { self.edge_data.get_mut(edge_id).unwrap_unchecked() }
     }
 
+    /* OUTPUT METHODS */
+
+    pub fn write_gfa(&self, gfa_path:PathBuf) -> std::io::Result<()> {
+
+        let mut gfa = crate::utils::get_file_writer(gfa_path.as_path());
+        gfa.write_all(b"H\tVN:Z:1.0\n")?;
+        for (node_id, node) in self.nodes.iter() {
+            let node_len = node.sequence.len();
+            let node_seq = std::str::from_utf8(&node.sequence).unwrap();
+            let node_line = if node_len > 0 {
+                format!("S\t{}\t{}\tLN:i:{}\n", node_id, node_seq, node_len)
+            } else {
+                format!("S\t{}\t*\tLN:i:{}\n", node_id, node_len)
+            };
+            gfa.write_all(node_line.as_bytes())?;
+        }
+
+        for edge_idx in self.edges.values() {
+            let edge = self.get_edge_idx(*edge_idx);
+            let EdgeKey { id_from, strand_from, id_to, strand_to } = edge.key;
+            let edge_line = format!("L\t{}\t{}\t{}\t{}\t0M\n", id_from, crate::utils::flip_strand(strand_from) as char, id_to, strand_to as char);
+            gfa.write_all(edge_line.as_bytes())?;
+        }
+
+        Ok(())
+    }
+
+    pub fn write_fasta(&self, fasta_path:PathBuf) -> std::io::Result<()> {
+
+        let mut fasta_writer = crate::utils::get_file_writer(&fasta_path);
+        for (node_id, node) in self.nodes.iter() {
+            let header = format!(">{node_id}\n");
+            fasta_writer.write_all(header.as_bytes())?;
+            let sequence = std::str::from_utf8(&node.sequence).unwrap();
+            let sequence = crate::utils::insert_newlines(sequence, 120);
+            fasta_writer.write_all(sequence.as_bytes())?;
+            fasta_writer.write_all(b"\n")?;
+        }
+        
+        Ok(())
+    }
+
 }
 
 
-// class Node:
-    
-//     def __init__(self,seq_id, seq='', data=None) -> None:
-//         self.seq_id = seq_id
-//         self.sequence = seq
-//         self.data = data
-//         self.edges = dict()
-//         self.transitives = dict()
-
-//     def length(self) -> int:
-//         return len(self.sequence)
-    
-//     def is_phased(self) -> bool:
-//         return self.seq_id.endswith('_h')
-
-
-// class BiEdge:
-    
-//     def __init__(self, biedge_key, data=None) -> None:
-//         self.key = canon_key(biedge_key)
-//         self.data = data
-
-// class TransEdge:
-
-//     def __init__(self, edge_key, data=None) -> None:
-//         self.key = canon_key(edge_key)
-//         self.data = data
-
-
 // class AsmGraph(object):
-
-//     def __init__(self):
-//         self.nodes = dict()
-//         self.edges = dict()
-//         self.transitives = dict()
-//         self.visited = set()
-
-//     def add_node(self, seq_id, seq='', data=None):
-//         self.nodes[seq_id] = Node(seq_id, seq, data)
-
-//     def add_edge(self, key, data=None) -> BiEdge:
-//         biedge = self._get_biedge_or_create(key)
-//         biedge.data = data
-//         return biedge
-    
-//     def get_edge(self, edge_key) -> BiEdge:
-//         return self.edges[canon_key(edge_key)]
-
-//     def _get_biedge_or_create(self, edge_key):
-//         edge_key = canon_key(edge_key)
-//         if edge_key in self.edges:
-//             return self.edges[edge_key]
-//         # create edge
-//         edge = BiEdge(edge_key)
-//         self.edges[edge_key] = edge
-//         # update a and b nodes
-//         a_id,a_dir,b_id,b_dir = edge_key
-//         self.nodes[a_id].edges[edge_key] = edge
-//         self.nodes[b_id].edges[(b_id,b_dir,a_id,a_dir)] = edge
-//         return edge
-
-//     def edge_exists(self, edge_key):
-//         edge_key = canon_key(edge_key)
-//         return (edge_key in self.edges)
     
 //     def out_edges(self, node_id, node_dir) -> list:
 //         return [key for key in self.nodes[node_id].edges.keys() if key[1]==node_dir]
-    
-//     def add_transitive(self, key, data=None) -> BiEdge:
-//         edge = self._get_transitive_or_create(key)
-//         edge.data = data
-//         return edge
-    
-//     def get_transitive(self, edge_key) -> BiEdge:
-//         return self.transitives[canon_key(edge_key)]
-
-//     def _get_transitive_or_create(self, edge_key):
-//         edge_key = canon_key(edge_key)
-//         if edge_key in self.transitives:
-//             return self.transitives[edge_key]
-//         # create edge
-//         edge = BiEdge(edge_key)
-//         self.transitives[edge_key] = edge
-//         # update a and b nodes
-//         a_id,a_dir,b_id,b_dir = edge_key
-//         self.nodes[a_id].transitives[edge_key] = edge
-//         self.nodes[b_id].transitives[(b_id,b_dir,a_id,a_dir)] = edge
-//         return edge
-
-//     def transitive_exists(self, edge_key):
-//         edge_key = canon_key(edge_key)
-//         return (edge_key in self.transitives)
-    
-//     def out_transitives(self, node_id, node_dir) -> list:
-//         return [key for key in self.nodes[node_id].transitives.keys() if key[1]==node_dir]
 
 //     def remove_nodes_from(self, iterable):
 //         for node_id in iterable:
@@ -216,20 +185,6 @@ impl AsmGraph {
 //     def remove_edges_from(self, iterable):
 //         for edge_key in iterable:
 //             self.remove_edge(edge_key)
-
-//     def remove_transitive(self, edge_key):
-//         edge_key = canon_key(edge_key)
-//         edge = self.transitives[edge_key]
-//         # remove edge pointers from nodes
-//         self.nodes[edge_key[0]].transitives.pop(edge_key,None)
-//         flipped_key = flip_key(edge_key)
-//         self.nodes[flipped_key[0]].transitives.pop(flipped_key,None)
-//         # remove edge from main dictionary
-//         self.transitives.pop(edge_key,None)
-
-//     def remove_transitives_from(self, iterable):
-//         for edge_key in iterable:
-//             self.remove_transitive(edge_key)
 
 //     def generate_contigs(self):
 //         # remove edges between unphased sequences (likely a SV in between)
