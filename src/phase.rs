@@ -18,6 +18,7 @@ use ahash::AHashSet as HashSet;
 
 use crate::cli::Options;
 use crate::bam::BamRecordId;
+use crate::seq::bitseq::BitSeq;
 use crate::seq::{SeqInterval,SuccinctSeq};
 use crate::variant::{Var,VarDict};
 
@@ -38,9 +39,10 @@ use self::haplotype::{Haplotype, HaplotypeId};
 
 pub struct Phaser<'a> {
     bam_path: &'a Path,
-    target_names: &'a Vec<String>,
-    target_intervals: &'a Vec<SeqInterval>,
+    target_names: &'a [String],
+    target_intervals: &'a [SeqInterval],
     read_index: &'a HashMap<String,usize>,
+    read_sequences: &'a [BitSeq],
     fragments_dir: PathBuf,
     dots_dir: PathBuf,
     opts: &'a Options,
@@ -48,7 +50,7 @@ pub struct Phaser<'a> {
 
 impl<'a> Phaser<'a> {
 
-    pub fn new(bam_path: &'a Path, target_names: &'a Vec<String>, target_intervals: &'a Vec<SeqInterval>, read_index: &'a HashMap<String,usize>, work_dir: PathBuf, opts: &'a Options) -> Result<Phaser<'a>> {
+    pub fn new(bam_path: &'a Path, target_names: &'a[String], target_intervals: &'a[SeqInterval], read_index: &'a HashMap<String,usize>, read_sequences: &'a [BitSeq],  work_dir: PathBuf, opts: &'a Options) -> Result<Phaser<'a>> {
 
         let fragments_dir = work_dir.join("fragments");
         fs::create_dir_all(&fragments_dir)
@@ -63,6 +65,7 @@ impl<'a> Phaser<'a> {
             target_names,
             target_intervals,
             read_index,
+            read_sequences,
             fragments_dir,
             dots_dir,
             opts
@@ -129,35 +132,36 @@ impl<'a> Phaser<'a> {
         let haplotypes: HashMap<HaplotypeId,Haplotype> = haplograph.scaffold_haplotypes(&variant_positions, 5, 0.8, self.opts.min_snv);
         let dot_file = format!("{}_{}-{}.final.dot", self.target_names[target_interval.tid], target_interval.beg, target_interval.end);
         haplograph.write_dot(&self.dots_dir.join(dot_file)).unwrap();
-        
-        // self.write_reads(&haplotypes, &sread_haplotypes).unwrap();
+
+        let (sread_haplotypes, _ambiguous_reads) = self::separate_reads(&succinct_records, &haplotypes, &variant_positions, 1);
+        self.write_reads(&haplotypes, &sread_haplotypes).unwrap();
         
         haplotypes
     }
 
 
-    // fn write_reads(&self, haplotypes: &HashMap<HaplotypeId,Haplotype>, sread_haplotypes: &HashMap<BamRecordId,Vec<HaplotypeId>>) -> std::io::Result<()> {
+    fn write_reads(&self, haplotypes: &HashMap<HaplotypeId,Haplotype>, sread_haplotypes: &HashMap<BamRecordId,Vec<HaplotypeId>>) -> std::io::Result<()> {
         
-    //     let mut read_files: HashMap<_,_> = HashMap::default();
+        let mut read_files: HashMap<_,_> = HashMap::default();
         
-    //     for ht in haplotypes.values() {
-    //         let ht_id = ht.uid();
-    //         let ht_file_gz = format!("{}_{}-{}_h{}.fa.gz", self.target_names[ht_id.tid], ht_id.beg, ht_id.end, ht_id.hid);
-    //         let ht_file_path = self.fragments_dir().join(ht_file_gz.as_str());
-    //         read_files.insert(ht_id, utils::get_file_writer(&ht_file_path));
-    //     }
+        for ht in haplotypes.values() {
+            let ht_id = ht.uid();
+            let ht_file_gz = format!("{}_{}-{}_h{}.fa.gz", self.target_names[ht_id.tid], ht_id.beg, ht_id.end, ht_id.hid);
+            let ht_file_path = self.fragments_dir().join(ht_file_gz.as_str());
+            read_files.insert(ht_id, crate::utils::get_file_writer(&ht_file_path));
+        }
         
-    //     for (record_id, ht_list) in sread_haplotypes.iter() {
-    //         if let Some(ht_id) = ht_list.iter().find(|&ht_id| read_files.contains_key(ht_id)) {
-    //             let out = read_files.get_mut(ht_id).unwrap();
-    //             out.write_all(format!(">{}\n", &record_id.0).as_bytes())?;
-    //             out.write_all(self.read_sequences[&record_id.0].as_slice())?;
-    //             out.write_all(b"\n")?;
-    //         }
-    //     }
+        for (record_id, ht_list) in sread_haplotypes.iter() {
+            if let Some(ht_id) = ht_list.iter().find(|&ht_id| read_files.contains_key(ht_id)) {
+                let out = read_files.get_mut(ht_id).unwrap();
+                out.write_all(format!(">{}\n", &record_id.index).as_bytes())?;
+                out.write_all(&self.read_sequences[record_id.index].as_bytes())?;
+                out.write_all(b"\n")?;
+            }
+        }
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
     fn remove_false_haplotypes(&self, mut haplotypes: HashMap<HaplotypeId,Haplotype>, positions: &HashSet<(usize,usize)>) -> HashMap<HaplotypeId,Haplotype> {
         haplotypes.retain(|_, ht| {
@@ -511,7 +515,7 @@ pub fn separate_reads(succinct_records: &[SuccinctSeq], haplotypes: &HashMap<Hap
     for sread in succinct_records {
         let best_hits = best_sread_haplotypes(sread, &haplotypes, variant_positions, min_shared_snv);
         if best_hits.iter().any(|(_hid,_ht_dist,alt_hits)| *alt_hits > 1) {
-            ambiguous.insert(sread.record_id().0);
+            ambiguous.insert(sread.record_id().index);
             continue
         }
         sread_haplotypes.entry(sread.record_id())

@@ -82,7 +82,9 @@ pub struct SeqAlignment {
 
 impl SeqAlignment {
 
-    pub fn record_id(&self) -> BamRecordId { BamRecordId(self.query_idx, self.query_beg, self.query_end) }
+    pub fn bam_record_id(&self) -> BamRecordId { 
+        BamRecordId::new(self.query_idx, self.query_beg, self.query_end)
+    }
 
     // pub fn query_name(&self) -> &str { &self.query_name }
     pub fn query_index(&self) -> usize { self.query_idx }

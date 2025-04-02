@@ -1,4 +1,5 @@
 pub mod alignment;
+pub mod bitseq;
 pub mod read;
 
 use std::fmt;
@@ -51,7 +52,7 @@ pub struct SuccinctSeq {
 impl fmt::Display for SuccinctSeq {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let seq_string = String::from_utf8_lossy(self.nucleotides()).to_string();
-        write!(f, "{}: {} ({}:{}..={})", self.record_id().0, seq_string, self.tid(), self.positions().first().unwrap(), self.positions().last().unwrap())
+        write!(f, "{}: {} ({}:{}..={})", self.record_id().index, seq_string, self.tid(), self.positions().first().unwrap(), self.positions().last().unwrap())
     }
 }
 

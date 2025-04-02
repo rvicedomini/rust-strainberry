@@ -79,6 +79,10 @@ impl<N> AsmGraph<N> {
         self.nodes.get(&id)
     }
 
+    pub fn nodes(&self) -> std::collections::hash_map::Values<'_, usize, AsmNode<N>>{
+        self.nodes.values()
+    }
+
     pub fn add_edge(&mut self, edge_key:EdgeKey) -> &AsmEdge {
         let biedge = self.get_edge_or_create(&edge_key);
         biedge

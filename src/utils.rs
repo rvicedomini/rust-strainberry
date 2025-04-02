@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::cell::UnsafeCell;
 use std::fs::File;
 use std::io::{BufRead,BufReader,Write,BufWriter};
 use std::mem::MaybeUninit;
@@ -86,4 +87,27 @@ where
         counter.entry(e).and_modify(|e| *e += 1).or_insert(1);
     }
     counter
+}
+
+
+// from https://stackoverflow.com/a/65182786
+#[derive(Copy, Clone)]
+pub struct UnsafeSlice<'a, T> {
+    slice: &'a [UnsafeCell<T>],
+}
+unsafe impl<T: Send + Sync> Send for UnsafeSlice<'_, T> {}
+unsafe impl<T: Send + Sync> Sync for UnsafeSlice<'_, T> {}
+
+impl<'a, T> UnsafeSlice<'a, T> {
+    pub fn new(slice: &'a mut [T]) -> Self {
+        let ptr = slice as *mut [T] as *const [UnsafeCell<T>];
+        Self { slice: unsafe { &*ptr } }
+    }
+    
+    /// # Safety
+    /// It is UB if two threads write to the same index without synchronization.
+    pub unsafe fn write(&self, i: usize, value: T) {
+        let ptr = self.slice[i].get();
+        unsafe { *ptr = value; }
+    }
 }

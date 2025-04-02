@@ -1,12 +1,15 @@
 use std::borrow::Borrow;
-use std::path::PathBuf;
-use itertools::Itertools;
+use std::path::{Path,PathBuf};
+
+use anyhow::{Context,Result};
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
+use itertools::Itertools;
 use tinyvec::{TinyVec, ArrayVec};
 
 use crate::awarecontig::{AwareAlignment, AwareContig, SeqType};
 use crate::graph::asmgraph::AsmGraph;
 use crate::seq::SeqInterval;
+use crate::seq::bitseq::BitSeq;
 use crate::utils::flip_strand;
 
 use super::biedge::{self, BiEdge, EdgeKey, Node};
@@ -537,22 +540,43 @@ impl AwareGraph {
 
     // TODO: handle self loops
     // TODO: handle negative gaps
-    pub fn compact_graph(&mut self, target_sequences: &[Vec<u8>], read_sequences: &HashMap<usize,Vec<u8>>) -> super::asmgraph::AsmGraph<Unitig> {
+    pub fn compact_graph(&mut self, target_names:&[String], target_sequences: &[BitSeq], read_sequences: &[BitSeq], work_dir:&Path, fragment_dir:&Path) -> Result<super::asmgraph::AsmGraph<Unitig>> {
 
         self.expand_edges();
 
         let (unitigs, node_to_unitig) = self.unitig_partition();
         let mut unitig_graph: AsmGraph<Unitig> = super::asmgraph::AsmGraph::new();
 
+        let reads_dir = work_dir.join("reads");
+        std::fs::create_dir_all(&reads_dir)
+            .with_context(|| format!("Cannot create output directory: \"{}\"", reads_dir.display()))?;
+
         for unitig in unitigs {
+
+            // write haplotype-specific reads to the corresponding unitig file
+            {
+                let unitig_reads_file = reads_dir.join(format!("{}.fa.gz", unitig.id));
+                let mut unitig_read_writer = crate::utils::get_file_writer(&unitig_reads_file);
+                let haplotype_files = unitig.nodes.iter()
+                    .filter_map(|nid| self.nodes[nid].ctg.haplotype_id())
+                    .map(|h| fragment_dir.join(format!("{}_{}-{}_h{}.fa.gz", target_names[h.tid], h.beg, h.end, h.hid)));
+                for htfile in haplotype_files {
+                    let mut reader = needletail::parse_fastx_file(&htfile).with_context(||format!("Cannot open read file: {}", htfile.display()))?;
+                    while let Some(record) = reader.next() {
+                        let record = record.unwrap();
+                        record.write(&mut unitig_read_writer, None)?;
+                    }
+                }
+            }
+
             // TODO: build unitig sequence from nodes/edges of the path
             if unitig.nodes.len() == 1 {
                 let node_id= unsafe { unitig.nodes.first().unwrap_unchecked() };
                 let aware_contig = &self.nodes[node_id].ctg;
                 let SeqInterval { tid, beg, end } = aware_contig.interval();
                 let mut sequence = match aware_contig.contig_type() {
-                    SeqType::Haplotype(_) | SeqType::Unphased => { target_sequences[tid][beg..end].to_vec() },
-                    SeqType::Read => { read_sequences[&tid][beg..end].to_vec() },
+                    SeqType::Haplotype(_) | SeqType::Unphased => { target_sequences[tid].subseq(beg, end) },
+                    SeqType::Read => { read_sequences[tid].subseq(beg, end) },
                 };
                 if aware_contig.strand() == b'-' { crate::seq::read::revcomp_inplace(&mut sequence); }
                 unitig_graph.add_node(unitig.id, sequence, Some(unitig));
@@ -568,8 +592,8 @@ impl AwareGraph {
                 let aware_contig = &self.nodes[&node_id].ctg;
                 let SeqInterval { tid, beg, end } = aware_contig.interval();
                 let mut sequence = match aware_contig.contig_type() {
-                    SeqType::Haplotype(_) | SeqType::Unphased => { target_sequences[tid][beg..end].to_vec() },
-                    SeqType::Read => { read_sequences[&tid][beg..end].to_vec() },
+                    SeqType::Haplotype(_) | SeqType::Unphased => { target_sequences[tid].subseq(beg, end) },
+                    SeqType::Read => { read_sequences[tid].subseq(beg, end) },
                 };
                 if node_dir != aware_contig.strand() { crate::seq::read::revcomp_inplace(&mut sequence); }
                 unitig_sequence.append(&mut sequence);
@@ -597,7 +621,20 @@ impl AwareGraph {
             }
         }
 
-        unitig_graph
+        // write unpolished unitig sequences
+        let unpolished_dir = work_dir.join("unpolished");
+        std::fs::create_dir_all(&unpolished_dir)
+            .with_context(|| format!("Cannot create output directory: \"{}\"", unpolished_dir.display()))?;
+
+        for utg_node in unitig_graph.nodes() {
+            let unitig_unpolished_file = unpolished_dir.join(format!("{}.fa.gz", utg_node.id));
+            let mut unitig_writer = crate::utils::get_file_writer(&unitig_unpolished_file);
+            unitig_writer.write_all(format!(">{}\n", &utg_node.id).as_bytes())?;
+            unitig_writer.write_all(&utg_node.sequence)?;
+            unitig_writer.write_all(b"\n")?;
+        }
+
+        Ok(unitig_graph)
     }
 
 

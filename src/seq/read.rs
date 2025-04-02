@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::sync::mpsc;
 use std::thread;
 
 use ahash::AHashMap as HashMap;
@@ -7,7 +6,7 @@ use rust_htslib::bam::{IndexedReader, Read};
 use rust_htslib::htslib;
 
 use crate::cli::Options;
-
+use crate::seq::bitseq::BitSeq;
 
 // from ffforf: https://github.com/jguhlin/ffforf/blob/master/src/lib.rs
 #[inline(always)]
@@ -36,18 +35,21 @@ pub fn revcomp(seq: &[u8]) -> Vec<u8> {
 }
 
 
-pub fn load_bam_sequences(bam_path: &Path, read_index: &HashMap<String, usize>, opts: &Options) -> HashMap<usize,Vec<u8>> {
+pub fn load_bam_sequences(bam_path: &Path, read_index: &HashMap<String, usize>, opts: &Options) -> Vec<BitSeq> {
     
-    let mut target_intervals = crate::bam::bam_target_intervals(bam_path);
-    target_intervals.sort_unstable_by_key(|siv| siv.end - siv.beg);
-    
-    let (tx, rx) = mpsc::channel();
+    let target_intervals = crate::bam::bam_target_intervals(bam_path);
+    // target_intervals.sort_unstable_by_key(|siv| siv.end - siv.beg);
+
+    let mut read_sequences = Vec::new();
+    read_sequences.resize_with(read_index.len(), BitSeq::default);
+    let read_sequences_slice = crate::utils::UnsafeSlice::new(&mut read_sequences);
+
     thread::scope(|scope| {
+        let mut thread_handles = Vec::with_capacity(opts.nb_threads);
         for thread_id in 0..opts.nb_threads {
-            let sender = tx.clone();
             let target_intervals_ref = &target_intervals;
-            scope.spawn(move || {
-                let mut seq_dict = HashMap::new();
+            let read_sequences_ref = &read_sequences_slice;
+            let handle = scope.spawn(move || {
                 let mut bam_reader = IndexedReader::from_path(bam_path).unwrap();
                 for &siv in target_intervals_ref.iter().skip(thread_id).step_by(opts.nb_threads) {
                     bam_reader.fetch(siv.tid as u32).unwrap();
@@ -55,21 +57,22 @@ pub fn load_bam_sequences(bam_path: &Path, read_index: &HashMap<String, usize>, 
                         if !record.is_unmapped() && !record.is_secondary() && !record.is_supplementary() {
                             let qname = std::str::from_utf8(record.qname()).unwrap().to_string();
                             let mut qseq = record.seq().as_bytes();
-                            if record.is_reverse() {
-                                revcomp_inplace(&mut qseq)
-                            };
-                            seq_dict.insert(read_index[&qname], qseq);
+                            if record.is_reverse() { revcomp_inplace(&mut qseq) };
+                            let index = read_index[&qname];
+                            unsafe { // indices retrieved from read_index are supposed to be mutually exclusive
+                                read_sequences_ref.write(index, BitSeq::from_utf8(&qseq));
+                            }
                         }
                     }
                 }
-                sender.send(seq_dict).unwrap();
             });
+            thread_handles.push(handle);
         }
+        thread_handles.into_iter()
+            .for_each(|h| { h.join().unwrap(); });
     });
 
-    (0..opts.nb_threads)
-        .flat_map(|_| rx.recv().unwrap().into_iter())
-        .collect()
+    read_sequences
 }
 
 

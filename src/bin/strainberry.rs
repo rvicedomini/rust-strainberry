@@ -75,7 +75,7 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
 
     let phased_dir = output_dir.join("20-phased");
     println!("Phasing strains");
-    let phaser = phase::Phaser::new(bam_path, &target_names, &target_intervals, &read_index, phased_dir, &opts).unwrap();
+    let phaser = phase::Phaser::new(bam_path, &target_names, &target_intervals, &read_index, &read_sequences, phased_dir, &opts).unwrap();
     let haplotypes = phaser.phase(&variants);
     println!("  {} haplotypes phased", haplotypes.len());
 
@@ -139,9 +139,11 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     aware_graph.write_gfa(graphs_dir.join("aware_graph.resolved.gfa"), &target_names)?;
     aware_graph.clear_transitive_edges();
 
-    let unitig_graph = aware_graph.compact_graph(&target_sequences, &read_sequences);
+    let unitig_dir = output_dir.join("50-unitigs");
+    let unitig_graph = aware_graph.compact_graph(&target_names, &target_sequences, &read_sequences, &unitig_dir, phaser.fragments_dir())?;
     unitig_graph.write_gfa(graphs_dir.join("assembly_graph.gfa"))?;
-    unitig_graph.write_fasta(output_dir.join("assembly.fasta.gz"))?;
+    
+    // unitig_graph.write_fasta(output_dir.join("assembly.fasta.gz"))?;
 
     println!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
 

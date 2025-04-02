@@ -11,6 +11,7 @@ use rust_htslib::bam::record::{Cigar,CigarString};
 use rust_htslib::htslib::{BAM_FSECONDARY,BAM_FSUPPLEMENTARY};
 use tinyvec::{tiny_vec,TinyVec};
 
+use crate::seq::bitseq::BitSeq;
 use crate::seq::SeqInterval;
 
 
@@ -54,18 +55,19 @@ pub fn chrom2tid(bam_header:&HeaderView) -> HashMap<String,usize> {
 }
 
 
-pub fn load_sequences(fasta_path: &Path, bam_path: &Path) -> Vec<Vec<u8>> {
+pub fn load_sequences(fasta_path: &Path, bam_path: &Path) -> Vec<BitSeq> {
     let bam_reader = bam::Reader::from_path(bam_path).unwrap();
     let header_view = bam_reader.header();
 
-    let mut target_sequences = vec![Vec::new(); header_view.target_count() as usize];
+    let mut target_sequences = Vec::new();
+    target_sequences.resize_with(header_view.target_count() as usize, BitSeq::default);
 
     let mut fasta_reader = needletail::parse_fastx_file(fasta_path).expect("Cannot open fasta file");
     while let Some(record) = fasta_reader.next() {
         let record = record.unwrap();
         let tid = header_view.tid(record.id()).unwrap() as usize;
         // eprintln!("{tid} -> {}", String::from_utf8_lossy(record.id()));
-        target_sequences[tid] = record.normalize(false).to_vec();
+        target_sequences[tid] = BitSeq::from_utf8(record.normalize(false).as_ref());
     }
 
     target_sequences
@@ -157,11 +159,19 @@ pub fn estimate_lookback(bam_path: &Path, n: usize) -> Option<usize> {
 
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct BamRecordId(pub usize, pub usize, pub usize); // query_index, query_beg, query_end
+pub struct BamRecordId {
+    pub index:usize,
+    pub beg:usize,
+    pub end:usize
+}
 
 impl BamRecordId {
 
-    pub fn from_record(record: &bam::record::Record, read_index: &HashMap<String,usize>) -> BamRecordId {
+    pub fn new(index:usize, beg:usize, end:usize) -> Self {
+        Self { index, beg, end }
+    }
+
+    pub fn from_record(record: &bam::record::Record, read_index: &HashMap<String,usize>) -> Self {
         let cigar = record.cigar();
     
         let query_name = std::str::from_utf8(record.qname()).unwrap();
@@ -184,7 +194,7 @@ impl BamRecordId {
             (query_start, query_end) = (query_length-query_end, query_length-query_start);
         }
 
-        BamRecordId(query_index, query_start, query_end)
+        Self { index:query_index, beg:query_start, end:query_end }
     }
     
 }
