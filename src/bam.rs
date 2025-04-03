@@ -15,6 +15,26 @@ use crate::seq::bitseq::BitSeq;
 use crate::seq::SeqInterval;
 
 
+pub fn bam_to_fasta(bam_path:&Path, out_path:&Path) -> Result<()> {
+
+    let mut bam = bam::IndexedReader::from_path(bam_path)?;
+    bam.fetch(".").unwrap();
+
+    let primary_iter = bam.rc_records()
+        .map(|x| x.expect("Error parsing BAM file"))
+        .filter(|rec| rec.flags() & (BAM_FSECONDARY|BAM_FSUPPLEMENTARY) as u16 == 0);
+
+    let mut writer = crate::utils::get_file_writer(&out_path);
+    for rec in primary_iter {
+        writer.write_all(format!(">{}\n", std::str::from_utf8(rec.qname())?).as_bytes())?;
+        writer.write_all(&rec.seq().as_bytes())?;
+        writer.write_all(b"\n")?;
+    }
+
+    Ok(())
+}
+
+
 pub fn bam_target_names(bam_path:&Path) -> (Vec<String>,HashMap<String,usize>) {
     let bam_reader = bam::IndexedReader::from_path(bam_path).unwrap();
     let target_names = bam_reader.header()
