@@ -24,7 +24,7 @@ pub fn bam_to_fasta(bam_path:&Path, out_path:&Path) -> Result<()> {
         .map(|x| x.expect("Error parsing BAM file"))
         .filter(|rec| rec.flags() & (BAM_FSECONDARY|BAM_FSUPPLEMENTARY) as u16 == 0);
 
-    let mut writer = crate::utils::get_file_writer(&out_path);
+    let mut writer = crate::utils::get_file_writer(out_path);
     for rec in primary_iter {
         writer.write_all(format!(">{}\n", std::str::from_utf8(rec.qname())?).as_bytes())?;
         writer.write_all(&rec.seq().as_bytes())?;
