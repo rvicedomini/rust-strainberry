@@ -421,6 +421,7 @@ pub struct PafAlignment {
     pub matches: usize, // exact matches
     pub mapping_length: usize,
     pub mapq: u8,
+    pub identity: f64,
     pub is_secondary: bool,
     pub cigar: CigarString,
 }
@@ -460,6 +461,7 @@ impl std::str::FromStr for PafAlignment {
         let matches = cols[9].parse().unwrap();
         let mapping_length = cols[10].parse().unwrap();
         let mapq = cols[11].parse().unwrap();
+        let identity = 100.0 * (matches as f64) / (mapping_length as f64);
         
         let tags: HashMap<&str,&str> = cols[12].split('\t').filter_map(|s| {
                 let [key,_,val] = s.splitn(3,':').collect_array()?;
@@ -482,6 +484,7 @@ impl std::str::FromStr for PafAlignment {
             matches,
             mapping_length,
             mapq,
+            identity,
             is_secondary,
             cigar
         })
@@ -494,8 +497,8 @@ impl std::fmt::Display for PafAlignment {
             query_name, query_length, query_beg, query_end,
             strand,
             target_name, target_length, target_beg, target_end,
-            matches:_, mapping_length:_, mapq:_, is_secondary:_,
-            cigar:_ } = self;
-        write!(f, "PafAlignment({query_name},{query_length},{query_beg},{query_end},{},{target_name},{target_length},{target_beg},{target_end})", *strand as char)
+            matches, mapping_length, mapq,
+            identity:_, is_secondary:_, cigar:_ } = self;
+        write!(f, "{query_name}\t{query_length}\t{query_beg}\t{query_end}\t{}\t{target_name}\t{target_length}\t{target_beg}\t{target_end}\t{matches}\t{mapping_length}\t{mapq}", *strand as char)
     }
 }
