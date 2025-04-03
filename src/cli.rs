@@ -1,25 +1,33 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 
 #[derive(Parser)]
 #[command(version)]
 #[command(about = "HiFi-Strainberry: Strain-aware assembly with high-quality long reads", long_about = None)]
 pub struct Options {
     
-    /// FASTA file of the input assembly
+    /// Input assembly in FASTA format
     #[arg(short = 'f', long = "fasta", value_name = "PATH")]
     pub fasta_file: String,
+
+    /// Input HiFi reads
+    #[arg(long = "in-hifi", value_name = "PATH")]
+    pub in_hifi: Option<String>,
+    
+    /// Input ONT reads
+    #[arg(long = "in-ont", value_name = "PATH")]
+    pub in_ont: Option<String>,
 
     /// Long-read alignment in BAM format
     #[arg(short = 'b', long = "bam", value_name = "PATH")]
     pub bam_file: String,
 
+    /// User provided vcf file of SNV positions to consider
+    #[arg(short = 'v', long = "vcf", value_name = "PATH")]
+    pub vcf_file: Option<String>,
+
     /// Output directory
     #[arg(short = 'o', long = "out-dir", value_name = "PATH")]
     pub output_dir: String,
-
-    /// User provided vcf file of SNV positions to consider
-    #[arg(long = "vcf", value_name = "PATH")]
-    pub vcf_file: Option<String>,
 
     /// Lookback distance
     #[arg(short = 'l', long = "lookback", value_name = "NUM", default_value_t = 3000)]
@@ -32,6 +40,10 @@ pub struct Options {
     /// Maximum number of theads
     #[arg(short = 't', long = "threads", value_name = "NUM", default_value_t = 1)]
     pub nb_threads: usize,
+
+    /// Disable post-assembly polishing
+    #[arg(long = "no-polish")]
+    pub no_polish: bool,
 
     /// Stop after phasing and read partitioning
     #[arg(long = "phase-only")]
@@ -73,6 +85,16 @@ pub struct Options {
     #[arg(long = "min-aware-ctg-len", value_name = "NUM", default_value_t = 2000)]
     pub min_aware_ctg_len: usize,
 
+    /// Sequencing read technology
+    #[arg(value_enum, short='m', long="mode", value_name="STR", default_value_t = Mode::Hifi)]
+    pub mode: Mode,
+}
+
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+pub enum Mode {
+    Hifi,
+    Nano,
 }
 
 
