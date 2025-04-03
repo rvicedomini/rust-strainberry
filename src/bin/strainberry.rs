@@ -142,7 +142,13 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     let unitig_dir = output_dir.join("50-unitigs");
     let unitig_graph = aware_graph.compact_graph(&target_names, &target_sequences, &read_sequences, &unitig_dir, phaser.fragments_dir())?;
     unitig_graph.write_gfa(graphs_dir.join("assembly_graph.gfa"))?;
-    
+
+    // let target_path = Path::new("/home/rvicedom/data/mock-hifi/even_coverage/Ecoli_B1109_JM109_60x/metaflye_derep/test_lcd/50-unitigs/assembly2.fasta");
+    // let read_path = Path::new("/home/rvicedom/data/mock-hifi/even_coverage/fastq/Ecoli_B1109_JM109.60x.hifi.fq.gz");
+    // let polishing_dir = output_dir.join("60-polishing");
+    // let polished_fasta = strainberry::polish::racon_polish(target_path, read_path, polishing_dir, &opts)?;
+    // println!("Polished assembly written to: {}", polished_fasta.display());
+
     // unitig_graph.write_fasta(output_dir.join("assembly.fasta.gz"))?;
 
     println!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
