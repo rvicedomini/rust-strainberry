@@ -41,6 +41,10 @@ pub struct Options {
     #[arg(short = 't', long = "threads", value_name = "NUM", default_value_t = 1)]
     pub nb_threads: usize,
 
+    /// Do not delete temporary files
+    #[arg(long = "keep-temp")]
+    pub keep_temp: bool,
+
     /// Disable post-assembly polishing
     #[arg(long = "no-polish")]
     pub no_polish: bool,
