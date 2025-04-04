@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::str::FromStr;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use ahash::AHashMap as HashMap;
 
 use crate::cli::Options;
@@ -78,10 +78,6 @@ fn run_minimap2(target_path: &Path, read_path: &Path, work_dir: &Path, mode: Pol
 }
 
 pub fn racon_polish(target_path: &Path, read_path: &Path, out_path: &Path, mode: PolishMode, work_dir: &Path, opts: &Options) -> Result<()> {
-
-    if which::which("racon").is_err() {
-        bail!("missing racon dependency, please check your system PATH");
-    }
 
     std::fs::create_dir_all(work_dir)
         .with_context(|| format!("cannot create output directory: \"{}\"", work_dir.display()))?;

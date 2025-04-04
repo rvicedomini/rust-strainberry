@@ -26,6 +26,7 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     
     let t_start = Instant::now();
 
+    utils::check_dependencies(&["minimap2", "longcalld", "racon"])?;
     let opts = cli::Options::parse();
 
     let fasta_path = Path::new(&opts.fasta_file);

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::str::FromStr;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use itertools::Itertools;
 // use flate2::read::MultiGzDecoder;
@@ -20,10 +20,6 @@ type MatchInterval = (usize,usize,String);
 fn compute_matching_intervals(fasta_path: &Path, opts: &Options) -> Result<HashMap<String,Vec<MatchInterval>>> {
 
     let fasta_path_str = fasta_path.to_str().unwrap();
-
-    if which::which("minimap2").is_err() {
-        bail!("missing minimap2 dependency, please check your system PATH");
-    }
 
     let args = ["-t", &opts.nb_threads.to_string(), "-cDP", "--dual=no", "--no-long-join", "-r85", fasta_path_str, fasta_path_str];
     let stdout = Command::new("minimap2").args(args)
