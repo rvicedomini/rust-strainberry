@@ -6,9 +6,19 @@ use std::mem::MaybeUninit;
 use std::path::Path;
 
 use ahash::AHashMap as HashMap;
+use anyhow::{bail, Result};
 use flate2::Compression;
 use flate2::read::MultiGzDecoder;
 use flate2::write::GzEncoder;
+
+pub fn check_dependencies(dependencies:&[&str]) -> Result<()> {
+    for &executable in dependencies {
+        if which::which(executable).is_err() {
+            bail!("missing {executable} dependency, please check your system PATH");
+        }
+    }
+    Ok(())
+}
 
 pub fn get_maxrss() -> f64 {
     let usage = unsafe {
