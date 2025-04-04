@@ -4,6 +4,7 @@ use std::thread;
 use std::path::Path;
 
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
+use anyhow::{Context, Result};
 use itertools::Itertools;
 use rust_htslib::bam::{self, Read,IndexedReader};
 use tinyvec::ArrayVec;
@@ -160,6 +161,46 @@ pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, opts:&Options) -> 
         .collect::<VarPositions>();
 
     load_variants_at_positions_threaded(bam_path, Some(&positions), opts)
+}
+
+
+pub fn run_longcalld(reference_path: &Path, bam_path: &Path, vcf_path: &Path, opts: &Options) -> Result<VarDict> {
+
+    use std::process::{Command, Stdio};
+    use std::io::{BufRead,BufReader};
+
+    let lcd_preset = match opts.mode {
+        crate::cli::Mode::Hifi => "--hifi",
+        crate::cli::Mode::Nano => "--ont",
+    };
+    
+    let args = ["call", lcd_preset, "-t", &opts.nb_threads.to_string(), reference_path.to_str().unwrap(), bam_path.to_str().unwrap()];
+    let stdout = Command::new("longcallD").args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn().context("cannot run minimap2")?
+        .stdout
+        .with_context(|| "Could not capture standard output.")?;
+    
+    let reader = BufReader::new(stdout);
+    let vcf_lines = reader.lines()
+        .map_while(Result::ok)
+        .filter_map(|line| {
+            let line = line.trim();
+            if !line.is_empty() { Some(line.to_string()) } else { None }
+        }).collect_vec();
+
+    let mut vcf_writer = crate::utils::get_file_writer(vcf_path);
+    for line in vcf_lines {
+        let fields = line.split('\t').collect_vec();
+        if line.starts_with('#') || (fields.len() >= 5 && fields[3].len() == 1 && fields[4].len() == 1) {
+            vcf_writer.write_all(line.as_bytes())?;
+            vcf_writer.write_all(b"\n")?;
+        }
+    }
+
+    let var_dict = load_variants_from_vcf(vcf_path, bam_path, opts);
+    Ok(var_dict)
 }
 
 

@@ -4,26 +4,26 @@ use clap::{Parser, ValueEnum};
 #[command(version)]
 #[command(about = "HiFi-Strainberry: Strain-aware assembly with high-quality long reads", long_about = None)]
 pub struct Options {
-    
-    /// Input assembly in FASTA format
-    #[arg(short = 'f', long = "fasta", value_name = "PATH")]
-    pub fasta_file: String,
 
     /// Input HiFi reads
-    #[arg(long = "in-hifi", value_name = "PATH")]
+    #[arg(long = "in-hifi", value_name = "PATH", conflicts_with = "in_ont")]
     pub in_hifi: Option<String>,
     
     /// Input ONT reads
     #[arg(long = "in-ont", value_name = "PATH")]
     pub in_ont: Option<String>,
 
+    /// Input assembly in FASTA format
+    #[arg(short = 'r', long = "reference", value_name = "PATH")]
+    pub reference: String,
+
     /// Long-read alignment in BAM format
     #[arg(short = 'b', long = "bam", value_name = "PATH")]
-    pub bam_file: String,
+    pub bam: Option<String>,
 
     /// User provided vcf file of SNV positions to consider
     #[arg(short = 'v', long = "vcf", value_name = "PATH")]
-    pub vcf_file: Option<String>,
+    pub vcf: Option<String>,
 
     /// Output directory
     #[arg(short = 'o', long = "out-dir", value_name = "PATH")]

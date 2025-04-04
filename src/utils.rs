@@ -6,10 +6,12 @@ use std::mem::MaybeUninit;
 use std::path::Path;
 
 use ahash::AHashMap as HashMap;
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use flate2::Compression;
 use flate2::read::MultiGzDecoder;
 use flate2::write::GzEncoder;
+
+use crate::cli::Options;
 
 pub fn check_dependencies(dependencies:&[&str]) -> Result<()> {
     for &executable in dependencies {
@@ -54,6 +56,47 @@ pub fn get_file_writer(path: &Path) -> Box<dyn Write> {
         _ => Box::new(BufWriter::new(file)),
     }
 }
+
+
+pub fn run_minimap2(reference: &Path, reads: &Path, bam: &Path, opts: &Options) -> Result<()> {
+
+    use std::process::{Command, Stdio};
+
+    let mm2_preset = match opts.mode {
+        crate::cli::Mode::Hifi => "-xmap-hifi",
+        crate::cli::Mode::Nano => "-xmap-ont",
+    };
+    
+    let mm2_args = ["-t", &opts.nb_threads.to_string(), "-a", mm2_preset, reference.to_str().unwrap(), reads.to_str().unwrap()];
+    let minimap2 = Command::new("minimap2")
+        .args(mm2_args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn().context("cannot run minimap2")?;
+
+    let samtools_args = ["sort", "--threads", &opts.nb_threads.to_string(), "-o", bam.to_str().unwrap()];
+    let _samtools = Command::new("samtools")
+        .args(samtools_args)
+        .stdin(Stdio::from(minimap2.stdout.unwrap()))
+        .stderr(Stdio::null())
+        .output()
+        .expect("cannot run samtools sort");
+
+    // bam indexing
+
+    let nb_threads = opts.nb_threads.max(4);
+    let samtools_args = ["index", "-@", &nb_threads.to_string(), bam.to_str().unwrap()];
+    let mut samtools = Command::new("samtools")
+        .args(samtools_args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn().context("cannot run samtools index")?;
+    
+    samtools.wait()?;
+
+    Ok(())
+}
+
 
 pub fn insert_newlines(string:&str, every:usize) -> Cow<'_, str> {
 

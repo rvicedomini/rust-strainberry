@@ -89,7 +89,7 @@ fn compute_matching_intervals(fasta_path: &Path, opts: &Options) -> Result<HashM
 }
 
 
-pub fn derep_assembly(fasta_path: &Path, work_dir: PathBuf, opts: &Options) -> Result<PathBuf> {
+pub fn derep_assembly(fasta_path: &Path, work_dir: &Path, opts: &Options) -> Result<PathBuf> {
     assert!(fasta_path.is_file());
 
     // TODO: delete temporary directory at the end
@@ -182,6 +182,10 @@ pub fn derep_assembly(fasta_path: &Path, work_dir: PathBuf, opts: &Options) -> R
         }
 
         asm_path = derep_path;
+    }
+
+    if !opts.keep_temp {
+        std::fs::remove_dir_all(&tmp_dir)?;
     }
 
     Ok(output_path)

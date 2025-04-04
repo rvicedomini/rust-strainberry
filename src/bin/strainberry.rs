@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
-use anyhow::Context;
+use anyhow::{bail,Context};
 use clap::Parser;
 use itertools::Itertools;
 
@@ -26,34 +26,60 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     
     let t_start = Instant::now();
 
-    utils::check_dependencies(&["minimap2", "longcalld", "racon"])?;
-    let opts = cli::Options::parse();
+    let mut opts = cli::Options::parse();
 
-    let fasta_path = Path::new(&opts.fasta_file);
-    let bam_path = Path::new(&opts.bam_file);
+    utils::check_dependencies(&["minimap2", "samtools", "longcallD", "racon"])?;
+
+    let reads_path = match (opts.in_hifi.as_ref(), opts.in_ont.as_ref()) {
+        (None, None) => { bail!("Either --in-hifi or --in-ont is required. For more information, try '--help'.") },
+        (Some(hifi_path), None) => {
+            opts.mode = cli::Mode::Hifi;
+            Path::new(hifi_path)
+        },
+        (None, Some(ont_path)) => {
+            opts.mode = cli::Mode::Nano;
+            Path::new(ont_path)
+        },
+        _ => unreachable!()
+    };
+
+    let reference_path = Path::new(&opts.reference);
+    // let bam_path = Path::new(&opts.bam);
     let output_dir = Path::new(&opts.output_dir);
 
-    // TODO - consider creating output directory in cli module (after option validation)
+    // TODO: consider creating output directory in cli module (after option validation)
+    // TODO: consider adding "--force" option and terminate if directory already exists
     fs::create_dir_all(output_dir).with_context(|| format!("Cannot create output directory: \"{}\"", output_dir.display()))?;
 
-    // Assembly pre-process
-    // println!("Purging duplications from: {}", fasta_path.canonicalize().unwrap().display());
-    // let derep_dir = output_dir.join("10-preprocess");    
-    // let derep_path = strainberry::derep::derep_assembly(fasta_path, derep_dir, &opts)?;
-    // println!("  dereplicated assembly written to: {:?}", derep_path);
+    // -------------
+    // PREPROCESSING
+    // -------------
+    
+    let preprocess_dir = output_dir.join("00-preprocess");
 
-    println!("Loading sequences from: {}", fasta_path.canonicalize().unwrap().display());
-    let (target_names, target_index) = bam::bam_target_names(bam_path);
-    let target_sequences = bam::load_sequences(fasta_path, bam_path);
+    println!("Purging duplication from reference: {}", reference_path.display());
+    let reference_path = strainberry::derep::derep_assembly(reference_path, &preprocess_dir, &opts)?;
+    println!("  dereplicated assembly written to: {}", reference_path.display());
+
+    println!("Mapping reads against the de-replicated assembly");
+    let bam_path = preprocess_dir.join("alignment.bam");
+    utils::run_minimap2(&reference_path, reads_path, &bam_path, &opts)?;
+    println!("  alignment file written to: {}", bam_path.display());
+
+    println!("Loading sequences from: {}", reference_path.display());
+    let (target_names, target_index) = bam::bam_target_names(&bam_path);
+    let target_sequences = bam::load_sequences(&reference_path, &bam_path);
     println!("  {} sequences loaded", target_sequences.len());
 
-    let variants = if let Some(vcf_file) = &opts.vcf_file {
-        println!("Loading and filtering variants from: {vcf_file}");
-        variant::load_variants_from_vcf(Path::new(vcf_file), bam_path, &opts)
-    } else {
-        println!("Looking for potential variants");
-        variant::load_variants_from_bam(bam_path, &opts)
-    };
+    // let variants = if let Some(vcf) = &opts.vcf {
+    //     println!("Loading and filtering variants from: {vcf}");
+    //     variant::load_variants_from_vcf(Path::new(vcf), &bam_path, &opts)
+    // } else {
+    //     println!("Looking for potential variants");
+    //     variant::load_variants_from_bam(&bam_path, &opts)
+    // };
+    let vcf_path = preprocess_dir.join("variants.vcf.gz");
+    let variants = variant::run_longcalld(&reference_path, &bam_path, &vcf_path, &opts)?;
     println!("  {} variants found", variants.values().map(|vars| vars.len()).sum::<usize>());
 
     // TODO:
@@ -62,22 +88,22 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     println!("Lookback {} bp", opts.lookback);
 
     println!("Loading reads from BAM");
-    let read_index: HashMap<String, usize> = build_read_index(bam_path);
-    let read_sequences = load_bam_sequences(bam_path, &read_index, &opts);
+    let read_index: HashMap<String, usize> = build_read_index(&bam_path);
+    let read_sequences = load_bam_sequences(&bam_path, &read_index, &opts);
     println!("  {} reads loaded", read_index.len());
 
     let target_intervals = if opts.no_split { 
-        bam::bam_target_intervals(bam_path).into_iter().collect_vec()
+        bam::bam_target_intervals(&bam_path).into_iter().collect_vec()
     } else {
         println!("Splitting reference at putative misjoins");
-        let target_intervals = misassembly::partition_reference(bam_path, &target_index, &read_index, &opts);
+        let target_intervals = misassembly::partition_reference(&bam_path, &target_index, &read_index, &opts);
         println!("  {} sequences after split", target_intervals.len());
         target_intervals
     };
 
     let phased_dir = output_dir.join("20-phased");
     println!("Phasing strains");
-    let phaser = phase::Phaser::new(bam_path, &target_names, &target_intervals, &read_index, &read_sequences, phased_dir, &opts).unwrap();
+    let phaser = phase::Phaser::new(&bam_path, &target_names, &target_intervals, &read_index, &read_sequences, phased_dir, &opts).unwrap();
     let haplotypes = phaser.phase(&variants);
     println!("  {} haplotypes phased", haplotypes.len());
 
@@ -92,10 +118,10 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     println!("  {} strain-aware contigs built", aware_contigs.len());
 
     println!("Loading read alignments");
-    let read_alignments = load_bam_alignments(bam_path, &read_index, &opts);
+    let read_alignments = load_bam_alignments(&bam_path, &read_index, &opts);
 
     println!("Building succinct reads");
-    let succinct_reads = build_succinct_sequences(bam_path, &variants, &read_index, &opts);
+    let succinct_reads = build_succinct_sequences(&bam_path, &variants, &read_index, &opts);
 
     println!("Read realignment to haplotypes");
     let variant_positions = variants.values().flatten().map(|var| (var.tid,var.pos)).collect::<HashSet<_>>();
