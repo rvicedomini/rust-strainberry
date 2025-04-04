@@ -2,7 +2,7 @@ use anyhow::{Error, Result};
 
 const B2N: &[u8;4] = b"ACGT";
 
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct BitSeq {
     data: Vec<u8>,
     len: usize,
@@ -63,5 +63,14 @@ impl std::str::FromStr for BitSeq {
     #[inline(always)]
     fn from_str(seq: &str) -> Result<Self,Self::Err> {
         Ok(Self::from_utf8(seq.as_bytes()))
+    }
+}
+
+impl std::fmt::Display for BitSeq {
+
+    #[inline(always)]
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let bytes = self.as_bytes();
+        write!(f, "{}", std::str::from_utf8(&bytes).unwrap())
     }
 }
