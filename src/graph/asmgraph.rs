@@ -1,162 +1,225 @@
-use std::path::PathBuf;
+use std::borrow::Cow;
+use std::cmp::{PartialOrd, Eq};
+use std::fmt::Display;
+use std::hash::Hash;
+use std::io::BufRead;
+use std::path::Path;
 
-use ahash::AHashMap as HashMap;
+use ahash::{AHashMap as HashMap, AHashSet as HashSet};
+use anyhow::{bail, Result};
+use itertools::Itertools;
 use tinyvec::{tiny_vec, TinyVec};
 
-use super::biedge::{self, EdgeKey};
+use crate::seq::bitseq::BitSeq;
+use crate::utils::flip_strand;
 
 
-#[derive(Debug)]
-pub struct AsmEdge {
-    pub key: EdgeKey, // TODO: check whether I really need to store the key in the struct
-    // pub observations: usize,
-    // pub gaps: Vec<i32>,
-    // self.gapseq = {} # defaultdict(list)
+#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Link<NodeId> 
+where
+    NodeId: Hash + Eq + PartialOrd + Display + Clone
+{
+    pub id_from: NodeId,
+    pub strand_from: u8,
+    pub id_to: NodeId,
+    pub strand_to: u8,
 }
 
-impl AsmEdge {
+impl<NodeId> Link<NodeId>
+where
+    NodeId: Hash + Eq + PartialOrd + Display + Clone
+{
 
-    pub fn new(key:EdgeKey) -> Self {
-        Self {
-            key
-        }
+    pub fn new(id_from: NodeId, strand_from: u8, id_to: NodeId, strand_to: u8) -> Self {
+        Self { id_from, strand_from, id_to, strand_to }
     }
+
+    pub fn flip(&mut self) {
+        std::mem::swap(&mut self.id_from, &mut self.id_to);
+        std::mem::swap(&mut self.strand_from, &mut self.strand_to);
+    }
+
+    pub fn is_canonical(&self) -> bool {
+        self.id_from < self.id_to || (self.id_from == self.id_to && self.strand_from <= self.strand_to)
+    }
+
+    // returns whether the key was already canonical
+    pub fn canonicalize(&mut self) -> bool {
+        if !self.is_canonical() {
+            self.flip();
+            return false
+        }
+        true
+    }
+
+    #[inline(always)]
+    pub fn canonical_link(link: &Link<NodeId>) -> Cow<'_, Link<NodeId>> {
+        if link.is_canonical() {
+            return Cow::Borrowed(link)
+        }
+        let mut link = link.clone();
+        link.flip();
+        Cow::Owned(link)
+    }
+
 }
 
 
 #[derive(Debug)]
-pub struct AsmNode<T> {
-    pub id: usize,
-    pub sequence: Vec<u8>,
-    pub edges: TinyVec<[EdgeKey;10]>,
-    pub data: Option<T>,
+pub struct Segment<NodeId>
+where
+    NodeId: Hash + Eq + PartialOrd + Default + Display + Clone
+{
+    pub sequence: BitSeq,
+    pub links: TinyVec<[Link<NodeId>;10]>
 }
 
-impl<T> AsmNode<T> {
+impl<NodeId> Segment<NodeId>
+where
+    NodeId: Hash + Eq + PartialOrd + Default + Display + Clone
+{
 
-    pub fn new(id:usize, sequence:Vec<u8>, data:Option<T>) -> Self {
+    pub fn new(sequence:BitSeq) -> Self {
         Self {
-            id,
             sequence,
-            edges: tiny_vec![],
-            data
+            links: tiny_vec![],
         }
     }
 }
 
 
 #[derive(Debug, Default)]
-pub struct AsmGraph<N> {
-    nodes: HashMap<usize,AsmNode<N>>,
-    edges: HashMap<EdgeKey,usize>,
-    edge_data: Vec<AsmEdge>,
-    next_node_id: usize,
+pub struct AsmGraph<NodeId>
+where
+    NodeId: Hash + Eq + PartialOrd + Default + Display + Clone
+{
+    segments: HashMap<NodeId,Segment<NodeId>>,
+    links: HashSet<Link<NodeId>>,
 }
 
-impl<N> AsmGraph<N> {
+impl<NodeId> AsmGraph<NodeId>
+where
+    NodeId: Hash + Eq + PartialOrd + Default + Display + Clone
+{
     
     pub fn new() -> Self {
         Self {
-            nodes: HashMap::default(),
-            edges: HashMap::default(),
-            edge_data: vec![],
-            next_node_id: 0
+            segments: HashMap::new(),
+            links: HashSet::new(),
         }
     }
 
-    pub fn nb_nodes(&self) -> usize { self.nodes.len() }
-    pub fn nb_edges(&self) -> usize { self.edges.len() }
+    pub fn from_gfa(gfa_path: &Path) -> Result<AsmGraph<String>> {
+        
+        let mut graph: AsmGraph<String> = AsmGraph::new();
 
-    pub fn len(&self) -> usize { self.nb_nodes() }
+        let mut segments = Vec::new();
+        let mut links = Vec::new();
+
+        let gfa_reader = crate::utils::get_file_reader(gfa_path);
+        for (line_num, line) in gfa_reader.lines().map_while(Result::ok).enumerate() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue
+            }
+
+            let fields = line.split('\t').collect_vec();
+            match fields[0] {
+                "S" if fields.len() >= 3 => {
+                    let name = fields[1].to_string();
+                    let sequence = fields[2].as_bytes().to_vec();
+                    segments.push((name,sequence));
+                },
+                "L" if fields.len() >= 5 => {
+                    let id_from = fields[1].to_string();
+                    let strand_from = flip_strand(fields[2].bytes().next().unwrap());
+                    let id_to = fields[3].to_string();
+                    let strand_to = fields[4].bytes().next().unwrap();
+                    links.push(Link::new(id_from, strand_from, id_to, strand_to));
+                }
+                "S"|"L" => { bail!("Cannot parse GFA at line {line_num}") }
+                _ => {}
+            }
+        }
+
+        segments.into_iter()
+            .for_each(|(id,seg)| { graph.add_node(id.to_string(), BitSeq::from_utf8(&seg)); });
+
+        links.into_iter()
+            .for_each(|link| { graph.add_link(link); });
+
+        Ok(graph)
+    }
+
+    pub fn nb_segments(&self) -> usize { self.segments.len() }
+    pub fn nb_links(&self) -> usize { self.links.len() }
+
+    pub fn len(&self) -> usize { self.nb_segments() }
     pub fn is_empty(&self) -> bool { self.len() == 0 }
 
-    pub fn add_node(&mut self, id:usize, sequence:Vec<u8>, data: Option<N>) {
-        let node = AsmNode::new(id, sequence, data);
-        self.nodes.insert(id, node);
+    pub fn add_node(&mut self, id:NodeId, sequence:BitSeq) {
+        self.segments.insert(id, Segment::new(sequence));
     }
 
-    pub fn get_node(&self, id:usize) -> Option<&AsmNode<N>> {
-        self.nodes.get(&id)
+    pub fn contains_segment(&self, id: &NodeId) -> bool {
+        self.segments.contains_key(id)
     }
 
-    pub fn nodes(&self) -> std::collections::hash_map::Values<'_, usize, AsmNode<N>>{
-        self.nodes.values()
+    pub fn get_segment(&self, id: &NodeId) -> Option<&Segment<NodeId>> {
+        self.segments.get(id)
     }
 
-    pub fn add_edge(&mut self, edge_key:EdgeKey) -> &AsmEdge {
-        let biedge = self.get_edge_or_create(&edge_key);
-        biedge
+    pub fn segments(&self) -> std::collections::hash_map::Iter<'_, NodeId, Segment<NodeId>> {
+        self.segments.iter()
     }
 
-    fn contains_edge(&self, edge_key: &EdgeKey) -> bool {
-        let edge_key = biedge::canonical_edgekey(edge_key);
-        self.edges.contains_key(&edge_key)
+    pub fn contains_link(&self, link: &Link<NodeId>) -> bool {
+        let canon_link = Link::canonical_link(link);
+        self.links.contains(&canon_link)
     }
 
-    fn get_edge_idx(&self, idx: usize) -> &AsmEdge { &self.edge_data[idx] }
-    fn get_edge_idx_mut(&mut self, idx: usize) -> &mut AsmEdge { &mut self.edge_data[idx] }
-
-    fn get_edge(&self, edge_key:&EdgeKey) -> Option<&AsmEdge> {
-        let edge_key = biedge::canonical_edgekey(edge_key);
-        let edge_idx = *self.edges.get(&edge_key)?;
-        self.edge_data.get(edge_idx)
-    }
-
-    fn get_edge_mut(&mut self, edge_key:&EdgeKey) -> Option<&mut AsmEdge> {
-        let edge_key = biedge::canonical_edgekey(edge_key);
-        let edge_idx = *self.edges.get(&edge_key)?;
-        self.edge_data.get_mut(edge_idx)
-    }
-
-    fn get_edge_or_create(&mut self, edge_key:&EdgeKey) -> &mut AsmEdge {
-        let edge_key= biedge::canonical_edgekey(edge_key).into_owned();
-        let edge_id = *self.edges.entry(edge_key).or_insert_with_key(|edge_key| {
-            let node_from = self.nodes.get_mut(&edge_key.id_from).unwrap();
-            node_from.edges.push(*edge_key);
-            let node_to = self.nodes.get_mut(&edge_key.id_to).unwrap();
-            node_to.edges.push(biedge::flip_edgekey(edge_key));
-            let new_edge_id = self.edge_data.len();
-            self.edge_data.push(AsmEdge::new(*edge_key));
-            new_edge_id
-        });
-        unsafe { self.edge_data.get_mut(edge_id).unwrap_unchecked() }
+    pub fn add_link(&mut self, link: Link<NodeId>) -> bool {
+        assert!(self.contains_segment(&link.id_from) && self.contains_segment(&link.id_to));
+        let canon_link = Link::canonical_link(&link);
+        self.links.insert(canon_link.into_owned())
     }
 
     /* OUTPUT METHODS */
 
-    pub fn write_gfa(&self, gfa_path:PathBuf) -> std::io::Result<()> {
+    pub fn write_gfa(&self, gfa_path: &Path) -> std::io::Result<()> {
 
-        let mut gfa = crate::utils::get_file_writer(gfa_path.as_path());
+        let mut gfa = crate::utils::get_file_writer(gfa_path);
         gfa.write_all(b"H\tVN:Z:1.0\n")?;
-        for (node_id, node) in self.nodes.iter() {
-            let node_len = node.sequence.len();
-            let node_seq = std::str::from_utf8(&node.sequence).unwrap();
-            let node_line = if node_len > 0 {
-                format!("S\t{}\t{}\tLN:i:{}\n", node_id, node_seq, node_len)
+        for (id, segment) in self.segments() {
+            let seg_len = segment.sequence.len();
+            let seg_line = if seg_len > 0 {
+                format!("S\t{}\t{}\tLN:i:{}\n", id, segment.sequence, seg_len)
             } else {
-                format!("S\t{}\t*\tLN:i:{}\n", node_id, node_len)
+                format!("S\t{}\t*\tLN:i:{}\n", id, seg_len)
             };
-            gfa.write_all(node_line.as_bytes())?;
+            gfa.write_all(seg_line.as_bytes())?;
         }
 
-        for edge_idx in self.edges.values() {
-            let edge = self.get_edge_idx(*edge_idx);
-            let EdgeKey { id_from, strand_from, id_to, strand_to } = edge.key;
-            let edge_line = format!("L\t{}\t{}\t{}\t{}\t0M\n", id_from, crate::utils::flip_strand(strand_from) as char, id_to, strand_to as char);
-            gfa.write_all(edge_line.as_bytes())?;
+        for link in self.links.iter() {
+            let Link { id_from, strand_from, id_to, strand_to } = link;
+            let link_line = format!("L\t{}\t{}\t{}\t{}\t0M\n", id_from, flip_strand(*strand_from) as char, id_to, *strand_to as char);
+            gfa.write_all(link_line.as_bytes())?;
         }
 
         Ok(())
     }
 
-    pub fn write_fasta(&self, fasta_path:PathBuf) -> std::io::Result<()> {
+    pub fn write_fasta(&self, fasta_path: &Path) -> std::io::Result<()> {
 
-        let mut fasta_writer = crate::utils::get_file_writer(&fasta_path);
-        for (node_id, node) in self.nodes.iter() {
+        let mut fasta_writer = crate::utils::get_file_writer(fasta_path);
+        for (node_id, node) in self.segments() {
             let header = format!(">{node_id}\n");
             fasta_writer.write_all(header.as_bytes())?;
-            let sequence = std::str::from_utf8(&node.sequence).unwrap();
-            let sequence = crate::utils::insert_newlines(sequence, 120);
+            let sequence = node.sequence.as_bytes();
+            let sequence = crate::utils::insert_newlines(
+                std::str::from_utf8(&sequence).unwrap(),
+                120
+            );
             fasta_writer.write_all(sequence.as_bytes())?;
             fasta_writer.write_all(b"\n")?;
         }
@@ -166,154 +229,5 @@ impl<N> AsmGraph<N> {
 
 }
 
+pub type GfaGraph = AsmGraph<String>;
 
-// class AsmGraph(object):
-    
-//     def out_edges(self, node_id, node_dir) -> list:
-//         return [key for key in self.nodes[node_id].edges.keys() if key[1]==node_dir]
-
-//     def remove_nodes_from(self, iterable):
-//         for node_id in iterable:
-//             self.nodes.pop(node_id,None)
-    
-//     def remove_edge(self, edge_key):
-//         edge_key = canon_key(edge_key)
-//         edge = self.edges[edge_key]
-//         # remove edge pointers from nodes
-//         self.nodes[edge_key[0]].edges.pop(edge_key,None)
-//         flipped_key = flip_key(edge_key)
-//         self.nodes[flipped_key[0]].edges.pop(flipped_key,None)
-//         # remove edge from main dictionary
-//         self.edges.pop(edge_key,None)
-
-//     def remove_edges_from(self, iterable):
-//         for edge_key in iterable:
-//             self.remove_edge(edge_key)
-
-//     def generate_contigs(self):
-//         # remove edges between unphased sequences (likely a SV in between)
-//         # removed_edges = []
-//         # for key,edge in self.edges.items():
-//         #     from_deg = sum(1 for _,from_dir,_,_ in self.nodes[key[0]].edges.keys() if from_dir == key[1])
-//         #     to_deg = sum(1 for _,to_dir,_,_ in self.nodes[key[2]].edges.keys() if to_dir == key[3])
-//         #     if from_deg == 1 and to_deg == 1:
-//         #         removed_edges.append(key)
-//         # logger.debug(f'removing indel (?) edges: {removed_edges}')
-//         # self.remove_edges_from(removed_edges)
-
-//         contigs = []
-//         visited = set()
-//         # process sequences by decreasing length, starting from phased ones
-//         for node in sorted(self.nodes.values(), key=lambda x:(x.is_phased(),x.length()), reverse=True):
-//             if ((node.seq_id,'+') in visited) or ((node.seq_id,'-') in visited):
-//                 continue
-//             ctg_id = node.seq_id
-//             ctg_sequence = ''
-//             ctg_info = set()
-
-//             in_edges = list(key for key in node.edges.keys() if key[1]=='+')
-//             if len(in_edges) == 1 and (self.nodes[in_edges[0][0]].is_phased()) and (not self.nodes[in_edges[0][2]].is_phased()) and (in_edges[0][2],in_edges[0][3]) not in visited:
-//                 visited.add((in_edges[0][2],flip_strand(in_edges[0][3])))
-//                 ctg_sequence += (self.nodes[in_edges[0][2]].sequence if in_edges[0][3] == '-' else reverse_complement(self.nodes[in_edges[0][2]].sequence))
-//                 ctg_info.update(self.nodes[in_edges[0][2]].data)
-//                 edge = self.get_edge(in_edges[0])
-//                 edge_gaplen = edge.data['gap']
-//                 edge_gapseq = edge.data['seq']
-//                 if edge_gaplen > 0 and (in_edges[0][2],in_edges[0][3]) in edge_gapseq:
-//                     ctg_sequence += edge_gapseq[(in_edges[0][2],in_edges[0][3])]
-//                 elif edge_gaplen > 0:
-//                     ctg_sequence += ('N' * edge_gaplen)
-//                 elif edge_gaplen < 0:
-//                     ctg_sequence = ctg_sequence[-edge_gaplen:]
-//             elif len(in_edges) == 1 and (self.nodes[in_edges[0][0]].is_phased()) and (not self.nodes[in_edges[0][2]].is_phased()):
-//                 edge = self.get_edge(in_edges[0])
-//                 edge_gaplen = edge.data['gap']
-//                 edge_gapseq = edge.data['seq']
-//                 if edge_gaplen > 0 and (in_edges[0][2],in_edges[0][3]) in edge_gapseq and (not edge_gapseq[(in_edges[0][2],in_edges[0][3])].startswith('N')):
-//                     ctg_sequence += edge_gapseq[(in_edges[0][2],in_edges[0][3])]
-
-//             ctg_sequence += node.sequence
-//             ctg_info.update(node.data)
-
-//             out_edges = list(key for key in node.edges.keys() if key[1]=='-')
-//             if len(out_edges) == 1 and (self.nodes[out_edges[0][0]].is_phased()) and (not self.nodes[out_edges[0][2]].is_phased()) and (out_edges[0][2],out_edges[0][3]) not in visited:
-//                 visited.add((out_edges[0][2],flip_strand(out_edges[0][3])))
-//                 edge = self.get_edge(out_edges[0])
-//                 edge_gaplen = edge.data['gap']
-//                 edge_gapseq = edge.data['seq']
-//                 if edge_gaplen > 0 and (out_edges[0][0],out_edges[0][1]) in edge_gapseq:
-//                     ctg_sequence += edge_gapseq[(out_edges[0][0],out_edges[0][1])]
-//                 elif edge_gaplen > 0:
-//                     ctg_sequence += ('N' * edge_gaplen)
-//                 elif edge_gaplen < 0:
-//                     ctg_sequence = ctg_sequence[:edge_gaplen]
-//                 ctg_sequence += self.nodes[out_edges[0][2]].sequence if out_edges[0][3] == '+' else reverse_complement(self.nodes[out_edges[0][2]].sequence)
-//                 ctg_info.update(self.nodes[out_edges[0][2]].data)
-//             elif len(out_edges) == 1 and (self.nodes[out_edges[0][0]].is_phased()) and (not self.nodes[out_edges[0][2]].is_phased()):
-//                 edge = self.get_edge(out_edges[0])
-//                 edge_gaplen = edge.data['gap']
-//                 edge_gapseq = edge.data['seq']
-//                 if edge_gaplen > 0 and (out_edges[0][0],out_edges[0][1]) in edge_gapseq and (not edge_gapseq[(out_edges[0][0],out_edges[0][1])].startswith('N')):
-//                     ctg_sequence += edge_gapseq[(out_edges[0][0],out_edges[0][1])]
-            
-//             contigs.append((ctg_id,ctg_sequence,ctg_info))
-//         return contigs
-
-
-//     def load_from_gfa(self, filename, load_seq=True):
-//         segments = []
-//         links = []
-//         with open(filename,'r') as gfa:
-//             for line in gfa:
-//                 if line.startswith('S'):
-//                     fields = line.strip().split('\t')
-//                     name = fields[1]
-//                     sequence = fields[2] if (load_seq and fields[2] != '*') else ''
-//                     segments.append((name,sequence))
-//                 elif line.startswith('L'):
-//                     fields = line.strip().split('\t')
-//                     from_name,from_dir,to_name,to_dir,overlap = fields[1:6]
-//                     links.append((from_name,flip_strand(from_dir),to_name,to_dir))
-//         for name,sequence in segments:
-//             self.add_node(name,sequence)
-//         for key in links:
-//             if (key[0] in self.nodes) and (key[2] in self.nodes):
-//                 self.add_edge(key)
-
-//     def write_gfa(self, gfa_path, write_seq=False):
-//         with open(f'{gfa_path}','w') as gfa:
-//             gfa.write(f'H\tVN:Z:1.0\n')
-//             for node_id in self.nodes.keys():
-//                 node_seq = self.nodes[node_id].sequence if (write_seq and len(self.nodes[node_id].sequence) > 0) else '*'
-//                 node_length = len(self.nodes[node_id].sequence)
-//                 gfa.write(f'S\t{node_id}\t{node_seq}\tLN:i:{node_length}\n')
-//             for edge in self.edges.values():
-//                 first_id,first_dir,second_id,second_dir = edge.key
-//                 gfa.write(f'L\t{first_id}\t{flip_strand(first_dir)}\t{second_id}\t{second_dir}\t0M\n')
-
-//     def write_dot(self, path):
-//         with open(f'{path}','w') as dot:
-//             dot.write('digraph "" {\n')
-//             dot.write('\tgraph [rankdir=LR, splines=true];\n')
-//             # dot.write('\tnode [label="\\N"];\n')
-//             for node_id in self.nodes.keys():
-//                 fillcolor = 'orange' if node_id.endswith('_h') else 'white'
-//                 dot.write(f'\t{node_id}\t[label="{node_id}", style=filled, fillcolor={fillcolor}];\n')
-//             for edge in self.edges.values():
-//                 first_id,first_dir,second_id,second_dir = edge.key
-//                 arrowtail = 'normal' if first_dir=='+' else 'inv'
-//                 arrowhead = 'normal' if second_dir=='+' else 'inv'
-//                 gap_len = edge.data['gap'] if (edge.data and 'gap' in edge.data) else ''
-//                 dot.write(f'\t{first_id} -> {second_id}\t[arrowtail={arrowtail}, arrowhead={arrowhead}, dir=both, label="{gap_len}"];\n')
-//             for edge in self.transitives.values():
-//                 first_id,first_dir,second_id,second_dir = edge.key
-//                 arrowtail = 'normal' if first_dir=='+' else 'inv'
-//                 arrowhead = 'normal' if second_dir=='+' else 'inv'
-//                 data = edge.data
-//                 dot.write(f'\t{first_id} -> {second_id}\t[arrowtail={arrowtail}, arrowhead={arrowhead}, dir=both, color="red", label="{data:.4f}"];\n')
-//             dot.write('}')
-
-//     def write_fasta(self, fasta_path):
-//         with open(fasta_path,'w') as fasta:
-//             for node in self.nodes.values():
-//                 fasta.write(f'>{node.seq_id}\n{insert_newlines(node.sequence)}\n')

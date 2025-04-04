@@ -14,6 +14,7 @@ use strainberry::cli;
 use strainberry::graph::awaregraph::AwareGraph;
 use strainberry::misassembly;
 use strainberry::phase;
+use strainberry::polish::racon_polish;
 use strainberry::seq::build_succinct_sequences;
 use strainberry::seq::alignment::load_bam_alignments;
 use strainberry::seq::read::{build_read_index,load_bam_sequences};
@@ -115,15 +116,8 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     aware_graph.remove_weak_edges(5);
     aware_graph.write_gfa(graphs_dir.join("aware_graph.gfa"), &target_names).unwrap();
 
-    // # to be added from python implementation if needed:
-    // logger.debug(f'Removing inconsistent edges')
-    // inconsistent_edges = awaregraph.get_htig_inconsistent_edges(htig2aware)
-    // awaregraph.remove_htig_inconsistent_edges(inconsistent_edges)
-
     println!("Resolving strain-aware graph using reads");
     let nb_tedges = aware_graph.add_bridges(&read2aware);
-    // # to be added from python implementation if needed:
-    // awaregraph.patch_sequences(htig2aware)
     aware_graph.write_dot(graphs_dir.join("aware_graph.dot")).unwrap();
     println!("  {} read bridges added", nb_tedges);
 
@@ -139,17 +133,20 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     aware_graph.write_gfa(graphs_dir.join("aware_graph.resolved.gfa"), &target_names)?;
     aware_graph.clear_transitive_edges();
 
+    println!("Building assembly graph");
     let unitig_dir = output_dir.join("50-unitigs");
-    let unitig_graph = aware_graph.compact_graph(&target_names, &target_sequences, &read_sequences, &unitig_dir, phaser.fragments_dir())?;
-    unitig_graph.write_gfa(graphs_dir.join("assembly_graph.gfa"))?;
+    let unitig_graph = aware_graph.build_assembly_graph(&target_names, &target_sequences, &read_sequences, phaser.fragments_dir(), &unitig_dir, &opts)?;
+    unitig_graph.write_gfa(&graphs_dir.join("final_unpolished.gfa"))?;
 
-    // let target_path = Path::new("/home/rvicedom/data/mock-hifi/even_coverage/Ecoli_B1109_JM109_60x/metaflye_derep/test_lcd/50-unitigs/assembly2.fasta");
-    // let read_path = Path::new("/home/rvicedom/data/mock-hifi/even_coverage/fastq/Ecoli_B1109_JM109.60x.hifi.fq.gz");
-    // let polishing_dir = output_dir.join("60-polishing");
-    // let polished_fasta = strainberry::polish::racon_polish(target_path, read_path, polishing_dir, &opts)?;
-    // println!("Polished assembly written to: {}", polished_fasta.display());
+    println!("Polishing");
+    let polish_dir = output_dir.join("60-polishing");
+    let unpolished_fasta_path = graphs_dir.join("final_unpolished.fasta");
+    unitig_graph.write_fasta(&unpolished_fasta_path)?;
+    let in_reads_path = Path::new(opts.in_hifi.as_ref().unwrap());
+    let polished_fasta_path = output_dir.join("assembly.fasta");
+    racon_polish(&unpolished_fasta_path, in_reads_path, &polished_fasta_path, strainberry::polish::PolishMode::Aware, &polish_dir, &opts)?;
 
-    // unitig_graph.write_fasta(output_dir.join("assembly.fasta.gz"))?;
+    println!("  polished assembly written to {}", polished_fasta_path.display());
 
     println!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
 

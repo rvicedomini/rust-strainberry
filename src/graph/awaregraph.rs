@@ -7,7 +7,9 @@ use itertools::Itertools;
 use tinyvec::{TinyVec, ArrayVec};
 
 use crate::awarecontig::{AwareAlignment, AwareContig, SeqType};
-use crate::graph::asmgraph::AsmGraph;
+use crate::cli::Options;
+use crate::graph::asmgraph::{AsmGraph, Link};
+use crate::polish::PolishMode;
 use crate::seq::SeqInterval;
 use crate::seq::bitseq::BitSeq;
 use crate::utils::flip_strand;
@@ -16,8 +18,7 @@ use super::biedge::{self, BiEdge, EdgeKey, Node};
 use super::junction::Junction;
 
 #[derive(Debug)]
-pub struct Unitig {
-    pub id: usize,
+pub struct AwarePath {
     pub nodes: Vec<usize>,
     pub edges: Vec<EdgeKey>,
 }
@@ -489,10 +490,10 @@ impl AwareGraph {
     }
 
 
-    fn unitig_partition(&self) -> (Vec<Unitig>, HashMap<usize,usize>) {
+    fn extract_aware_paths(&self) -> (Vec<AwarePath>, HashMap<usize,usize>) {
         let mut visited: HashSet<usize> = HashSet::new();
-        let mut unitigs: Vec<Unitig> = Vec::new();
-        let mut node_to_unitig: HashMap<usize, usize> = HashMap::new();
+        let mut aware_paths: Vec<AwarePath> = Vec::new();
+        let mut node_to_path: HashMap<usize, usize> = HashMap::new();
         for node_id in self.nodes.keys() {
             if visited.insert(*node_id) {
                 let edges = self.unitig_from(*node_id, &mut visited);
@@ -502,12 +503,12 @@ impl AwareGraph {
                     let first = unsafe { edges.first().unwrap_unchecked().id_from };
                     std::iter::once(first).chain(edges.iter().map(|key| key.id_to)).collect_vec()
                 };
-                let unitig_id = unitigs.len();
-                nodes.iter().for_each(|n| { node_to_unitig.insert(*n, unitig_id); });
-                unitigs.push(Unitig{ id:unitig_id, nodes, edges });
+                let id = aware_paths.len();
+                nodes.iter().for_each(|n| { node_to_path.insert(*n, id); });
+                aware_paths.push(AwarePath{ nodes, edges });
             }
         }
-        (unitigs, node_to_unitig)
+        (aware_paths, node_to_path)
     }
 
     fn unitig_from(&self, start_id:usize, visited: &mut HashSet<usize>) -> Vec<EdgeKey> {
@@ -538,26 +539,71 @@ impl AwareGraph {
         path_edges
     }
 
-    // TODO: handle self loops
-    // TODO: handle negative gaps
-    pub fn compact_graph(&mut self, target_names:&[String], target_sequences: &[BitSeq], read_sequences: &[BitSeq], work_dir:&Path, fragment_dir:&Path) -> Result<super::asmgraph::AsmGraph<Unitig>> {
 
-        self.expand_edges();
+    pub fn build_haplotigs(&self, aware_paths: &[AwarePath], target_names:&[String], target_sequences: &[BitSeq], read_sequences: &[BitSeq], fragment_dir: &Path, work_dir: &Path, opts: &Options) -> Result<Vec<BitSeq>> {
 
-        let (unitigs, node_to_unitig) = self.unitig_partition();
-        let mut unitig_graph: AsmGraph<Unitig> = super::asmgraph::AsmGraph::new();
+        let mut haplotigs = Vec::with_capacity(aware_paths.len());
+        for (id, aware_path) in aware_paths.iter().enumerate() {
 
-        let reads_dir = work_dir.join("reads");
-        std::fs::create_dir_all(&reads_dir)
-            .with_context(|| format!("Cannot create output directory: \"{}\"", reads_dir.display()))?;
+            assert!(!aware_path.nodes.is_empty());
 
-        for unitig in unitigs {
+            // create backbone sequence
+            
+            let backbone_sequence = {
 
-            // write haplotype-specific reads to the corresponding unitig file
-            {
-                let unitig_reads_file = reads_dir.join(format!("{}.fa.gz", unitig.id));
-                let mut unitig_read_writer = crate::utils::get_file_writer(&unitig_reads_file);
-                let haplotype_files = unitig.nodes.iter()
+                let mut backbone_sequence = Vec::new();
+                let mut is_phased = false;
+
+                let node_id = unsafe { aware_path.nodes.first().unwrap_unchecked() };
+                let node_dir = if aware_path.edges.is_empty() { b'+' } else { flip_strand(aware_path.edges[0].strand_from) };
+                let node_iter = std::iter::once((*node_id, node_dir))
+                    .chain(aware_path.edges.iter().map(|key| (key.id_to, key.strand_to)));
+
+                // TODO: handle negative gaps between sequences?
+                for (node_id, node_dir) in node_iter {
+                    let aware_contig = &self.nodes[&node_id].ctg;
+                    let SeqInterval { tid, beg, end } = aware_contig.interval();
+                    let mut sequence = match aware_contig.contig_type() {
+                        SeqType::Haplotype(_) | SeqType::Unphased => { target_sequences[tid].subseq(beg, end) },
+                        SeqType::Read => { read_sequences[tid].subseq(beg, end) },
+                    };
+                    if node_dir != aware_contig.strand() { crate::seq::read::revcomp_inplace(&mut sequence); }
+                    is_phased = is_phased || aware_contig.is_phased();
+                    backbone_sequence.append(&mut sequence);
+                }
+
+                // if path does not contain phased regions, do not polish
+                if aware_path.nodes.iter().all(|id| ! matches!(self.nodes[id].ctg.contig_type(), SeqType::Haplotype(_)) ) {
+                    haplotigs.push(BitSeq::from_utf8(&backbone_sequence));
+                    continue
+                }
+
+                backbone_sequence
+            };
+
+            // create specific directory for polishing current sequence
+
+            let tmp_dir = work_dir.join(format!("{}_tmp", id));
+            std::fs::create_dir_all(&tmp_dir)
+                .with_context(|| format!("Cannot create output directory: \"{}\"", tmp_dir.display()))?;
+
+            // output backbone sequence
+
+            let target_path = {
+                let out_path = tmp_dir.join(format!("{}.unpolished.fa.gz", id));
+                let mut writer = crate::utils::get_file_writer(&out_path);
+                writer.write_all(format!(">ctg{id}\n").as_bytes())?;
+                writer.write_all(&backbone_sequence)?;
+                writer.write_all(b"\n")?;
+                out_path
+            };
+            
+            // output haplotype-specific reads associated to the target sequence
+
+            let read_path = {
+                let out_path = tmp_dir.join(format!("{}.reads.fa.gz", id));
+                let mut unitig_read_writer = crate::utils::get_file_writer(&out_path);
+                let haplotype_files = aware_path.nodes.iter()
                     .filter_map(|nid| self.nodes[nid].ctg.haplotype_id())
                     .map(|h| fragment_dir.join(format!("{}_{}-{}_h{}.fa.gz", target_names[h.tid], h.beg, h.end, h.hid)));
                 for htfile in haplotype_files {
@@ -567,74 +613,79 @@ impl AwareGraph {
                         record.write(&mut unitig_read_writer, None)?;
                     }
                 }
-            }
+                out_path
+            };
 
-            // TODO: build unitig sequence from nodes/edges of the path
-            if unitig.nodes.len() == 1 {
-                let node_id= unsafe { unitig.nodes.first().unwrap_unchecked() };
-                let aware_contig = &self.nodes[node_id].ctg;
-                let SeqInterval { tid, beg, end } = aware_contig.interval();
-                let mut sequence = match aware_contig.contig_type() {
-                    SeqType::Haplotype(_) | SeqType::Unphased => { target_sequences[tid].subseq(beg, end) },
-                    SeqType::Read => { read_sequences[tid].subseq(beg, end) },
-                };
-                if aware_contig.strand() == b'-' { crate::seq::read::revcomp_inplace(&mut sequence); }
-                unitig_graph.add_node(unitig.id, sequence, Some(unitig));
-                continue
+            // run racon to polish the backbone sequence with strain-specific reads
+
+            let polished_path = work_dir.join(format!("{}.polished.fa", id));
+            crate::polish::racon_polish(&target_path, &read_path, &polished_path, PolishMode::Oblivious, &tmp_dir, opts)?;
+            
+            let polished_sequence = {
+                let mut reader = needletail::parse_fastx_file(&polished_path)
+                    .with_context(||format!("Cannot read polished sequence from: {}", polished_path.display()))?;
+                if let Some(Ok(record)) = reader.next() {
+                    BitSeq::from_utf8(&record.seq())
+                } else {
+                    BitSeq::from_utf8(&backbone_sequence)
+                }
+            };
+
+            haplotigs.push(polished_sequence);
+
+            if !opts.keep_temp {
+                std::fs::remove_dir_all(&tmp_dir)?;
             }
-            // TODO: handle negative gaps
-            assert!(unitig.nodes.len() > 1);
-            let mut unitig_sequence = vec![];
-            let node_iter = std::iter::once(
-                    (unitig.edges[0].id_from, flip_strand(unitig.edges[0].strand_from))
-                ).chain(unitig.edges.iter().map(|key| (key.id_to, key.strand_to)));
-            for (node_id, node_dir) in node_iter {
-                let aware_contig = &self.nodes[&node_id].ctg;
-                let SeqInterval { tid, beg, end } = aware_contig.interval();
-                let mut sequence = match aware_contig.contig_type() {
-                    SeqType::Haplotype(_) | SeqType::Unphased => { target_sequences[tid].subseq(beg, end) },
-                    SeqType::Read => { read_sequences[tid].subseq(beg, end) },
-                };
-                if node_dir != aware_contig.strand() { crate::seq::read::revcomp_inplace(&mut sequence); }
-                unitig_sequence.append(&mut sequence);
-            }
-            unitig_graph.add_node(unitig.id, unitig_sequence, Some(unitig));
         }
 
+        Ok(haplotigs)
+    }
+
+    // TODO: handle self loops
+    // TODO: handle negative gaps
+    pub fn build_assembly_graph(&mut self, target_names:&[String], target_sequences: &[BitSeq], read_sequences: &[BitSeq], fragment_dir:&Path, work_dir:&Path, opts: &Options) -> Result<AsmGraph<usize>> {
+
+        std::fs::create_dir_all(work_dir)
+            .with_context(|| format!("Cannot create output directory: \"{}\"", work_dir.display()))?;
+
+        self.expand_edges();
+
+        let (aware_paths, node_index) = self.extract_aware_paths();
+        
+        let haplotigs = self.build_haplotigs(&aware_paths, target_names, target_sequences, read_sequences, fragment_dir, work_dir, opts)?;
+        assert!(haplotigs.len() == aware_paths.len());
+
+        // build assembly graph 
+
+        let mut asm_graph = super::asmgraph::AsmGraph::new();
+        for (id, sequence) in haplotigs.into_iter().enumerate() {
+            asm_graph.add_node(id, sequence);
+        }
+
+        // TODO: handle self loops
         for edge_key in self.edges.keys() {
-            let node_from = unitig_graph.get_node(node_to_unitig[&edge_key.id_from]).unwrap();
-            let node_to = unitig_graph.get_node(node_to_unitig[&edge_key.id_to]).unwrap();
-            let utg_from = node_from.data.as_ref().unwrap();
-            let utg_to = node_to.data.as_ref().unwrap();
-            if utg_from.id != utg_to.id || edge_key.id_from == edge_key.id_to {
-                let dir_from = if utg_from.nodes.len() == 1 {
+            
+            let id_from = node_index[&edge_key.id_from];
+            let id_to = node_index[&edge_key.id_to];
+
+            if id_from != id_to || edge_key.id_from == edge_key.id_to {
+                let path_from = &aware_paths[id_from];
+                let strand_from = if path_from.nodes.len() == 1 {
                     edge_key.strand_from
                 } else {
-                    b"-+"[(edge_key.id_from == utg_from.nodes[0]) as usize]
+                    b"-+"[(edge_key.id_from == path_from.nodes[0]) as usize]
                 };
-                let dir_to = if utg_to.nodes.len() == 1 {
+                let path_to = &aware_paths[id_to];
+                let strand_to = if path_to.nodes.len() == 1 {
                     edge_key.strand_to
                 } else {
-                    b"-+"[(edge_key.id_to == utg_to.nodes[0]) as usize]
+                    b"-+"[(edge_key.id_to == path_to.nodes[0]) as usize]
                 };
-                unitig_graph.add_edge(EdgeKey::new(utg_from.id, dir_from, utg_to.id, dir_to));
+                asm_graph.add_link(Link::new(id_from, strand_from, id_to, strand_to));
             }
         }
 
-        // write unpolished unitig sequences
-        let unpolished_dir = work_dir.join("unpolished");
-        std::fs::create_dir_all(&unpolished_dir)
-            .with_context(|| format!("Cannot create output directory: \"{}\"", unpolished_dir.display()))?;
-
-        for utg_node in unitig_graph.nodes() {
-            let unitig_unpolished_file = unpolished_dir.join(format!("{}.fa.gz", utg_node.id));
-            let mut unitig_writer = crate::utils::get_file_writer(&unitig_unpolished_file);
-            unitig_writer.write_all(format!(">{}\n", &utg_node.id).as_bytes())?;
-            unitig_writer.write_all(&utg_node.sequence)?;
-            unitig_writer.write_all(b"\n")?;
-        }
-
-        Ok(unitig_graph)
+        Ok(asm_graph)
     }
 
 
