@@ -622,12 +622,17 @@ impl AwareGraph {
             crate::polish::racon_polish(&target_path, &read_path, &polished_path, PolishMode::Oblivious, &tmp_dir, opts)?;
             
             let polished_sequence = {
-                let mut reader = needletail::parse_fastx_file(&polished_path)
-                    .with_context(||format!("Cannot read polished sequence from: {}", polished_path.display()))?;
-                if let Some(Ok(record)) = reader.next() {
-                    BitSeq::from_utf8(&record.seq())
-                } else {
-                    BitSeq::from_utf8(&backbone_sequence)
+                // let mut reader = needletail::parse_fastx_file(&polished_path)
+                //     .with_context(||format!("Cannot read polished sequence from: {}", polished_path.display()))?;
+                match needletail::parse_fastx_file(&polished_path) {
+                    Ok(mut reader) => {
+                        if let Some(Ok(record)) = reader.next() {
+                            BitSeq::from_utf8(&record.seq())
+                        } else {
+                            BitSeq::from_utf8(&backbone_sequence)
+                        }
+                    },
+                    Err(_) => { BitSeq::from_utf8(&backbone_sequence) }
                 }
             };
 
