@@ -90,7 +90,7 @@ pub struct Options {
     pub min_aware_ctg_len: usize,
 
     /// Sequencing read technology
-    #[arg(value_enum, short='m', long="mode", value_name="STR", default_value_t = Mode::Hifi)]
+    #[arg(value_enum, short='m', long="mode", value_name="STR", default_value_t = Mode::Hifi, hide = true)]
     pub mode: Mode,
 }
 
