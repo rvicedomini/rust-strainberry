@@ -607,10 +607,13 @@ impl AwareGraph {
                     .filter_map(|nid| self.nodes[nid].ctg.haplotype_id())
                     .map(|h| fragment_dir.join(format!("{}_{}-{}_h{}.fa.gz", target_names[h.tid], h.beg, h.end, h.hid)));
                 for htfile in haplotype_files {
-                    let mut reader = needletail::parse_fastx_file(&htfile).with_context(||format!("Cannot open read file: {}", htfile.display()))?;
-                    while let Some(record) = reader.next() {
-                        let record = record.unwrap();
-                        record.write(&mut unitig_read_writer, None)?;
+                    if let Ok(mut reader) = needletail::parse_fastx_file(&htfile) {
+                        while let Some(record) = reader.next() {
+                            let record = record.unwrap();
+                            record.write(&mut unitig_read_writer, None)?;
+                        }
+                    } else {
+                        spdlog::warn!("Empty haplotype read file: {}", htfile.display());
                     }
                 }
                 out_path
