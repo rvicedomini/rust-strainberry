@@ -115,14 +115,37 @@ impl<'a> Phaser<'a> {
     }
 
     fn phase_interval(&self, target_interval:&SeqInterval, variants: &[Var]) -> HashMap<HaplotypeId,Haplotype> {
-        // eprintln!("----- Phasing {}:{}-{} ({} variants) -----", self.target_names[target_interval.tid], target_interval.beg, target_interval.end, variants.len());
+
+        spdlog::debug!("----- Phasing {}:{}-{} ({} variants) -----", self.target_names[target_interval.tid], target_interval.beg, target_interval.end, variants.len());
         let (haplotypes, succinct_records) = self.phase_variants(target_interval,variants);
 
         let variant_positions = self.variant_positions(&haplotypes);
         let haplotypes: HashMap<HaplotypeId,Haplotype> = self.remove_false_haplotypes(haplotypes, &variant_positions);
-        // eprintln!("  -> Filtered Haplotypes in {target_interval}: {}", haplotypes.len());
+        // spdlog::debug!("  Filtered Haplotypes in {target_interval}: {}", haplotypes.len());
 
         let (sread_haplotypes, _ambiguous_reads) = self::separate_reads(&succinct_records, &haplotypes, &variant_positions, 1);
+
+        // debug
+
+        if target_interval.to_string() == "83:2830128-2914700" {
+            spdlog::debug!("Alignments: {}", sread_haplotypes.len());
+            spdlog::debug!("Ambiguous reads: {}", _ambiguous_reads.len());
+            spdlog::debug!("Haplotype depths:");
+
+            let mut count: HashMap<HaplotypeId,usize> = HashMap::new();
+            for (_sread,haplo) in sread_haplotypes.iter() {
+                for hid in haplo {
+                    count.entry(*hid).and_modify(|e| *e += 1).or_insert(1);
+                }
+            }
+
+            for hid in haplotypes.keys().sorted_unstable() {
+                let c = count.get(hid).unwrap_or(&0);
+                spdlog::debug!("  {hid}: {}", c);
+            }
+        }
+
+        // end debug
 
         let mut haplograph = HaploGraph::new(haplotypes, &sread_haplotypes);
         let dot_file = format!("{}_{}-{}.raw.dot", self.target_names[target_interval.tid], target_interval.beg, target_interval.end);
