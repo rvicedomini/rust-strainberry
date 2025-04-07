@@ -45,13 +45,17 @@ pub struct Options {
     #[arg(long = "keep-temp")]
     pub keep_temp: bool,
 
+    /// Disable assembly de-replication
+    #[arg(long = "no-derep")]
+    pub no_derep: bool,
+
+    /// Do not assembly, only phase and build strain-aware graph
+    #[arg(long = "no-asm")]
+    pub no_asm: bool,
+
     /// Disable post-assembly polishing
     #[arg(long = "no-polish")]
     pub no_polish: bool,
-
-    /// Stop after phasing and read partitioning
-    #[arg(long = "phase-only")]
-    pub phase_only: bool,
 
     /// Do not split at putative misassembly events
     #[arg(long = "no-split")]
@@ -86,12 +90,16 @@ pub struct Options {
     pub min_overhang: usize,
 
     /// Minimum aware-contig length
-    #[arg(long = "min-aware-ctg-len", value_name = "NUM", default_value_t = 2000)]
+    #[arg(long = "min-aware-ctg-len", value_name = "NUM", default_value_t = 500)]
     pub min_aware_ctg_len: usize,
 
     /// Sequencing read technology
-    #[arg(value_enum, short='m', long="mode", value_name="STR", default_value_t = Mode::Hifi, hide = true)]
+    #[arg(value_enum, long="mode", value_name="STR", default_value_t = Mode::Hifi, hide = true)]
     pub mode: Mode,
+
+    /// Variant-call method
+    #[arg(value_enum, long="call", value_name="STR", default_value_t = VarCaller::Longcalld)]
+    pub caller: VarCaller,
 }
 
 
@@ -99,6 +107,12 @@ pub struct Options {
 pub enum Mode {
     Hifi,
     Nano,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+pub enum VarCaller {
+    Longcalld,
+    Pileup,
 }
 
 
