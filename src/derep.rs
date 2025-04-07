@@ -111,7 +111,8 @@ pub fn derep_assembly(fasta_path: &Path, work_dir: &Path, opts: &Options) -> Res
         let mut asm_reader = needletail::parse_fastx_file(asm_path).context("Cannot open fasta file")?;
         while let Some(record) = asm_reader.next() {
             let record = record.unwrap();
-            let name = std::str::from_utf8(record.id()).unwrap().to_string();
+            let name = record.id().split(|b| b.is_ascii_whitespace()).next().unwrap();
+            let name = std::str::from_utf8(name).unwrap().to_string();
             let sequence = std::str::from_utf8(&record.normalize(false)).unwrap().to_string();
             seq_dict.insert(name, sequence);
         }

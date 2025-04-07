@@ -85,8 +85,9 @@ pub fn load_sequences(fasta_path: &Path, bam_path: &Path) -> Vec<BitSeq> {
     let mut fasta_reader = needletail::parse_fastx_file(fasta_path).expect("Cannot open fasta file");
     while let Some(record) = fasta_reader.next() {
         let record = record.unwrap();
-        let tid = header_view.tid(record.id()).unwrap() as usize;
-        // eprintln!("{tid} -> {}", String::from_utf8_lossy(record.id()));
+        let name = record.id().split(|b| b.is_ascii_whitespace()).next().unwrap();
+        let tid = header_view.tid(name).unwrap() as usize;
+        // eprintln!("{tid} -> {}", String::from_utf8_lossy(name));
         target_sequences[tid] = BitSeq::from_utf8(record.normalize(false).as_ref());
     }
 
