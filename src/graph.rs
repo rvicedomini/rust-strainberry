@@ -3,3 +3,6 @@ mod junction;
 
 pub mod asmgraph;
 pub mod awaregraph;
+
+pub use asmgraph::AsmGraph;
+pub use asmgraph::GfaGraph;
