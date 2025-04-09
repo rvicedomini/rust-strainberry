@@ -21,7 +21,8 @@ fn compute_matching_intervals(fasta_path: &Path, opts: &Options) -> Result<HashM
 
     let fasta_path_str = fasta_path.to_str().unwrap();
 
-    let args = ["-t", &opts.nb_threads.to_string(), "-cDP", "--dual=no", "--no-long-join", "-r85", fasta_path_str, fasta_path_str];
+    // let args = ["-t", &opts.nb_threads.to_string(), "-cDP", "--dual=no", "--no-long-join", "-r85", fasta_path_str, fasta_path_str];
+    let args = ["-t", &opts.nb_threads.to_string(), "-c", "-xasm20", "-DP", "--dual=no", fasta_path_str, fasta_path_str];
     let stdout = Command::new("minimap2").args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -40,10 +41,10 @@ fn compute_matching_intervals(fasta_path: &Path, opts: &Options) -> Result<HashM
 
     let mut matching_intervals: HashMap<String,Vec<(usize,usize,String)>> = HashMap::new();
     for a in alignments {
-        let map_type = a.map_type(10, 0.05);
-        let identity = if a.mapping_length > 0 { (a.matches as f64)/(a.mapping_length as f64) } else { 0.0 };
+        let map_type = a.map_type(500, 0.01);
+        // let identity = if a.mapping_length > 0 { (a.matches as f64)/(a.mapping_length as f64) } else { 0.0 };
         // println!("{a} => {map_type:?} / {identity:.2}");
-        if a.query_name == a.target_name || identity < 0.95 {
+        if a.query_name == a.target_name { // || identity < 0.95 {
             continue
         }
         match map_type {
