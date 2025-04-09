@@ -179,7 +179,7 @@ pub fn estimate_lookback(bam_path: &Path, n: usize) -> Option<usize> {
 }
 
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct BamRecordId {
     pub index:usize,
     pub beg:usize,

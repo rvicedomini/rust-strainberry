@@ -68,7 +68,7 @@ impl SuccinctSeq {
         }
     }
 
-    pub fn record_id(&self) -> BamRecordId { self.record_id.clone() }
+    pub fn record_id(&self) -> BamRecordId { self.record_id }
     pub fn tid(&self) -> usize { self.target_id }
     pub fn positions(&self) -> &[usize] { &self.positions }
     pub fn nucleotides(&self) -> &[u8] { &self.nucleotides }
