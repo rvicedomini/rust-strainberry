@@ -123,7 +123,7 @@ impl HaploGraph {
             }
             scf.trim(variant_positions,0);
             assert!(scf.size() > 0);
-            if scf.size() >= min_snv {
+            if scf.raw_size() >= min_snv {
                 scaffolds.insert(scf.uid(), scf);
             }
         }
