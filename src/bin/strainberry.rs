@@ -63,10 +63,11 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
 
     if let Some("gfa") = reference_path.extension().and_then(std::ffi::OsStr::to_str) {
         spdlog::info!("Converting input GFA to FASTA");
-        let _gfa_graph = strainberry::graph::GfaGraph::from_gfa(&reference_path)?;
+        let gfa_graph = strainberry::graph::GfaGraph::from_gfa(&reference_path)?;
         let mut fasta_name = reference_path.file_stem().unwrap().to_os_string();
         fasta_name.push(".fasta");
         reference_path = preprocess_dir.join(fasta_name);
+        gfa_graph.write_fasta(&reference_path)?;
         // println!("  reference assembly: {}", reference_path.display());
     }
 
