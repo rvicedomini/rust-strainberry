@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Instant;
 
-use ahash::{AHashMap as HashMap, AHashSet as HashSet};
+use ahash::AHashMap as HashMap;
 use anyhow::{bail,Context};
 use clap::Parser;
 use itertools::Itertools;
@@ -31,7 +31,11 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
 
     let mut opts = cli::Options::parse();
 
-    utils::check_dependencies(&["minimap2", "samtools", "longcallD", "racon"])?;
+    utils::check_dependencies(&["minimap2", "samtools", "racon"])?;
+
+    if opts.caller == cli::VarCaller::Longcalld {
+        utils::check_dependencies(&["longcallD"])?;
+    }
 
     let reads_path = match (opts.in_hifi.as_ref(), opts.in_ont.as_ref()) {
         (None, None) => { bail!("Either --in-hifi or --in-ont is required. For more information, try '--help'.") },
@@ -141,12 +145,10 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     let succinct_reads = build_succinct_sequences(&bam_path, &variants, &read_index, &opts);
 
     spdlog::info!("Read realignment to haplotypes");
-    let variant_positions = variants.values().flatten().map(|var| (var.tid,var.pos)).collect::<HashSet<_>>();
-    let (seq2haplo, ambiguous_reads) = strainberry::phase::separate_reads(&succinct_reads, &haplotypes, &variant_positions, opts.min_shared_snv);
-    spdlog::debug!("  unique={} ambiguous={}", seq2haplo.len(), ambiguous_reads.len());
+    let seq2haplo = strainberry::phase::separate_reads(&succinct_reads, &haplotypes, opts.min_shared_snv);
 
     spdlog::info!("Mapping reads to strain-aware contigs");
-    let read2aware = strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut aware_contigs, &seq2haplo, &ambiguous_reads);
+    let read2aware = strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut aware_contigs, &seq2haplo);
 
     let graphs_dir = output_dir.join("40-graphs");
     fs::create_dir_all(graphs_dir.as_path()).with_context(|| format!("Cannot create graphs directory: \"{}\"", graphs_dir.display()))?;

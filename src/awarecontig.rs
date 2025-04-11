@@ -2,9 +2,8 @@ use std::fmt;
 
 use itertools::Itertools;
 use ahash::AHashMap as HashMap;
-use ahash::AHashSet as HashSet;
 
-use crate::phase::haplotype::{HaplotypeId,Haplotype};
+use crate::phase::haplotype::{HaplotypeId, HaplotypeHit, Haplotype};
 use crate::seq::SeqInterval;
 use crate::seq::alignment::{MappingType, SeqAlignment};
 use crate::bam::BamRecordId;
@@ -102,7 +101,8 @@ pub struct AwareAlignment {
     pub identity: f64,
     pub query_aln_beg: usize,
     pub query_aln_end: usize,
-    pub mapping_type: MappingType
+    pub mapping_type: MappingType,
+    pub is_ambiguous: bool,
 }
 
 
@@ -165,13 +165,10 @@ pub fn build_aware_contigs(target_intervals:&Vec<SeqInterval>, haplotypes:&HashM
 }
 
 
-pub fn map_sequences_to_aware_contigs(seq_alignments: &HashMap<usize,Vec<SeqAlignment>>, aware_contigs: &mut[AwareContig], seq2haplo: &HashMap<BamRecordId,Vec<HaplotypeId>>, ambiguous_reads:&HashSet<usize>) -> HashMap<usize,Vec<AwareAlignment>> {
+pub fn map_sequences_to_aware_contigs(seq_alignments: &HashMap<usize,Vec<SeqAlignment>>, aware_contigs: &mut[AwareContig], seq2haplo: &HashMap<BamRecordId,Vec<HaplotypeHit>>) -> HashMap<usize,Vec<AwareAlignment>> {
 
     let mut read2aware = HashMap::new();
     for (read_idx, alignments) in seq_alignments {
-        if ambiguous_reads.contains(read_idx) {
-            continue
-        }
         let aware_alignments = map_alignments_to_aware_contigs(alignments, aware_contigs, seq2haplo);
         let aware_alignments = filter_aware_alignments(aware_alignments, aware_contigs);
         read2aware.insert(*read_idx, aware_alignments);
@@ -182,7 +179,7 @@ pub fn map_sequences_to_aware_contigs(seq_alignments: &HashMap<usize,Vec<SeqAlig
 
 
 // aware_contigs should be sorted by interval
-pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contigs: &[AwareContig], seq2haplo: &HashMap<BamRecordId,Vec<HaplotypeId>>) -> Vec<AwareAlignment> {
+pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contigs: &[AwareContig], seq2haplo: &HashMap<BamRecordId,Vec<HaplotypeHit>>) -> Vec<AwareAlignment> {
     
     let mut aware_alignments: Vec<AwareAlignment> = vec![];
 
@@ -191,8 +188,8 @@ pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contig
 
         let idx = aware_contigs.partition_point(|ctg| ctg.tid() < sa.tid() || (ctg.tid() == sa.tid() && ctg.end() <= sa.target_beg()));
         for (i,ctg) in aware_contigs[idx..].iter().take_while(|ctg| ctg.tid() == sa.tid() && ctg.beg() < sa.target_end()).enumerate() {
-            
-            if ctg.is_phased() && (!seq2haplo.contains_key(&sa_id) || !seq2haplo[&sa_id].contains(&ctg.haplotype_id().unwrap())) {
+
+            if ctg.is_phased() && (!seq2haplo.contains_key(&sa_id) || !seq2haplo[&sa_id].iter().any(|hit| hit.hid == ctg.haplotype_id().unwrap())) {
                 continue
             }
 
@@ -220,6 +217,12 @@ pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contig
                 (aware_query_beg, aware_query_end) = (sa.query_length() - aware_query_end, sa.query_length() - aware_query_beg);
             }
 
+            let is_ambiguous = ctg.is_phased() 
+                && seq2haplo.contains_key(&sa_id)
+                && seq2haplo[&sa_id].iter()
+                    .find(|hit| hit.hid == ctg.haplotype_id().unwrap())
+                    .is_some_and(|hit| hit.nb_alt > 0);
+
             if matches!(maptype, MappingType::QueryContained|MappingType::ReferenceContained|MappingType::DovetailPrefix|MappingType::DovetailSuffix) {
                 aware_alignments.push(AwareAlignment{
                     aware_id,
@@ -235,7 +238,8 @@ pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contig
                     identity: sa.identity(),
                     query_aln_beg: sa.query_beg(),
                     query_aln_end: sa.query_end(),
-                    mapping_type: maptype
+                    mapping_type: maptype,
+                    is_ambiguous
                 });
             }
         }

@@ -81,8 +81,14 @@ impl AwareGraph {
     }
 
     pub fn add_edges_from_aware_alignments(&mut self, aware_alignments:&HashMap<usize,Vec<AwareAlignment>>) {
+        
         for alignments in aware_alignments.values() {
-            for (a, b) in alignments.iter().tuple_windows() {
+            
+            let alignment_iter = alignments.iter()
+                .tuple_windows()
+                .filter(|(a,b)| !a.is_ambiguous && !b.is_ambiguous);
+
+            for (a, b) in alignment_iter {
                 self.add_edge_from_consecutive_alignments(a,b);
             }
         }
@@ -270,9 +276,9 @@ impl AwareGraph {
                 let ip = last_indices.partition_point(|&val| val <= first_idx+1);
                 for &last_idx in &last_indices[ip..last_indices.len()] {
                     let last_ctg_id = alignments[last_idx].aware_id;
-                    if first_ctg_id != last_ctg_id {
-                        let a = &alignments[first_idx];
-                        let b = &alignments[last_idx];
+                    let a = &alignments[first_idx];
+                    let b = &alignments[last_idx];
+                    if first_ctg_id != last_ctg_id && !a.is_ambiguous && !b.is_ambiguous {
                         let mut tedge_key = EdgeKey::from_alignments(a, b);
                         let was_canonical = tedge_key.canonicalize();
                         let tedge = self.get_transitive_or_create(&tedge_key);

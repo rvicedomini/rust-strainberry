@@ -25,7 +25,7 @@ use crate::variant::{Var,VarDict};
 use phasedblock::PhasedBlock;
 
 use self::haplograph::HaploGraph;
-use self::haplotype::{Haplotype, HaplotypeId};
+use self::haplotype::{Haplotype, HaplotypeId, HaplotypeHit};
 
 // input: 
 //   - read-alignment (bam)
@@ -116,16 +116,15 @@ impl<'a> Phaser<'a> {
 
     fn phase_interval(&self, target_interval:&SeqInterval, variants: &[Var]) -> HashMap<HaplotypeId,Haplotype> {
 
-        // spdlog::debug!("----- Phasing {}:{}-{} ({} variants) -----", self.target_names[target_interval.tid], target_interval.beg, target_interval.end, variants.len());
+        // spdlog::debug!("----- Phasing {}:{}-{} ({} variants) -----", target_interval.tid, target_interval.beg, target_interval.end, variants.len());
         let (haplotypes, succinct_records) = self.phase_variants(target_interval,variants);
 
         let variant_positions = self.variant_positions(&haplotypes);
         let haplotypes: HashMap<HaplotypeId,Haplotype> = self.remove_false_haplotypes(haplotypes, &variant_positions);
 
-        let (mut sread_haplotypes, ambiguous_reads) = self::separate_reads(&succinct_records, &haplotypes, &variant_positions, 1);
-        sread_haplotypes.retain(|sid,_| !ambiguous_reads.contains(&sid.index));
+        let sread_haplotypes = self::separate_reads(&succinct_records, &haplotypes, 1);
 
-        let mut haplograph = HaploGraph::new(haplotypes, &sread_haplotypes);
+        let mut haplograph = HaploGraph::new(haplotypes, sread_haplotypes);
         let dot_file = format!("{}_{}-{}.raw.dot", self.target_names[target_interval.tid], target_interval.beg, target_interval.end);
         haplograph.write_dot(&self.dots_dir.join(dot_file)).unwrap();
         
@@ -134,16 +133,16 @@ impl<'a> Phaser<'a> {
         let dot_file = format!("{}_{}-{}.final.dot", self.target_names[target_interval.tid], target_interval.beg, target_interval.end);
         haplograph.write_dot(&self.dots_dir.join(dot_file)).unwrap();
 
-        let (sread_haplotypes, _ambiguous_reads) = self::separate_reads(&succinct_records, &haplotypes, &variant_positions, 1);
+        let sread_haplotypes = self::separate_reads(&succinct_records, &haplotypes, 1);
         self.write_reads(&haplotypes, &sread_haplotypes).unwrap();
         
         haplotypes
     }
 
 
-    fn write_reads(&self, haplotypes: &HashMap<HaplotypeId,Haplotype>, sread_haplotypes: &HashMap<BamRecordId,Vec<HaplotypeId>>) -> std::io::Result<()> {
+    fn write_reads(&self, haplotypes: &HashMap<HaplotypeId,Haplotype>, sread_haplotypes: &HashMap<BamRecordId,Vec<HaplotypeHit>>) -> std::io::Result<()> {
         
-        let mut read_files: HashMap<_,_> = HashMap::default();
+        let mut read_files: HashMap<HaplotypeId,_> = HashMap::default();
         
         for ht in haplotypes.values() {
             let ht_id = ht.uid();
@@ -152,12 +151,14 @@ impl<'a> Phaser<'a> {
             read_files.insert(ht_id, crate::utils::get_file_writer(&ht_file_path));
         }
         
-        for (record_id, ht_list) in sread_haplotypes.iter() {
-            if let Some(ht_id) = ht_list.iter().find(|&ht_id| read_files.contains_key(ht_id)) {
-                let out = read_files.get_mut(ht_id).unwrap();
-                out.write_all(format!(">{}\n", &record_id.index).as_bytes())?;
-                out.write_all(&self.read_sequences[record_id.index].as_bytes())?;
-                out.write_all(b"\n")?;
+        for (record_id, hits) in sread_haplotypes.iter() {
+            if let Some(hit) = hits.iter().find(|hit| read_files.contains_key(&hit.hid)) {
+                if hit.nb_alt == 0 { // non-ambiguous hit
+                    let out = read_files.get_mut(&hit.hid).unwrap();
+                    out.write_all(format!(">{}\n", &record_id.index).as_bytes())?;
+                    out.write_all(&self.read_sequences[record_id.index].as_bytes())?;
+                    out.write_all(b"\n")?;
+                }
             }
         }
 
@@ -506,68 +507,61 @@ impl<'a> Phaser<'a> {
 }
 
 
-pub fn separate_reads(succinct_records: &[SuccinctSeq], haplotypes: &HashMap<HaplotypeId,Haplotype>, variant_positions: &HashSet<(usize,usize)>, min_shared_pos: usize)
-    ->  (HashMap<BamRecordId,Vec<HaplotypeId>>, HashSet<usize>) {
+pub fn separate_reads(succinct_records: &[SuccinctSeq], haplotypes: &HashMap<HaplotypeId,Haplotype>, min_shared_pos: usize)
+    ->  HashMap<BamRecordId,Vec<HaplotypeHit>> {
 
     let haplotypes = haplotypes.values().sorted_unstable_by_key(|ht| ht.uid()).collect_vec();
 
-    let mut sread_haplotypes: HashMap<BamRecordId, Vec<HaplotypeId>> = HashMap::new();
-    let mut ambiguous: HashSet<usize> = HashSet::new();
+    let mut sread_haplotypes: HashMap<BamRecordId, Vec<HaplotypeHit>> = HashMap::new();
     for sread in succinct_records {
-        let best_hits = best_sread_haplotypes(sread, &haplotypes, variant_positions, min_shared_pos);
-
-        if best_hits.iter().any(|&(_hid, ht_dist, ht_nb_shared_pos, alt_hits)| 3 * ht_dist > ht_nb_shared_pos || alt_hits > 1) {
-            ambiguous.insert(sread.record_id().index);
-            continue
-        }
-
-        sread_haplotypes.entry(sread.record_id())
-            .or_default()
-            .extend(best_hits.into_iter().map(|(hid,_,_,_)| hid));
+        let best_hits = best_sread_haplotypes(sread, &haplotypes, min_shared_pos);
+        sread_haplotypes.entry(sread.record_id()).or_default()
+            .extend(best_hits);
     }
-    (sread_haplotypes,ambiguous)
+    sread_haplotypes
 }
 
 // Prerequisite: haplotypes are sorted by target-id and start/end coordinate
-fn best_sread_haplotypes(sread: &SuccinctSeq, haplotypes: &[&Haplotype], _variant_positions: &HashSet<(usize,usize)>, min_shared_pos: usize)
-    -> Vec<(HaplotypeId,usize,usize,usize)> {
+fn best_sread_haplotypes(sread: &SuccinctSeq, haplotypes: &[&Haplotype], min_shared_pos: usize)
+    -> Vec<HaplotypeHit> {
     
     let mut candidates = HashMap::new();
     // let sread_positions: HashSet<(usize,usize)> = sread.positions().iter().map(|var_pos| (sread.tid(),*var_pos)).collect();
 
     let idx = haplotypes.partition_point(|ht| ht.tid() < sread.tid() || (ht.tid() == sread.tid() && ht.end() <= sread.beg()));
     for ht in haplotypes[idx..].iter().take_while(|ht| ht.beg() < sread.end()) {
-        if let Some((dist, nb_shared_pos)) = sread_haplotype_distance(sread, ht) {
-            if nb_shared_pos >= min_shared_pos {
+        if let Some(hit) = sread_haplotype_distance(sread, ht) {
+            if hit.size >= min_shared_pos {
                 let range = ht.beg()..ht.end();
                 candidates.entry(range)
                     .or_insert(vec![])
-                    .push((ht.uid(),dist,nb_shared_pos));
+                    .push(hit);
             }
         }
     }
 
     let mut best_hits = vec![];
     for hits in candidates.into_values() {
-        let best_dist = hits.iter().min_by_key(|&(_,ht_dist,_)| ht_dist).unwrap().1;
-        let region_best_hits = hits.iter()
-            .filter(|&(_,ht_dist,_)| *ht_dist == best_dist)
-            .cloned()
-            .collect_vec();
-        // println!("sread:{}, dist:{}, hits:{:?}", sread.name(), best_dist, region_best_hits);
-        best_hits.push((
-            region_best_hits.last().unwrap().0,
-            region_best_hits.last().unwrap().1,
-            region_best_hits.last().unwrap().2,
-            region_best_hits.len()
-        ));
+        assert!(!hits.is_empty());
+
+        let mut hits_iter = hits.into_iter();
+        let mut best_hit = hits_iter.next().unwrap();
+        for hit in hits_iter {
+            match hit.dist.cmp(&best_hit.dist) {
+                std::cmp::Ordering::Equal => { best_hit.nb_alt += 1 },
+                std::cmp::Ordering::Less  => { best_hit = hit },
+                _ => { }
+            }
+        }
+        best_hits.push(best_hit);
     }
+
     best_hits
 }
 
 
 // returns hamming distance and number of shared positions (None if no shared position)
-fn sread_haplotype_distance(sread: &SuccinctSeq, ht: &Haplotype) -> Option<(usize,usize)> {
+fn sread_haplotype_distance(sread: &SuccinctSeq, ht: &Haplotype) -> Option<HaplotypeHit> {
 
     let sread_positions: HashSet<usize> = sread.positions().iter().cloned().collect();
     let ht_variants = ht.raw_variants().as_slice();
@@ -592,5 +586,12 @@ fn sread_haplotype_distance(sread: &SuccinctSeq, ht: &Haplotype) -> Option<(usiz
     let hamming_dist = sread_nucleotides.into_iter().zip_eq(ht_nucleotides)
         .filter(|&(a,b)| a != b).count();
 
-    Some((hamming_dist, shared_positions.len()))
+    let ht_hit = HaplotypeHit{
+        hid: ht.uid(),
+        size: shared_positions.len(),
+        dist: hamming_dist,
+        nb_alt: 0
+    };
+
+    Some(ht_hit)
 }

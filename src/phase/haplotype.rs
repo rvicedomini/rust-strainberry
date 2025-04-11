@@ -29,6 +29,15 @@ impl std::fmt::Display for HaplotypeId {
 }
 
 
+#[derive(Debug, Clone, Copy)]
+pub struct HaplotypeHit {
+    pub hid: HaplotypeId,
+    pub size: usize,
+    pub dist: usize,
+    pub nb_alt: usize
+}
+
+
 #[derive(Debug, Clone)]
 pub struct Haplotype {
     hid: usize,

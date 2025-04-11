@@ -8,7 +8,7 @@ use ahash::AHashSet as HashSet;
 use tinyvec::{tiny_vec, TinyVec};
 
 use crate::bam::BamRecordId;
-use super::haplotype::{HaplotypeId, Haplotype};
+use super::haplotype::{HaplotypeId, HaplotypeHit, Haplotype};
 
 #[derive(Debug, Default, Clone)]
 struct Edge(HaplotypeId,usize);
@@ -24,7 +24,7 @@ pub struct HaploGraph {
 impl HaploGraph {
 
     //TODO: do not allow "transitive" edges (due to reads not assigned to haplotypes when ambiguous)
-    pub fn new(haplotypes: HashMap<HaplotypeId,Haplotype>, sread_haplotypes: &HashMap<BamRecordId, Vec<HaplotypeId>>) -> HaploGraph {
+    pub fn new(haplotypes: HashMap<HaplotypeId,Haplotype>, sread_haplotypes: HashMap<BamRecordId, Vec<HaplotypeHit>>) -> HaploGraph {
         let mut succ: AdjList = AdjList::default();
         let mut pred: AdjList = AdjList::default();
         
@@ -33,19 +33,22 @@ impl HaploGraph {
             pred.insert(*ht_uid, tiny_vec!());
         }
 
-        for ht_list in sread_haplotypes.values() {
-            for (a,b) in ht_list.iter().sorted_unstable_by_key(|&hid| haplotypes[hid].beg()).tuple_windows() {
-                let a_succ = succ.get_mut(a).unwrap();
-                if let Some(idx) = a_succ.iter().position(|Edge(uid,_)| uid == b) {
+        for mut ht_hits in sread_haplotypes.into_values() {
+
+            ht_hits.sort_unstable_by_key(|hit| haplotypes[&hit.hid].beg());
+
+            for (a,b) in ht_hits.into_iter().tuple_windows().filter(|(a,b)| a.nb_alt == 0 && b.nb_alt == 0) {
+                let a_succ = succ.get_mut(&a.hid).unwrap();
+                if let Some(idx) = a_succ.iter().position(|Edge(uid,_)| uid == &b.hid) {
                     a_succ[idx].1 += 1;
                 } else {
-                    a_succ.push(Edge(*b,1));
+                    a_succ.push(Edge(b.hid,1));
                 }
-                let b_pred = pred.get_mut(b).unwrap();
-                if let Some(idx) = b_pred.iter().position(|Edge(uid,_)| uid == a) {
+                let b_pred = pred.get_mut(&b.hid).unwrap();
+                if let Some(idx) = b_pred.iter().position(|Edge(uid,_)| uid == &a.hid) {
                     b_pred[idx].1 += 1;
                 } else {
-                    b_pred.push(Edge(*a,1));
+                    b_pred.push(Edge(a.hid,1));
                 }
             }
         }
