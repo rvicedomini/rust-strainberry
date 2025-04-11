@@ -116,7 +116,7 @@ impl<'a> Phaser<'a> {
 
     fn phase_interval(&self, target_interval:&SeqInterval, variants: &[Var]) -> HashMap<HaplotypeId,Haplotype> {
 
-        // spdlog::debug!("----- Phasing {}:{}-{} ({} variants) -----", target_interval.tid, target_interval.beg, target_interval.end, variants.len());
+        // spdlog::debug!("----- Phasing {target_interval} ({} variants) -----", variants.len());
         let (haplotypes, succinct_records) = self.phase_variants(target_interval,variants);
 
         let variant_positions = self.variant_positions(&haplotypes);
@@ -142,23 +142,20 @@ impl<'a> Phaser<'a> {
 
     fn write_reads(&self, haplotypes: &HashMap<HaplotypeId,Haplotype>, sread_haplotypes: &HashMap<BamRecordId,Vec<HaplotypeHit>>) -> std::io::Result<()> {
         
-        let mut read_files: HashMap<HaplotypeId,_> = HashMap::default();
+        let mut read_files: HashMap<HaplotypeId,_> = HashMap::new();
         
-        for ht in haplotypes.values() {
-            let ht_id = ht.uid();
+        for ht_id in haplotypes.keys() {
             let ht_file_gz = format!("{}_{}-{}_h{}.fa.gz", self.target_names[ht_id.tid], ht_id.beg, ht_id.end, ht_id.hid);
             let ht_file_path = self.fragments_dir().join(ht_file_gz.as_str());
-            read_files.insert(ht_id, crate::utils::get_file_writer(&ht_file_path));
+            read_files.insert(*ht_id, crate::utils::get_file_writer(&ht_file_path));
         }
         
         for (record_id, hits) in sread_haplotypes.iter() {
-            if let Some(hit) = hits.iter().find(|hit| read_files.contains_key(&hit.hid)) {
-                if hit.nb_alt == 0 { // non-ambiguous hit
-                    let out = read_files.get_mut(&hit.hid).unwrap();
-                    out.write_all(format!(">{}\n", &record_id.index).as_bytes())?;
-                    out.write_all(&self.read_sequences[record_id.index].as_bytes())?;
-                    out.write_all(b"\n")?;
-                }
+            for hit in hits.iter().filter(|hit| hit.nb_alt == 0) {
+                let out = read_files.get_mut(&hit.hid).unwrap();
+                out.write_all(format!(">{}\n", &record_id.index).as_bytes())?;
+                out.write_all(&self.read_sequences[record_id.index].as_bytes())?;
+                out.write_all(b"\n")?;
             }
         }
 
