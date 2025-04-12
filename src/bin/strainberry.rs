@@ -111,8 +111,8 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
 
     // TODO:
     // Consider estimating lookback length when a flag "--auto-lookback" is provided
-    // let lookback = bam::estimate_lookback(&bam_path, 50, 0).unwrap_or(opts.lookback);
-    // println!("Lookback {} bp", lookback);
+    // let read_n75 = bam::estimate_lookback(&bam_path, 75, 0).unwrap_or(opts.lookback);
+    // spdlog::info!("Read N50 {} bp", read_n75);
 
     spdlog::info!("Loading reads from BAM");
     let read_index: HashMap<String, usize> = build_read_index(&bam_path);
@@ -173,15 +173,15 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     spdlog::info!("Building strain-aware graph");
     let mut aware_graph = AwareGraph::build(&aware_contigs);
     aware_graph.add_edges_from_aware_alignments(&read2aware);
-    aware_graph.write_gfa(graphs_dir.join("aware_graph.raw.gfa"), &target_names).unwrap();
-    aware_graph.write_dot(graphs_dir.join("aware_graph.raw.dot")).unwrap();
+    aware_graph.write_gfa(graphs_dir.join("aware_graph.raw.gfa"), &target_names)?;
+    aware_graph.write_dot(graphs_dir.join("aware_graph.raw.dot"))?;
 
     aware_graph.remove_weak_edges(5);
-    aware_graph.write_gfa(graphs_dir.join("aware_graph.gfa"), &target_names).unwrap();
+    aware_graph.write_gfa(graphs_dir.join("aware_graph.gfa"), &target_names)?;
 
     spdlog::info!("Resolving strain-aware graph");
     let nb_tedges = aware_graph.add_bridges(&read2aware);
-    aware_graph.write_dot(graphs_dir.join("aware_graph.dot")).unwrap();
+    aware_graph.write_dot(graphs_dir.join("aware_graph.dot"))?;
     spdlog::info!("{} read bridges added", nb_tedges);
 
     let mut num_iter = 1;
@@ -194,6 +194,7 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     }
     spdlog::info!("{tot_resolved} junctions resolved after {num_iter} iterations");
     aware_graph.write_gfa(graphs_dir.join("aware_graph.resolved.gfa"), &target_names)?;
+    aware_graph.write_dot(graphs_dir.join("aware_graph.resolved.dot"))?;
     aware_graph.clear_transitive_edges();
 
     if opts.no_asm {
