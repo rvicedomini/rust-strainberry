@@ -49,6 +49,14 @@ pub struct Options {
     #[arg(long = "no-derep")]
     pub no_derep: bool,
 
+    /// Do not split at putative misassembly events
+    #[arg(long = "no-split")]
+    pub no_split: bool,
+
+    /// Disable assembly de-replication
+    #[arg(long = "no-phase")]
+    pub no_phase: bool,
+
     /// Do not assembly, only phase and build strain-aware graph
     #[arg(long = "no-asm")]
     pub no_asm: bool,
@@ -56,10 +64,6 @@ pub struct Options {
     /// Disable post-assembly polishing
     #[arg(long = "no-polish")]
     pub no_polish: bool,
-
-    /// Do not split at putative misassembly events
-    #[arg(long = "no-split")]
-    pub no_split: bool,
 
     /// Minimum QUAL value for loaded variants (effective only with --vcf)
     #[arg(long = "min-var-qual", value_name = "NUM", default_value_t = 0)]
