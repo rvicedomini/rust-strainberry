@@ -211,7 +211,7 @@ pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contig
                 continue
             }
 
-            let maptype = crate::seq::alignment::classify_mapping(aware_query_range, aware_ctg_range, 100, 0.05);
+            let maptype = crate::seq::alignment::classify_mapping(aware_query_range, aware_ctg_range, 100, 0.01);
 
             if sa.is_reverse() {
                 (aware_query_beg, aware_query_end) = (sa.query_length() - aware_query_end, sa.query_length() - aware_query_beg);
