@@ -15,7 +15,7 @@ use strainberry::cli;
 use strainberry::graph::awaregraph::AwareGraph;
 use strainberry::misassembly;
 use strainberry::phase;
-use strainberry::polish::racon_polish;
+// use strainberry::polish::racon_polish;
 use strainberry::seq::build_succinct_sequences;
 use strainberry::seq::alignment::load_bam_alignments;
 use strainberry::seq::read::{build_read_index,load_bam_sequences};
@@ -111,8 +111,8 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
 
     // TODO:
     // Consider estimating lookback length when a flag "--auto-lookback" is provided
-    // utils::estimate_lookback(bam_path, 1000)
-    // println!("Lookback {} bp", opts.lookback);
+    // let lookback = bam::estimate_lookback(&bam_path, 50, 0).unwrap_or(opts.lookback);
+    // println!("Lookback {} bp", lookback);
 
     spdlog::info!("Loading reads from BAM");
     let read_index: HashMap<String, usize> = build_read_index(&bam_path);
@@ -128,6 +128,26 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
         target_intervals
     };
 
+    spdlog::info!("Loading read alignments");
+    let read_alignments = load_bam_alignments(&bam_path, &read_index, &opts);
+
+    if opts.no_phase {
+
+        let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&target_intervals, &HashMap::new(), opts.min_aware_ctg_len);
+        let read2aware = strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut aware_contigs, &HashMap::new());
+
+        let graphs_dir = output_dir.join("40-graphs");
+        fs::create_dir_all(graphs_dir.as_path()).with_context(|| format!("Cannot create graphs directory: \"{}\"", graphs_dir.display()))?;
+
+        let mut aware_graph = AwareGraph::build(&aware_contigs);
+        aware_graph.add_edges_from_aware_alignments(&read2aware);
+
+        aware_graph.write_gfa(graphs_dir.join("sv_graph.gfa"), &target_names).unwrap();
+
+        spdlog::info!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
+        return Ok(());
+    }
+
     let phased_dir = output_dir.join("20-phased");
     spdlog::info!("Phasing strains");
     let phaser = phase::Phaser::new(&bam_path, &target_names, &target_intervals, &read_index, &read_sequences, phased_dir, &opts).unwrap();
@@ -137,9 +157,6 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     spdlog::info!("Building strain-aware contigs");
     let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&target_intervals, &haplotypes, opts.min_aware_ctg_len);
     spdlog::info!("{} strain-aware contigs built", aware_contigs.len());
-
-    spdlog::info!("Loading read alignments");
-    let read_alignments = load_bam_alignments(&bam_path, &read_index, &opts);
 
     spdlog::info!("Building succinct reads");
     let succinct_reads = build_succinct_sequences(&bam_path, &variants, &read_index, &opts);
@@ -180,7 +197,6 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     aware_graph.clear_transitive_edges();
 
     if opts.no_asm {
-        spdlog::info!("Finished!");
         spdlog::info!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
         return Ok(());
     }
@@ -188,17 +204,18 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     spdlog::info!("Building assembly graph");
     let unitig_dir = output_dir.join("50-unitigs");
     let unitig_graph = aware_graph.build_assembly_graph(&target_names, &target_sequences, &read_sequences, phaser.fragments_dir(), &unitig_dir, &opts)?;
-    unitig_graph.write_gfa(&graphs_dir.join("final_unpolished.gfa"))?;
-    let unpolished_fasta_path = graphs_dir.join("final_unpolished.fasta");
-    unitig_graph.write_fasta(&unpolished_fasta_path)?;
+    unitig_graph.write_gfa(&output_dir.join("assembly.gfa"))?;
+    let assembly_fasta_path = output_dir.join("assembly.fasta");
+    unitig_graph.write_fasta(&assembly_fasta_path)?;
+    spdlog::info!("Final assembly written to {}", assembly_fasta_path.display());
 
-    spdlog::info!("Polishing assembly");
-    let polish_dir = output_dir.join("60-polishing");
-    let in_reads_path = Path::new(opts.in_hifi.as_ref().unwrap());
-    let polished_fasta_path = output_dir.join("assembly.fasta");
-    racon_polish(&unpolished_fasta_path, in_reads_path, &polished_fasta_path, strainberry::polish::PolishMode::Aware, &polish_dir, &opts)?;
+    // spdlog::info!("Polishing assembly");
+    // let polish_dir = output_dir.join("60-polishing");
+    // let in_reads_path = Path::new(opts.in_hifi.as_ref().unwrap());
+    // let polished_fasta_path = output_dir.join("assembly.fasta");
+    // racon_polish(&unpolished_fasta_path, in_reads_path, &polished_fasta_path, strainberry::polish::PolishMode::Aware, &polish_dir, &opts)?;
+    // spdlog::info!("Final assembly written to {}", polished_fasta_path.display());
 
-    spdlog::info!("Final assembly written to {}", polished_fasta_path.display());
     spdlog::info!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
 
     Ok(())
