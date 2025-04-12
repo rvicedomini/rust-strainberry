@@ -148,14 +148,17 @@ pub fn seq_length_from_cigar(cigarstring: &CigarString, include_hard_clip: bool)
 }
 
 
-pub fn estimate_lookback(bam_path: &Path, n: usize) -> Option<usize> {
-    let mut bam_reader = bam::Reader::from_path(bam_path).unwrap();
+pub fn estimate_lookback(bam_path: &Path, n: usize, nb_reads: usize) -> Option<usize> {
+    if n < 10 || n > 90 {
+        return None
+    }
 
-    let mut read_lengths = Vec::with_capacity(n);
+    let mut bam_reader = bam::Reader::from_path(bam_path).unwrap();
     
+    let mut total_length: usize = 0;
+    let mut read_lengths = Vec::with_capacity(nb_reads);
     let mut record = bam::Record::new();
-    while read_lengths.len() < n && bam_reader.read(&mut record).is_some() {
-        
+    while (nb_reads == 0 || read_lengths.len() < nb_reads) && bam_reader.read(&mut record).is_some() {
         if record.is_unmapped() 
             || record.is_secondary() 
             || record.is_quality_check_failed() 
@@ -164,7 +167,7 @@ pub fn estimate_lookback(bam_path: &Path, n: usize) -> Option<usize> {
         {
             continue;
         }
-
+        total_length += record.seq_len();
         read_lengths.push(record.seq_len());
     }
 
@@ -172,10 +175,18 @@ pub fn estimate_lookback(bam_path: &Path, n: usize) -> Option<usize> {
         return None
     }
 
-    read_lengths.sort_unstable();
+    read_lengths.sort_unstable_by(|a, b| b.cmp(a));
     
-    let lookup = read_lengths[read_lengths.len()/10];
-    Some(lookup)
+    let n = (n * total_length)/100;
+    let mut cumulative: usize = 0;
+    for length in read_lengths {
+        cumulative += length;
+        if cumulative >= n {
+            return Some(length)
+        }
+    }
+
+    None
 }
 
 
