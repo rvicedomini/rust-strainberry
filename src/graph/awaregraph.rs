@@ -297,6 +297,33 @@ impl AwareGraph {
         self.transitives.len()
     }
 
+    // TODO: the current implementation add all possible (non-ambiguous) transitive edges
+    // The idea is to add only those that span nodes with outdegree > 1
+    // so that I could possibly improve contiguity later
+    pub fn add_bridges_2(&mut self, aware_alignments:&HashMap<usize,Vec<AwareAlignment>>) -> usize {
+        self.clear_transitive_edges();
+
+        for alignments in aware_alignments.values() {
+            for (a_idx, a) in alignments.iter().enumerate().filter(|(_,a)| !a.is_ambiguous) {
+                for b in alignments[a_idx+1..].iter().skip(1).filter(|b| !b.is_ambiguous) {
+                    let mut tedge_key = EdgeKey::from_alignments(a, b);
+                    let was_canonical = tedge_key.canonicalize();
+                    let tedge = self.get_transitive_or_create(&tedge_key);
+                    tedge.observations += 1;
+                    tedge.gaps.push((b.query_beg as i32) - (a.query_end as i32));
+                    if tedge.seq_desc.is_empty() && b.query_beg > a.query_end {
+                        let interval = SeqInterval{ tid: a.query_idx, beg: a.query_end, end: b.query_beg };
+                        let strand = if was_canonical { b'+' } else { b'-' };
+                        let aware_contig = AwareContig::new(SeqType::Read, interval, strand, 0);
+                        tedge.seq_desc.push(aware_contig);
+                    }
+                }
+            }
+        }
+
+        self.transitives.len()
+    }
+
     fn find_junctions(&self) -> Vec<Junction> {
         let mut visited: HashSet<(usize,u8)> = HashSet::new();
         let mut junctions: Vec<Junction> = Vec::new();
