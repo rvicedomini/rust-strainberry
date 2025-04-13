@@ -12,14 +12,14 @@ use tinyvec::ArrayVec;
 use crate::cli::Options;
 
 
-const BASES: [char;5] = ['A', 'C', 'G', 'T', 'N'];
+const BASES: [char;4] = ['A', 'C', 'G', 'T'];
 
 #[derive(Debug, Clone)]
 pub struct Var {
     pub tid: usize,
     pub pos: usize,
     pub depth: usize,
-    pub alleles: ArrayVec<[(char,usize);5]>,
+    pub alleles: ArrayVec<[(char,usize);2]>,
 }
 
 pub type VarDict = HashMap<usize,Vec<Var>>;
@@ -77,7 +77,7 @@ fn load_variants_at_positions(bam_reader: &mut IndexedReader, tid: usize, positi
             }
         }
 
-        let mut counts = [0_usize; 5]; // A,C,G,T,N
+        let mut strand_counts = [0_usize; 8]; // A+,A-,C+,C-,G+,G-,T+,T-
         for alignment in pileup.alignments() {
 
             let record = alignment.record();
@@ -93,28 +93,41 @@ fn load_variants_at_positions(bam_reader: &mut IndexedReader, tid: usize, positi
             if !alignment.is_del() && !alignment.is_refskip() {
                 if let bam::pileup::Indel::None = alignment.indel() {
                     let base = alignment.record().seq()[alignment.qpos().unwrap()];
-                    let b = match base {
-                        b'A' | b'a' => 0,
-                        b'C' | b'c' => 1,
-                        b'G' | b'g' => 2,
-                        b'T' | b't' => 3,
-                        _ => 4
-                    };
-                    counts[b] += 1;
+                    let base = 0b11 & ((base >> 2) ^ (base >> 1));
+                    let b = 2 * (base as usize) + (record.is_reverse() as usize);
+                    strand_counts[b as usize] += 1;
                 }
             }
         }
-        
-        let depth = counts.iter().sum::<usize>();
+
+        let depth = strand_counts.iter().sum::<usize>();
         let min_depth = std::cmp::max(opts.min_alt_count, (opts.min_alt_frac * (depth as f64)) as usize);
-        let alleles: ArrayVec<[(char,usize);5]> = counts.iter()
+        let alleles: ArrayVec<[(usize,usize);4]> = strand_counts.chunks_exact(2)
+            .map(|c| c[0]+c[1])
             .enumerate()
-            .filter(|&(_,cnt)| *cnt >= min_depth)
-            .map(|(b,&cnt)| (BASES[b],cnt))
+            .filter(|(_,cnt)| *cnt >= min_depth)
             .collect();
 
-        if alleles.len() == 2 && alleles.iter().all(|&(base,_)| base != 'N') {
-            // let tid = tid as usize;
+        if alleles.len() == 2 {
+
+            // From longshot: https://github.com/pjedge/longshot/blob/99ace95bada7b360dc338deae65073590d6dc35d/src/main.rs#L478
+            // let b1 = alleles[0].0;
+            // let b2 = alleles[1].0;
+            // let counts = [
+            //     strand_counts[2*b1] as u32, strand_counts[2*b1+1] as u32,
+            //     strand_counts[2*b2] as u32, strand_counts[2*b2+1] as u32,
+            // ];
+            // let fishers_exact_pvalues = fishers_exact::fishers_exact(&counts)
+            //     .expect("error calculating Fisher's exact test for strand bias.");
+
+            // if fishers_exact_pvalues.two_tail_pvalue >= 0.01 {
+            //     // let tid = tid as usize;
+            //     let alleles = alleles.into_iter().map(|(b,c)| (BASES[b], c)).collect();
+            //     let var = Var{tid,pos,depth,alleles};
+            //     variants.push(var);
+            // }
+
+            let alleles = alleles.into_iter().map(|(b,c)| (BASES[b], c)).collect();
             let var = Var{tid,pos,depth,alleles};
             variants.push(var);
         }
@@ -201,50 +214,4 @@ pub fn run_longcalld(reference_path: &Path, bam_path: &Path, vcf_path: &Path, op
 
     let var_dict = load_variants_from_vcf(vcf_path, bam_path, opts);
     Ok(var_dict)
-}
-
-
-// From longshot: https://github.com/pjedge/longshot/blob/99ace95bada7b360dc338deae65073590d6dc35d/src/main.rs#L478
-// use Fishers exact test to filter variants for which allele observations are biased toward one strand or the other
-pub fn filter_variants(vardict:HashMap<usize,Vec<Var>>) -> HashMap<usize,Vec<Var>> {
-
-    let mut _retained = HashMap::new();
-
-    for var in vardict.into_values().flatten() {
-        if var.alleles.len() != 2 {
-            continue
-        }
-
-        // let counts: [u32; 4] = [
-        //     var.allele_counts_forward[0] as u32,
-        //     var.allele_counts_reverse[0] as u32,
-        //     var.allele_counts_forward[1] as u32,
-        //     var.allele_counts_reverse[1] as u32,
-        // ];
-        // let fishers_exact_pvalues = fishers_exact(&counts)
-        //     .chain_err(|| "Error calculating Fisher's exact test for strand bias.")?;
-
-        // //println!("{:?} {:?} {:?}  {:?}",&counts, fishers_exact_pvalues.two_tail_pvalue, fishers_exact_pvalues.less_pvalue, fishers_exact_pvalues.greater_pvalue);
-        // var.strand_bias_pvalue = if fishers_exact_pvalues.two_tail_pvalue <= 500.0 {
-        //     *PHREDProb::from(Prob(fishers_exact_pvalues.two_tail_pvalue))
-        // } else {
-        //     500.0
-        // };
-
-        // if fishers_exact_pvalues.two_tail_pvalue < strand_bias_pvalue_cutoff {
-        //     var.filter.add_filter(VarFilter::StrandBias);
-        //     var.genotype = Genotype(0, 0);
-        //     var.gq = 0.0;
-        // }
-    }
-
-    // for f in 0..flist.len() {
-    //     flist[f].calls.retain(|&c| {
-    //         !varlist.lst[c.var_ix as usize]
-    //             .filter
-    //             .has_filter(VarFilter::StrandBias)
-    //     });
-    // }
-
-    _retained
 }
