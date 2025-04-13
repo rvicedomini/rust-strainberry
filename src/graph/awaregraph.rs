@@ -54,7 +54,7 @@ impl AwareGraph {
         // insert edges between contigs adjacent on reference
         aware_contigs.iter().tuple_windows().enumerate()
             .filter(|(_,(a,b))| a.tid() == b.tid() && !a.is_phased() && !b.is_phased())
-            .filter(|(_,(a,b))| a.depth() >= 5.0 && b.depth() >= 5.0)
+            // .filter(|(_,(a,b))| a.depth() >= 5.0 && b.depth() >= 5.0)
             .for_each(|(i,(a,b))| {
                 let edge_key = EdgeKey::new(i, b'-', i+1, b'+');
                 let canon_key = biedge::canonical_edgekey(&edge_key);
@@ -722,9 +722,9 @@ impl AwareGraph {
         // TODO: handle self loops
         for edge_key in self.edges.keys() {
 
-            if !node_index.contains_key(&edge_key.id_from) || !node_index.contains_key(&edge_key.id_to) {
-                continue
-            }
+            // if !node_index.contains_key(&edge_key.id_from) || !node_index.contains_key(&edge_key.id_to) {
+            //     continue
+            // }
             
             let id_from = node_index[&edge_key.id_from];
             let id_to = node_index[&edge_key.id_to];
