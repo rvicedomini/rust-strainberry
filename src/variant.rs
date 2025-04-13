@@ -10,6 +10,7 @@ use rust_htslib::bam::{self, Read,IndexedReader};
 use tinyvec::ArrayVec;
 
 use crate::cli::Options;
+use crate::seq::SeqDatabase;
 
 
 const BASES: [char;4] = ['A', 'C', 'G', 'T'];
@@ -26,29 +27,30 @@ pub type VarDict = HashMap<usize,Vec<Var>>;
 type VarPositions = HashMap<usize,HashSet<usize>>;
 
 
-fn load_variants_at_positions_threaded(bam_path: &Path, positions: Option<&VarPositions>, opts: &Options) -> VarDict {
+fn load_variants_at_positions_threaded(bam_path: &Path, ref_db: &SeqDatabase, positions: Option<&VarPositions>, opts: &Options) -> VarDict {
 
     let (tx, rx) = mpsc::channel();
 
-    let target_variants = if let Some(positions) = positions {
+    let index_to_tid = crate::bam::build_target_index(bam_path, ref_db);
+
+    let ref_variants = if let Some(positions) = positions {
         positions.iter()
-            .map(|(tid,target_positions)| (*tid,Some(target_positions)))
+            .map(|(ref_idx,ref_positions)| (index_to_tid[*ref_idx], Some(ref_positions)))
             .collect_vec()
     } else {
-        crate::bam::bam_target_intervals(bam_path)
-            .into_iter()
-            .map(|siv| (siv.tid, None))
+        (0..ref_db.size())
+            .map(|ref_idx| (index_to_tid[ref_idx], None))
             .collect_vec()
     };
 
     thread::scope(|scope| {
         for thread_id in 0..opts.nb_threads {
             let sender = tx.clone();
-            let target_variants_ref = &target_variants;
+            let ref_variants_ref = &ref_variants;
             scope.spawn(move || {
                 let mut bam_reader = IndexedReader::from_path(bam_path).unwrap();
-                for i in (thread_id..target_variants_ref.len()).step_by(opts.nb_threads) {
-                    let (tid, target_positions) = target_variants_ref[i];
+                for i in (thread_id..ref_variants_ref.len()).step_by(opts.nb_threads) {
+                    let (tid, target_positions) = ref_variants_ref[i];
                     let variants = load_variants_at_positions(&mut bam_reader, tid, target_positions, opts);
                     sender.send((tid,variants)).unwrap();
                 }
@@ -56,7 +58,7 @@ fn load_variants_at_positions_threaded(bam_path: &Path, positions: Option<&VarPo
         }
     });
 
-    (0..target_variants.len())
+    (0..ref_variants.len())
         .flat_map(|_| rx.recv())
         .collect()
 }
@@ -137,16 +139,12 @@ fn load_variants_at_positions(bam_reader: &mut IndexedReader, tid: usize, positi
 }
 
 
-pub fn load_variants_from_bam(bam_path:&Path, opts:&Options) -> VarDict {
-    load_variants_at_positions_threaded(bam_path, None, opts)
+pub fn load_variants_from_bam(bam_path:&Path, ref_db: &SeqDatabase, opts:&Options) -> VarDict {
+    load_variants_at_positions_threaded(bam_path, ref_db, None, opts)
 }
 
 
-pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, opts:&Options) -> VarDict {
-
-    let bam_reader = bam::Reader::from_path(bam_path).unwrap();
-    let bam_header = bam_reader.header();
-    let chrom2tid = crate::bam::chrom2tid(bam_header);
+pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, ref_db: &SeqDatabase, opts:&Options) -> VarDict {
 
     let vcf_reader = crate::utils::get_file_reader(vcf_path);
     let positions = vcf_reader.lines()
@@ -155,29 +153,28 @@ pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, opts:&Options) -> 
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') { return None }
             let mut record = line.split('\t');
-            let chrom = record.next().unwrap();
-            let tid = *chrom2tid.get(chrom).unwrap();
+            let ref_name = record.next().unwrap();
+            let ref_index = ref_db.get_index(ref_name);
             let pos = record.next().unwrap().parse::<usize>().unwrap();
             let qual = record.nth(3).unwrap().parse::<usize>().unwrap();
-            if qual >= opts.min_var_qual { Some((tid,pos-1)) } else { None }
+            if qual >= opts.min_var_qual { Some((ref_index,pos-1)) } else { None }
         })
         .sorted_unstable()
         .collect_vec();
 
     let positions = positions.into_iter()
-        .chunk_by(|&(tid,_)| tid)
-        .into_iter()
-        .map(|(tid,target_positions)| (
-            tid,
-            target_positions.into_iter().map(|(_,pos)| pos).collect()
+        .chunk_by(|&(ref_idx,_)| ref_idx).into_iter()
+        .map(|(ref_idx,ref_positions)| (
+            ref_idx,
+            ref_positions.into_iter().map(|(_,pos)| pos).collect()
         ))
         .collect::<VarPositions>();
 
-    load_variants_at_positions_threaded(bam_path, Some(&positions), opts)
+    load_variants_at_positions_threaded(bam_path, ref_db, Some(&positions), opts)
 }
 
 
-pub fn run_longcalld(reference_path: &Path, bam_path: &Path, vcf_path: &Path, opts: &Options) -> Result<VarDict> {
+pub fn run_longcalld(reference_path: &Path, bam_path: &Path, ref_db: &SeqDatabase, vcf_path: &Path, opts: &Options) -> Result<VarDict> {
 
     use std::process::{Command, Stdio};
     use std::io::{BufRead,BufReader};
@@ -212,6 +209,6 @@ pub fn run_longcalld(reference_path: &Path, bam_path: &Path, vcf_path: &Path, op
         }
     }
 
-    let var_dict = load_variants_from_vcf(vcf_path, bam_path, opts);
+    let var_dict = load_variants_from_vcf(vcf_path, bam_path, ref_db, opts);
     Ok(var_dict)
 }

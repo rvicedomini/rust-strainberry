@@ -3,16 +3,14 @@ use std::path::Path;
 use anyhow::{anyhow, Result};
 use ahash::AHashMap as HashMap;
 use itertools::Itertools;
-use needletail::Sequence;
-use rust_htslib::bam::{self, HeaderView};
+use rust_htslib::bam;
 use rust_htslib::bam::Read;
 use rust_htslib::bam::ext::BamRecordExtensions;
-use rust_htslib::bam::record::{Cigar,CigarString};
-use rust_htslib::htslib::{BAM_FSECONDARY,BAM_FSUPPLEMENTARY};
+use rust_htslib::bam::record::{Cigar, CigarString};
+use rust_htslib::htslib::{BAM_FSECONDARY, BAM_FSUPPLEMENTARY};
 use tinyvec::{tiny_vec,TinyVec};
 
-use crate::seq::bitseq::BitSeq;
-use crate::seq::SeqInterval;
+use crate::seq::{SeqDatabase, SeqInterval};
 
 
 pub fn bam_to_fasta(bam_path:&Path, out_path:&Path) -> Result<()> {
@@ -35,63 +33,32 @@ pub fn bam_to_fasta(bam_path:&Path, out_path:&Path) -> Result<()> {
 }
 
 
-pub fn bam_target_names(bam_path:&Path) -> (Vec<String>,HashMap<String,usize>) {
-    let bam_reader = bam::IndexedReader::from_path(bam_path).unwrap();
-    let target_names = bam_reader.header()
-        .target_names()
-        .iter()
-        .map(|&name| String::from_utf8_lossy(name).to_string())
-        .collect_vec();
-    let name_to_index = target_names.iter()
-        .enumerate()
-        .map(|(idx,name)| (name.clone(),idx))
-        .collect::<HashMap<String,usize>>();
-    (target_names,name_to_index)
+// returns an index that maps reference indices to bam indices
+pub fn build_target_index(bam_path:&Path, ref_db: &SeqDatabase) -> Vec<usize> {
+    let mut index_to_tid = vec![0; ref_db.size()];
+    let mut nb_bam_targets: usize = 0;
+    let bam_reader = bam::Reader::from_path(bam_path).unwrap();
+    let bam_header = bam_reader.header();
+    for (tid, &name) in bam_header.target_names().iter().enumerate() {
+        let name = std::str::from_utf8(name).unwrap();
+        let index = ref_db.get_index(name);
+        index_to_tid[index] = tid;
+        nb_bam_targets += 1;
+    }
+    assert!(ref_db.size() == nb_bam_targets);
+    index_to_tid
 }
 
 
-pub fn bam_target_intervals(bam_path:&Path) -> Vec<SeqInterval> {
-    
+pub fn bam_intervals(bam_path:&Path) -> Vec<SeqInterval> {
     let bam_reader = bam::Reader::from_path(bam_path).unwrap();
     let bam_header = bam_reader.header();
-
     (0..bam_header.target_count())
         .map(|tid| SeqInterval {
             tid: tid as usize,
             beg: 0,
             end: bam_header.target_len(tid).unwrap() as usize
         }).collect_vec()
-}
-
-
-pub fn chrom2tid(bam_header:&HeaderView) -> HashMap<String,usize> {
-    bam_header
-        .target_names().iter()
-        .enumerate()
-        .map(|(target_index, name)| (
-            std::str::from_utf8(name).unwrap().to_string(),
-            target_index
-        )).collect()
-}
-
-
-pub fn load_sequences(fasta_path: &Path, bam_path: &Path) -> Vec<BitSeq> {
-    let bam_reader = bam::Reader::from_path(bam_path).unwrap();
-    let header_view = bam_reader.header();
-
-    let mut target_sequences = Vec::new();
-    target_sequences.resize_with(header_view.target_count() as usize, BitSeq::default);
-
-    let mut fasta_reader = needletail::parse_fastx_file(fasta_path).expect("Cannot open fasta file");
-    while let Some(record) = fasta_reader.next() {
-        let record = record.unwrap();
-        let name = record.id().split(|b| b.is_ascii_whitespace()).next().unwrap();
-        let tid = header_view.tid(name).unwrap() as usize;
-        // eprintln!("{tid} -> {}", String::from_utf8_lossy(name));
-        target_sequences[tid] = BitSeq::from_utf8(record.normalize(false).as_ref());
-    }
-
-    target_sequences
 }
 
 
@@ -203,11 +170,11 @@ impl BamRecordId {
         Self { index, beg, end }
     }
 
-    pub fn from_record(record: &bam::record::Record, read_index: &HashMap<String,usize>) -> Self {
+    pub fn from_record(record: &bam::record::Record, read_db: &SeqDatabase) -> Self {
         let cigar = record.cigar();
     
         let query_name = std::str::from_utf8(record.qname()).unwrap();
-        let query_index = read_index[query_name];
+        let query_index = read_db.get_index(query_name);
         let query_length = record.seq_len_from_cigar(true);
 
         let mut query_start = match *cigar.first().unwrap() {

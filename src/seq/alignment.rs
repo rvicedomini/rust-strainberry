@@ -9,6 +9,7 @@ use rust_htslib::bam::record::{Aux, Cigar, CigarString, Record};
 
 use crate::cli::Options;
 use crate::bam::BamRecordId;
+use crate::seq::SeqDatabase;
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,10 +111,10 @@ impl SeqAlignment {
     pub fn cigar(&self) -> &Vec<Cigar> { &self.cigar }
     pub fn cigar_string(&self) -> String { self.cigar.iter().map(|op| op.to_string()).join("") }
 
-    pub fn from_bam_record(record: &Record, header: &HeaderView, read_index: &HashMap<String,usize>) -> SeqAlignment {
+    pub fn from_bam_record(record: &Record, header: &HeaderView, ref_db: &SeqDatabase, read_db: &SeqDatabase) -> SeqAlignment {
 
         let query_name = std::str::from_utf8(record.qname()).unwrap();
-        let query_idx = read_index[query_name];
+        let query_idx = read_db.get_index(query_name);
         let query_length = record.seq_len_from_cigar(true);
 
         let cigar = record.cigar();
@@ -135,11 +136,12 @@ impl SeqAlignment {
 
         let strand = if is_reverse { b'-' } else { b'+' };
 
-        let target_idx: usize = record.tid().try_into().unwrap();
-        // let target_name = String::from_utf8_lossy(header.tid2name(target_idx)).to_string();
+        let target_name = std::str::from_utf8(header.tid2name(record.tid() as u32)).unwrap();
+        let target_idx = ref_db.get_index(target_name);
+
         let target_beg = record.reference_start() as usize;
         let target_end = record.reference_end() as usize;
-        let target_length = header.target_len(target_idx as u32).unwrap() as usize;
+        let target_length = ref_db.sequences[target_idx].len();
 
         let (matches,indels) = cigar.iter().fold((0,0), |(matches,indels),op| match *op {
             Cigar::Match(len) | Cigar::Equal(len) | Cigar::Diff(len) => (matches + len as usize, indels),
@@ -306,7 +308,7 @@ impl Iterator for IterAlignedBlocks<'_> {
 }
 
 
-pub fn load_bam_alignments(bam_path: &Path, read_index: &HashMap<String,usize>, opts: &Options) -> HashMap<usize,Vec<SeqAlignment>> {
+pub fn load_bam_alignments(bam_path: &Path, ref_db: &SeqDatabase, read_db: &SeqDatabase, opts: &Options) -> HashMap<usize,Vec<SeqAlignment>> {
 
     let mut read_alignments: HashMap<usize, Vec<SeqAlignment>> = HashMap::new();
     let mut bam_reader = IndexedReader::from_path(bam_path).unwrap();
@@ -324,7 +326,7 @@ pub fn load_bam_alignments(bam_path: &Path, read_index: &HashMap<String,usize>, 
             continue
         }
 
-        let seqalign = SeqAlignment::from_bam_record(&record, &bam_header, read_index);
+        let seqalign = SeqAlignment::from_bam_record(&record, &bam_header, ref_db, read_db);
         read_alignments.entry(seqalign.query_index())
             .or_default()
             .push(seqalign);

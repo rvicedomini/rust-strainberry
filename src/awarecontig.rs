@@ -106,7 +106,7 @@ pub struct AwareAlignment {
 }
 
 
-fn retrieve_unphased_intervals(target_intervals:&Vec<SeqInterval>, haplotypes:&HashMap<HaplotypeId,Haplotype>, min_length:usize) -> Vec<SeqInterval> {
+fn retrieve_unphased_intervals(ref_intervals:&[SeqInterval], haplotypes:&HashMap<HaplotypeId,Haplotype>, min_length:usize) -> Vec<SeqInterval> {
 
     let mut unphased_intervals: Vec<SeqInterval> = vec![];
     let phased_intervals = haplotypes.values()
@@ -115,7 +115,7 @@ fn retrieve_unphased_intervals(target_intervals:&Vec<SeqInterval>, haplotypes:&H
         .sorted_unstable()
         .collect_vec();
 
-    for iv in target_intervals {
+    for iv in ref_intervals {
 
         let first = phased_intervals.partition_point(|x| x.tid < iv.tid || (x.tid == iv.tid && x.beg < iv.beg));
         
@@ -138,9 +138,9 @@ fn retrieve_unphased_intervals(target_intervals:&Vec<SeqInterval>, haplotypes:&H
 }
 
 
-pub fn build_aware_contigs(target_intervals:&Vec<SeqInterval>, haplotypes:&HashMap<HaplotypeId,Haplotype>, min_length:usize) -> Vec<AwareContig> {
+pub fn build_aware_contigs(ref_intervals:&[SeqInterval], haplotypes:&HashMap<HaplotypeId,Haplotype>, min_length:usize) -> Vec<AwareContig> {
     
-    let mut aware_contigs = retrieve_unphased_intervals(target_intervals, haplotypes, min_length)
+    let mut aware_contigs = retrieve_unphased_intervals(ref_intervals, haplotypes, min_length)
         .into_iter()
         .map(|interval| AwareContig{
             contig_type: SeqType::Unphased,
@@ -160,7 +160,7 @@ pub fn build_aware_contigs(target_intervals:&Vec<SeqInterval>, haplotypes:&HashM
         })
     );
 
-    aware_contigs.sort_unstable_by_key(|ctg| (ctg.interval(), ctg.hid()));
+    aware_contigs.sort_by_key(|ctg| (ctg.interval(), ctg.hid()));
     aware_contigs
 }
 

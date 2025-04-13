@@ -10,7 +10,7 @@ use crate::awarecontig::{AwareAlignment, AwareContig, SeqType};
 use crate::cli::Options;
 use crate::graph::asmgraph::{AsmGraph, Link};
 use crate::polish::PolishMode;
-use crate::seq::SeqInterval;
+use crate::seq::{SeqDatabase, SeqInterval};
 use crate::seq::bitseq::BitSeq;
 use crate::utils::flip_strand;
 
@@ -54,6 +54,7 @@ impl AwareGraph {
         // insert edges between contigs adjacent on reference
         aware_contigs.iter().tuple_windows().enumerate()
             .filter(|(_,(a,b))| a.tid() == b.tid() && !a.is_phased() && !b.is_phased())
+            .filter(|(_,(a,b))| a.depth() >= 5.0 && b.depth() >= 5.0)
             .for_each(|(i,(a,b))| {
                 let edge_key = EdgeKey::new(i, b'-', i+1, b'+');
                 let canon_key = biedge::canonical_edgekey(&edge_key);
@@ -235,11 +236,13 @@ impl AwareGraph {
             .filter_map(|&edge_id| {
                 let edge = self.get_biedge_idx(edge_id);
                 if edge.observations < min_obs {
-                    let a_degree = self.node_degree(edge.key.id_from, edge.key.strand_from);
-                    let b_degree = self.node_degree(edge.key.id_to, edge.key.strand_to);
-                    if a_degree != 1 && b_degree != 1 { // delete only edges that would not disconnect another node
-                        return Some(&edge.key)
-                    }
+                    return Some(&edge.key)
+                    // // delete only edges that would not disconnect another node
+                    // let a_degree = self.node_degree(edge.key.id_from, edge.key.strand_from);
+                    // let b_degree = self.node_degree(edge.key.id_to, edge.key.strand_to);
+                    // if a_degree != 1 && b_degree != 1 {
+                    //     return Some(&edge.key)
+                    // }
                 }
                 None
             }).cloned().collect_vec();
@@ -410,6 +413,19 @@ impl AwareGraph {
             ndeg.get(&key.id_from).is_some_and(|c| *c == 1) || ndeg.get(&key.id_to).is_some_and(|c| *c == 1)
         });
 
+        // let inner_length: usize = junc.inner_nodes().map(|x| self.nodes[&x].ctg.length()).sum();
+        // if inner_length <= 10_000 && (is_fully_covered && !is_strictly_covered) {
+        //     spdlog::debug!("{junc} Length={inner_length}");
+        //     spdlog::debug!("  is_fully_covered: {is_fully_covered}");
+        //     spdlog::debug!("  is_strictly_covered: {is_strictly_covered}");
+        //     spdlog::debug!("  bridges:");
+        //     for edge_key in &bridges {
+        //         let nb_reads = self.get_transitive(edge_key).unwrap().observations;
+        //         let gap_len = self.get_transitive(edge_key).unwrap().gaps.first().unwrap_or(&0);
+        //         spdlog::debug!("    * {edge_key} | reads={nb_reads} gaplen={gap_len}");
+        //     }
+        // }
+
         if !is_fully_covered {
             // println!("  not fully covered");
             self.remove_transitives_from(&bridges);
@@ -425,11 +441,6 @@ impl AwareGraph {
                 return false
             }
         }
-
-        // println!("  strictly covered with bridges:");
-        // for edge in &bridges {
-        //     println!("    * {edge}");
-        // }
 
         let mut bridge_paths = vec![];
         for EdgeKey { id_from, strand_from, id_to, strand_to } in &bridges {
@@ -536,6 +547,11 @@ impl AwareGraph {
                     let first = unsafe { edges.first().unwrap_unchecked().id_from };
                     std::iter::once(first).chain(edges.iter().map(|key| key.id_to)).collect_vec()
                 };
+                // TODO: for now I check that all nodes in the path have a low coverage
+                // think about a different (better?) way to keep/discard paths
+                if nodes.iter().all(|nid| self.nodes[nid].ctg.depth() < 5.0 ) {
+                    continue
+                }
                 let id = aware_paths.len();
                 nodes.iter().for_each(|n| { node_to_path.insert(*n, id); });
                 aware_paths.push(AwarePath{ nodes, edges });
@@ -573,7 +589,7 @@ impl AwareGraph {
     }
 
 
-    pub fn build_haplotigs(&self, aware_paths: &[AwarePath], target_names:&[String], target_sequences: &[BitSeq], read_sequences: &[BitSeq], fragment_dir: &Path, work_dir: &Path, opts: &Options) -> Result<Vec<BitSeq>> {
+    pub fn build_haplotigs(&self, aware_paths: &[AwarePath], ref_db: &SeqDatabase, read_db: &SeqDatabase, fragment_dir: &Path, work_dir: &Path, opts: &Options) -> Result<Vec<BitSeq>> {
 
         let mut haplotigs = Vec::with_capacity(aware_paths.len());
         for (id, aware_path) in aware_paths.iter().enumerate() {
@@ -597,8 +613,8 @@ impl AwareGraph {
                     let aware_contig = &self.nodes[&node_id].ctg;
                     let SeqInterval { tid, beg, end } = aware_contig.interval();
                     let mut sequence = match aware_contig.contig_type() {
-                        SeqType::Haplotype(_) | SeqType::Unphased => { target_sequences[tid].subseq(beg, end) },
-                        SeqType::Read => { read_sequences[tid].subseq(beg, end) },
+                        SeqType::Haplotype(_) | SeqType::Unphased => { ref_db.sequences[tid].subseq(beg, end) },
+                        SeqType::Read => { read_db.sequences[tid].subseq(beg, end) },
                     };
                     if node_dir != aware_contig.strand() { crate::seq::read::revcomp_inplace(&mut sequence); }
                     is_phased = is_phased || aware_contig.is_phased();
@@ -638,7 +654,7 @@ impl AwareGraph {
                 let mut unitig_read_writer = crate::utils::get_file_writer(&out_path);
                 let haplotype_files = aware_path.nodes.iter()
                     .filter_map(|nid| self.nodes[nid].ctg.haplotype_id())
-                    .map(|h| fragment_dir.join(format!("{}_{}-{}_h{}.fa.gz", target_names[h.tid], h.beg, h.end, h.hid)));
+                    .map(|h| fragment_dir.join(format!("{}_{}-{}_h{}.fa.gz", ref_db.names[h.tid], h.beg, h.end, h.hid)));
                 for htfile in haplotype_files {
                     if let Ok(mut reader) = needletail::parse_fastx_file(&htfile) {
                         while let Some(record) = reader.next() {
@@ -684,7 +700,7 @@ impl AwareGraph {
 
     // TODO: handle self loops
     // TODO: handle negative gaps
-    pub fn build_assembly_graph(&mut self, target_names:&[String], target_sequences: &[BitSeq], read_sequences: &[BitSeq], fragment_dir:&Path, work_dir:&Path, opts: &Options) -> Result<AsmGraph<usize>> {
+    pub fn build_assembly_graph(&mut self, ref_db: &SeqDatabase, read_db: &SeqDatabase, fragment_dir:&Path, work_dir:&Path, opts: &Options) -> Result<AsmGraph<usize>> {
 
         std::fs::create_dir_all(work_dir)
             .with_context(|| format!("Cannot create output directory: \"{}\"", work_dir.display()))?;
@@ -693,7 +709,7 @@ impl AwareGraph {
 
         let (aware_paths, node_index) = self.extract_aware_paths();
         
-        let haplotigs = self.build_haplotigs(&aware_paths, target_names, target_sequences, read_sequences, fragment_dir, work_dir, opts)?;
+        let haplotigs = self.build_haplotigs(&aware_paths, ref_db, read_db, fragment_dir, work_dir, opts)?;
         assert!(haplotigs.len() == aware_paths.len());
 
         // build assembly graph 
@@ -732,14 +748,14 @@ impl AwareGraph {
 
     /* OUTPUT METHODS */
 
-    pub fn write_gfa(&self, gfa_path:PathBuf, target_names:&[String]) -> std::io::Result<()> {
+    pub fn write_gfa(&self, gfa_path:PathBuf, ref_db:&SeqDatabase) -> std::io::Result<()> {
         let mut gfa = crate::utils::get_file_writer(gfa_path.as_path());
         gfa.write_all(b"H\tVN:Z:1.0\n")?;
         for (node_id, node) in self.nodes.iter() {
             let node_ctg = node.ctg;
             let node_name = match node_ctg.contig_type() {
-                SeqType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, node_id),
-                SeqType::Unphased => format!("{}_{}-{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), node_id),
+                SeqType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, node_id),
+                SeqType::Unphased => format!("{}_{}-{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), node_id),
                 SeqType::Read => format!("read{}_{}-{}_id{}", node_ctg.tid(), node_ctg.beg(), node_ctg.end(), node_id),
             };
             let node_line = format!("S\t{}\t*\tLN:i:{}\tdp:i:{}\n", node_name, node_ctg.length(), node_ctg.depth() as usize);
@@ -751,14 +767,14 @@ impl AwareGraph {
             let EdgeKey { id_from, strand_from, id_to, strand_to } = edge.key;
             let node_ctg = self.nodes[&id_from].ctg;
             let name_from = match node_ctg.contig_type() {
-                SeqType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, id_from),
-                SeqType::Unphased => format!("{}_{}-{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), id_from),
+                SeqType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, id_from),
+                SeqType::Unphased => format!("{}_{}-{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), id_from),
                 SeqType::Read => format!("read{}_{}-{}_id{}", node_ctg.tid(), node_ctg.beg(), node_ctg.end(), id_from),
             };
             let node_ctg = self.nodes[&id_to].ctg;
             let name_to = match node_ctg.contig_type() {
-                SeqType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, id_to),
-                SeqType::Unphased => format!("{}_{}-{}_id{}", target_names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), id_to),
+                SeqType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, id_to),
+                SeqType::Unphased => format!("{}_{}-{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), id_to),
                 SeqType::Read => format!("read{}_{}-{}_id{}", node_ctg.tid(), node_ctg.beg(), node_ctg.end(), id_to),
             };
             let edge_line = format!("L\t{}\t{}\t{}\t{}\t0M\tRC:i:{}\n", name_from, crate::utils::flip_strand(strand_from) as char, name_to, strand_to as char, edge.observations );

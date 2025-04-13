@@ -18,8 +18,7 @@ use ahash::AHashSet as HashSet;
 
 use crate::cli::Options;
 use crate::bam::BamRecordId;
-use crate::seq::bitseq::BitSeq;
-use crate::seq::{SeqInterval,SuccinctSeq};
+use crate::seq::{SeqDatabase, SeqInterval, SuccinctSeq};
 use crate::variant::{Var,VarDict};
 
 use phasedblock::PhasedBlock;
@@ -39,10 +38,13 @@ use self::haplotype::{Haplotype, HaplotypeId, HaplotypeHit};
 
 pub struct Phaser<'a> {
     bam_path: &'a Path,
-    target_names: &'a [String],
-    target_intervals: &'a [SeqInterval],
-    read_index: &'a HashMap<String,usize>,
-    read_sequences: &'a [BitSeq],
+    ref_db: &'a SeqDatabase,
+    read_db: &'a SeqDatabase,
+    ref_intervals: &'a [SeqInterval],
+    // ref_names: &'a [String],
+    // read_index: &'a HashMap<String,usize>,
+    // read_sequences: &'a [BitSeq],
+    bam_index: Vec<usize>,
     fragments_dir: PathBuf,
     dots_dir: PathBuf,
     opts: &'a Options,
@@ -50,7 +52,7 @@ pub struct Phaser<'a> {
 
 impl<'a> Phaser<'a> {
 
-    pub fn new(bam_path: &'a Path, target_names: &'a[String], target_intervals: &'a[SeqInterval], read_index: &'a HashMap<String,usize>, read_sequences: &'a [BitSeq],  work_dir: PathBuf, opts: &'a Options) -> Result<Phaser<'a>> {
+    pub fn new(bam_path: &'a Path, ref_db: &'a SeqDatabase, read_db: &'a SeqDatabase, ref_intervals: &'a[SeqInterval], work_dir: PathBuf, opts: &'a Options) -> Result<Phaser<'a>> {
 
         let fragments_dir = work_dir.join("fragments");
         fs::create_dir_all(&fragments_dir)
@@ -60,12 +62,14 @@ impl<'a> Phaser<'a> {
         fs::create_dir_all(&dots_dir)
             .with_context(|| format!("Cannot create output directory: \"{}\"", dots_dir.display()) )?;
 
+        let bam_index = crate::bam::build_target_index(bam_path, ref_db);
+
         Ok(Phaser {
             bam_path,
-            target_names,
-            target_intervals,
-            read_index,
-            read_sequences,
+            ref_db,
+            read_db,
+            ref_intervals,
+            bam_index,
             fragments_dir,
             dots_dir,
             opts
@@ -82,26 +86,26 @@ impl<'a> Phaser<'a> {
     
     pub fn phase(&self, variants: &VarDict) -> HashMap<HaplotypeId,Haplotype> {
 
-        let mut target_variants = vec![];
-        for siv in self.target_intervals {
+        let mut interval_variants = vec![];
+        for siv in self.ref_intervals {
             if let Some(vars) = variants.get(&siv.tid) {
                 let left = vars.partition_point(|v| v.pos < siv.beg);
                 let right = vars.partition_point(|v: &Var| v.pos < siv.end);
                 if right - left >= self.opts.min_snv {
-                    target_variants.push((siv, &vars[left..right]));
+                    interval_variants.push((siv, &vars[left..right]));
                 }
             }
         }
-        target_variants.sort_unstable_by_key(|(_,vars)| vars.len());
+        interval_variants.sort_unstable_by_key(|(_,vars)| vars.len() as isize);
 
-        let nb_threads = std::cmp::min(self.opts.nb_threads, target_variants.len());
+        let nb_threads = std::cmp::min(self.opts.nb_threads, interval_variants.len());
         let (tx, rx) = mpsc::channel();
         thread::scope(|scope| {
             for thread_id in 0..nb_threads {
                 let sender = tx.clone();
-                let target_variants_ref = &target_variants;
+                let inteval_variants_ref = &interval_variants;
                 scope.spawn(move || {
-                    for &(target_interval, variants) in target_variants_ref[thread_id..].iter().step_by(nb_threads) {
+                    for &(target_interval, variants) in inteval_variants_ref[thread_id..].iter().step_by(nb_threads) {
                         let haplotypes = self.phase_interval(target_interval, variants);
                         sender.send(haplotypes).unwrap();
                     }
@@ -109,15 +113,15 @@ impl<'a> Phaser<'a> {
             }
         });
 
-        (0..target_variants.len())
+        (0..interval_variants.len())
             .flat_map(|_| rx.recv().unwrap())
             .collect()
     }
 
-    fn phase_interval(&self, target_interval:&SeqInterval, variants: &[Var]) -> HashMap<HaplotypeId,Haplotype> {
+    fn phase_interval(&self, ref_interval:&SeqInterval, variants: &[Var]) -> HashMap<HaplotypeId,Haplotype> {
 
         // spdlog::debug!("----- Phasing {target_interval} ({} variants) -----", variants.len());
-        let (haplotypes, succinct_records) = self.phase_variants(target_interval,variants);
+        let (haplotypes, succinct_records) = self.phase_variants(ref_interval,variants);
 
         let variant_positions = self.variant_positions(&haplotypes);
         let haplotypes: HashMap<HaplotypeId,Haplotype> = self.remove_false_haplotypes(haplotypes, &variant_positions);
@@ -125,12 +129,12 @@ impl<'a> Phaser<'a> {
         let sread_haplotypes = self::separate_reads(&succinct_records, &haplotypes, 1);
 
         let mut haplograph = HaploGraph::new(haplotypes, sread_haplotypes);
-        let dot_file = format!("{}_{}-{}.raw.dot", self.target_names[target_interval.tid], target_interval.beg, target_interval.end);
+        let dot_file = format!("{}_{}-{}.raw.dot", self.ref_db.names[ref_interval.tid], ref_interval.beg, ref_interval.end);
         haplograph.write_dot(&self.dots_dir.join(dot_file)).unwrap();
         
         // Merge contiguous haplotypes when it is not ambiguous to do so
         let haplotypes: HashMap<HaplotypeId,Haplotype> = haplograph.scaffold_haplotypes(&variant_positions, 5, 0.8, self.opts.min_snv);
-        let dot_file = format!("{}_{}-{}.final.dot", self.target_names[target_interval.tid], target_interval.beg, target_interval.end);
+        let dot_file = format!("{}_{}-{}.final.dot", self.ref_db.names[ref_interval.tid], ref_interval.beg, ref_interval.end);
         haplograph.write_dot(&self.dots_dir.join(dot_file)).unwrap();
 
         let sread_haplotypes = self::separate_reads(&succinct_records, &haplotypes, 1);
@@ -145,7 +149,7 @@ impl<'a> Phaser<'a> {
         let mut read_files: HashMap<HaplotypeId,_> = HashMap::new();
         
         for ht_id in haplotypes.keys() {
-            let ht_file_gz = format!("{}_{}-{}_h{}.fa.gz", self.target_names[ht_id.tid], ht_id.beg, ht_id.end, ht_id.hid);
+            let ht_file_gz = format!("{}_{}-{}_h{}.fa.gz", self.ref_db.names[ht_id.tid], ht_id.beg, ht_id.end, ht_id.hid);
             let ht_file_path = self.fragments_dir().join(ht_file_gz.as_str());
             read_files.insert(*ht_id, crate::utils::get_file_writer(&ht_file_path));
         }
@@ -154,7 +158,7 @@ impl<'a> Phaser<'a> {
             for hit in hits.iter().filter(|hit| hit.nb_alt == 0) {
                 let out = read_files.get_mut(&hit.hid).unwrap();
                 out.write_all(format!(">{}\n", &record_id.index).as_bytes())?;
-                out.write_all(&self.read_sequences[record_id.index].as_bytes())?;
+                out.write_all(&self.read_db.sequences[record_id.index].as_bytes())?;
                 out.write_all(b"\n")?;
             }
         }
@@ -187,7 +191,7 @@ impl<'a> Phaser<'a> {
             .collect()
     }
 
-    pub fn phase_variants(&self, target_interval:&SeqInterval, variants: &[Var]) -> (HashMap<HaplotypeId,Haplotype>,Vec<SuccinctSeq>)  {
+    pub fn phase_variants(&self, ref_interval:&SeqInterval, variants: &[Var]) -> (HashMap<HaplotypeId,Haplotype>,Vec<SuccinctSeq>)  {
 
         if variants.is_empty() {
             return (HashMap::default(),vec![]);
@@ -199,10 +203,11 @@ impl<'a> Phaser<'a> {
         let mut supporting_sreads = HashSet::new();
         let mut lookback_positions: VecDeque<usize> = VecDeque::new();
         let mut var_iter = variants.iter();
-        let mut phasedblock = PhasedBlock::new(target_interval.tid);
+        let mut phasedblock = PhasedBlock::new(ref_interval.tid);
 
         let mut bam_reader = bam::IndexedReader::from_path(self.bam_path).unwrap();
-        bam_reader.fetch((target_interval.tid as i32, target_interval.beg as i64, target_interval.end as i64)).unwrap_or_else(|_| panic!("Cannot fetch target interval: {}",target_interval));
+        let bam_region = (self.bam_index[ref_interval.tid] as i32, ref_interval.beg as i64, ref_interval.end as i64);
+        bam_reader.fetch(bam_region).unwrap_or_else(|_| panic!("Cannot fetch bam interval: {:?}", bam_region));
 
         let mut var = var_iter.next();
         for pileup in bam_reader.pileup().flatten() {
@@ -228,7 +233,7 @@ impl<'a> Phaser<'a> {
             debug_assert_eq!(target_pos, var_position);
 
             // load pileup column
-            let edges = self.process_pileup(&pileup, &mut succinct_records, &mut supporting_sreads, &var_nucleotides);
+            let edges = self.process_pileup(&pileup, ref_interval.tid, &mut succinct_records, &mut supporting_sreads, &var_nucleotides);
             lookback_positions.push_back(var_position);
 
             // eprintln!("  Var:{var:?} Nucleotides: {}, Edges: {:?}", String::from_utf8(var_nucleotides.clone()).unwrap(), edges.iter().map(|&(u,v)| (u as char, v as char)).collect_vec());
@@ -428,7 +433,7 @@ impl<'a> Phaser<'a> {
         (unsupported_haplotypes, ambiguous_haplotypes)
     }
 
-    fn process_pileup(&self, pileup: &bam::pileup::Pileup, succinct_records: &mut HashMap<BamRecordId,SuccinctSeq>, supporting_sreads: &mut HashSet<BamRecordId>, var_nucleotides: &[u8]) -> Vec<(u8,u8)> {
+    fn process_pileup(&self, pileup: &bam::pileup::Pileup, ref_idx: usize, succinct_records: &mut HashMap<BamRecordId,SuccinctSeq>, supporting_sreads: &mut HashSet<BamRecordId>, var_nucleotides: &[u8]) -> Vec<(u8,u8)> {
 
         let position = pileup.pos() as usize;
         // let mut nuc_counter: FxHashMap<u8,usize> = FxHashMap::default();
@@ -451,7 +456,7 @@ impl<'a> Phaser<'a> {
 
             // total_obs += 1;
             
-            let record_id = BamRecordId::from_record(&record, self.read_index);
+            let record_id = BamRecordId::from_record(&record, self.read_db);
             let record_nuc = if !alignment.is_del() && !alignment.is_refskip() { 
                 alignment.record().seq()[alignment.qpos().unwrap()] 
             } else { 
@@ -461,7 +466,7 @@ impl<'a> Phaser<'a> {
             // *nuc_counter.entry(record_nuc).or_default() += 1;
 
             if !succinct_records.contains_key(&record_id) {
-                let srec = SuccinctSeq::build(record_id, pileup.tid() as usize);
+                let srec = SuccinctSeq::build(record_id, ref_idx);
                 succinct_records.insert(record_id, srec);
                 supporting_sreads.insert(record_id);
             }

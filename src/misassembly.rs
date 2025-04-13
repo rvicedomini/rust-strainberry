@@ -2,13 +2,12 @@ use std::sync::mpsc;
 use std::thread;
 use std::path::Path;
 
-use ahash::AHashMap as HashMap;
 use itertools::Itertools;
 use rust_htslib::bam::{Reader, Read, IndexedReader, HeaderView};
 use rust_htslib::bam::record::Aux;
 
 use crate::cli::Options;
-use crate::seq::SeqInterval;
+use crate::seq::{SeqDatabase, SeqInterval};
 use crate::seq::alignment::SeqAlignment;
 
 
@@ -27,30 +26,31 @@ struct AlignedBlock {
 }
 
 
-pub fn partition_reference(bam_path: &Path, target_index: &HashMap<String,usize>, read_index: &HashMap<String,usize>, opts: &Options) -> Vec<SeqInterval> {
+pub fn partition_reference(bam_path: &Path, ref_db: &SeqDatabase, read_db: &SeqDatabase, opts: &Options) -> Vec<SeqInterval> {
 
     let (tx, rx) = mpsc::channel();
-    
-    let target_intervals = crate::bam::bam_target_intervals(bam_path)
-        .into_iter()
-        .sorted_unstable_by_key(|iv| -((iv.end-iv.beg) as isize))
-        .collect_vec();
+
+    let bam_intervals = {
+        let mut bam_intervals = crate::bam::bam_intervals(bam_path);
+        bam_intervals.sort_unstable_by(|a,b| a.length().cmp(&b.length()).reverse());
+        bam_intervals
+    };
 
     thread::scope(|scope| {
         for thread_id in 0..opts.nb_threads {
             let sender = tx.clone();
-            let target_intervals_ref = &target_intervals;
+            let bam_intervals_ref = &bam_intervals;
             scope.spawn(move || {
                 let mut bam_reader = IndexedReader::from_path(bam_path).unwrap();
-                for i in (thread_id..target_intervals_ref.len()).step_by(opts.nb_threads) {
-                    let candidates = find_misassemblies(&mut bam_reader, &target_intervals_ref[i], target_index, read_index, opts);
+                for i in (thread_id..bam_intervals_ref.len()).step_by(opts.nb_threads) {
+                    let candidates = find_misassemblies(&mut bam_reader, &bam_intervals_ref[i], ref_db, read_db, opts);
                     sender.send(candidates).unwrap();
                 }
             });
         }
     });
 
-    let candidates = (0..target_intervals.len())
+    let candidates = (0..bam_intervals.len())
         .flat_map(|_| rx.recv().unwrap())
         .collect_vec();
 
@@ -61,7 +61,7 @@ pub fn partition_reference(bam_path: &Path, target_index: &HashMap<String,usize>
 }
 
 
-fn find_misassemblies(bam_reader: &mut IndexedReader, region: &SeqInterval, target_index:&HashMap<String,usize>, read_index: &HashMap<String,usize>, opts: &Options) -> Vec<Misassembly> {
+fn find_misassemblies(bam_reader: &mut IndexedReader, region: &SeqInterval, ref_db: &SeqDatabase, read_db: &SeqDatabase, opts: &Options) -> Vec<Misassembly> {
 
     let mut candidates = vec![];
     let bam_header = bam_reader.header().clone();
@@ -79,7 +79,7 @@ fn find_misassemblies(bam_reader: &mut IndexedReader, region: &SeqInterval, targ
             continue
         }
 
-        let seqalign = SeqAlignment::from_bam_record(&record, &bam_header, read_index);
+        let seqalign = SeqAlignment::from_bam_record(&record, &bam_header, ref_db, read_db);
 
         for (a,b) in seqalign.aligned_blocks().tuple_windows() {
             let [_a_query_beg,a_query_end,_a_target_beg,a_target_end] = a;
@@ -114,7 +114,7 @@ fn find_misassemblies(bam_reader: &mut IndexedReader, region: &SeqInterval, targ
 
                 for sa in supplementary_alignments {
                     let target_name = sa[0];
-                    let target_idx = target_index[target_name];
+                    let target_idx = ref_db.get_index(target_name);
                     let target_beg = sa[1].parse::<usize>().unwrap() - 1;
                     let strand = sa[2].as_bytes()[0];
                     assert!(strand == b'+' || strand == b'-');

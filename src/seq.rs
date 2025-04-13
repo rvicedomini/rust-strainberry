@@ -8,6 +8,10 @@ use std::sync::mpsc;
 use std::thread;
 
 use ahash::AHashMap as HashMap;
+use anyhow::{bail,Result};
+use bitseq::BitSeq;
+use itertools::Itertools;
+use needletail::Sequence;
 use rust_htslib::bam::{Read,IndexedReader};
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Cigar, Record};
@@ -15,6 +19,50 @@ use rust_htslib::bam::record::{Cigar, Record};
 use crate::cli::Options;
 use crate::bam::BamRecordId;
 use crate::variant::{Var,VarDict};
+
+
+pub struct SeqDatabase {
+    pub index: HashMap<String,usize>,
+    pub sequences: Vec<BitSeq>,
+    pub names: Vec<String>,
+}
+
+impl SeqDatabase {
+
+    pub fn build(path: &Path, index_names: bool) -> Result<SeqDatabase> {
+
+        let mut reader = needletail::parse_fastx_file(&path)?;
+    
+        let mut index = HashMap::new();
+        let mut sequences = Vec::new();
+        let mut names = Vec::new();
+    
+        while let Some(record) = reader.next() {
+            let record = record.unwrap();
+            let name = std::str::from_utf8(record.id().split(|b| b.is_ascii_whitespace()).next().unwrap()).unwrap();
+            if index.insert(name.to_string(), index.len()).is_some() {
+                bail!("duplicate reference identifier: {name}");
+            }
+            let sequence = BitSeq::from_utf8(record.normalize(false).as_ref());
+            sequences.push(sequence);
+            if index_names {
+                names.push(name.to_string());
+            }
+        }
+    
+        assert!(index.len() == sequences.len());
+    
+        Ok(SeqDatabase { index, sequences, names })
+    }
+
+    pub fn size(&self) -> usize {
+        self.sequences.len()
+    }
+
+    pub fn get_index(&self, name: &str) -> usize {
+        self.index[name]
+    }
+}
 
 
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -43,7 +91,7 @@ impl SeqInterval {
 
 pub struct SuccinctSeq {
     record_id: BamRecordId,
-    target_id: usize,
+    ref_idx: usize,
     positions: Vec<usize>,
     nucleotides: Vec<u8>
 }
@@ -59,17 +107,17 @@ impl fmt::Display for SuccinctSeq {
 
 impl SuccinctSeq {
 
-    pub fn build(record_id:BamRecordId, target_id:usize) -> Self {
+    pub fn build(record_id:BamRecordId, ref_idx:usize) -> Self {
         Self { 
             record_id,
-            target_id,
+            ref_idx,
             positions: vec![],
             nucleotides: vec![] 
         }
     }
 
     pub fn record_id(&self) -> BamRecordId { self.record_id }
-    pub fn tid(&self) -> usize { self.target_id }
+    pub fn tid(&self) -> usize { self.ref_idx }
     pub fn positions(&self) -> &[usize] { &self.positions }
     pub fn nucleotides(&self) -> &[u8] { &self.nucleotides }
 
@@ -87,13 +135,13 @@ impl SuccinctSeq {
         self.nucleotides.push(nuc);
     }
 
-    pub fn from_bam_record(record: &Record, target_variants: &[Var], mut var_idx: usize, read_index: &HashMap<String,usize>) -> Option<SuccinctSeq> {
+    pub fn from_bam_record(record: &Record, target_variants: &[Var], mut var_idx: usize, read_db: &SeqDatabase) -> Option<SuccinctSeq> {
         
         if var_idx >= target_variants.len() {
             return None
         }
 
-        let record_id = BamRecordId::from_record(record, read_index);
+        let record_id = BamRecordId::from_record(record, read_db);
         let target_id = record.tid() as usize;
         let mut sseq = SuccinctSeq::build(record_id, target_id);
 
@@ -175,10 +223,13 @@ impl SuccinctSeq {
 
 
 
-pub fn build_succinct_sequences(bam_path: &Path, variants: &VarDict, read_index: &HashMap<String,usize>, opts: &Options) -> Vec<SuccinctSeq> {
-    
-    let mut target_intervals = crate::bam::bam_target_intervals(bam_path);
-    target_intervals.sort_unstable_by_key(|siv| siv.end - siv.beg);
+pub fn build_succinct_sequences(bam_path: &Path, ref_db: &SeqDatabase, read_db: &SeqDatabase, variants: &VarDict, opts: &Options) -> Vec<SuccinctSeq> {
+
+    let index_to_tid = crate::bam::build_target_index(bam_path, ref_db);
+    let target_intervals = ref_db.sequences.iter().enumerate()
+        .map(|(ref_idx,seq)| SeqInterval{ tid:index_to_tid[ref_idx], beg:0, end:seq.len() })
+        .sorted_unstable_by_key(|iv| -((iv.end-iv.beg) as isize))
+        .collect_vec();
     
     let (tx, rx) = mpsc::channel();
     thread::scope(|scope| {
@@ -202,7 +253,7 @@ pub fn build_succinct_sequences(bam_path: &Path, variants: &VarDict, read_index:
                                 continue
                             }
                             let var_idx = target_variants.partition_point(|var| var.pos < record.reference_start() as usize);
-                            if let Some(sseq) = SuccinctSeq::from_bam_record(&record, target_variants, var_idx, read_index) {
+                            if let Some(sseq) = SuccinctSeq::from_bam_record(&record, target_variants, var_idx, read_db) {
                                 succinct_sequences.push(sseq);
                             }
                         }

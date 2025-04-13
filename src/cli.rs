@@ -34,7 +34,7 @@ pub struct Options {
     pub lookback: usize,
 
     /// Minimum MAPQ value to consider a read alignment
-    #[arg(short = 'q', long = "min-mapq", value_name = "NUM", default_value_t = 10)]
+    #[arg(short = 'q', long = "min-mapq", value_name = "NUM", default_value_t = 20)]
     pub min_mapq: u8,
 
     /// Maximum number of theads
