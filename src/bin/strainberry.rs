@@ -108,8 +108,9 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
 
     // TODO:
     // Consider estimating lookback length when a flag "--auto-lookback" is provided
-    // let read_n75 = bam::estimate_lookback(&bam_path, 75, 0).unwrap_or(opts.lookback);
-    // spdlog::info!("Read N50 {} bp", read_n75);
+    // let read_n90 = strainberry::bam::estimate_lookback(&bam_path, 90, 0).unwrap_or(opts.lookback);
+    // opts.lookback = read_n90;
+    // spdlog::info!("Read N90 {} bp", read_n90);
 
     let ref_intervals = if opts.no_split {
         ref_db.sequences.iter().enumerate()
@@ -175,20 +176,14 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     aware_graph.remove_weak_edges(5);
     aware_graph.write_gfa(graphs_dir.join("aware_graph.gfa"), &ref_db)?;
 
-    spdlog::info!("Resolving strain-aware graph");
+    spdlog::info!("Strain-aware graph resolution");
     let nb_tedges = aware_graph.add_bridges(&read2aware);
     aware_graph.write_dot(graphs_dir.join("aware_graph.dot"))?;
-    spdlog::info!("{} read bridges added", nb_tedges);
+    spdlog::debug!("{nb_tedges} read bridges added");
 
-    let mut num_iter = 1;
-    let mut num_resolved = aware_graph.resolve_read_bridges(opts.min_alt_count);
-    let mut tot_resolved = num_resolved;
-    while num_resolved > 0 {
-        num_iter += 1;
-        num_resolved = aware_graph.resolve_read_bridges(opts.min_alt_count);
-        tot_resolved += num_resolved;
-    }
-    spdlog::info!("{tot_resolved} junctions resolved after {num_iter} iterations");
+    let nb_resolved = aware_graph.resolve_read_bridges(opts.min_alt_count);
+    spdlog::info!("{nb_resolved} junctions resolved");
+
     aware_graph.write_gfa(graphs_dir.join("aware_graph.resolved.gfa"), &ref_db)?;
     aware_graph.write_dot(graphs_dir.join("aware_graph.resolved.dot"))?;
     aware_graph.clear_transitive_edges();

@@ -380,15 +380,27 @@ impl AwareGraph {
     }
 
     pub fn resolve_read_bridges(&mut self, min_reads:usize) -> usize {
-        let mut resolved = 0;
-        let mut junctions = self.find_junctions();
-        junctions.sort_unstable_by_key(|j| j.size());
-        for junc in &junctions {
-            // println!("Resolving junction: {junc}");
-            resolved += self.resolve_read_junction(junc, min_reads) as usize;
+
+        let mut tot_resolved = 0;
+        for num_iter in 1_usize.. {
+
+            spdlog::debug!("graph simplification iteration #{num_iter}");
+
+            let mut nb_resolved = 0;
+            let mut junctions = self.find_junctions();
+            junctions.sort_by_key(|j| j.size());
+            for junc in &junctions {
+                nb_resolved += self.resolve_read_junction(junc, min_reads) as usize;
+            }
+
+            if nb_resolved == 0 {
+                break
+            }
+
+            tot_resolved += nb_resolved;
         }
-        // println!("Junction resolution: found={} resolved={resolved}", junctions.len());
-        resolved
+
+        tot_resolved
     }
 
     fn resolve_read_junction(&mut self, junc:&Junction, min_reads:usize) -> bool {
@@ -417,7 +429,6 @@ impl AwareGraph {
         // if inner_length <= 10_000 && (is_fully_covered && !is_strictly_covered) {
         //     spdlog::debug!("{junc} Length={inner_length}");
         //     spdlog::debug!("  is_fully_covered: {is_fully_covered}");
-        //     spdlog::debug!("  is_strictly_covered: {is_strictly_covered}");
         //     spdlog::debug!("  bridges:");
         //     for edge_key in &bridges {
         //         let nb_reads = self.get_transitive(edge_key).unwrap().observations;
@@ -549,9 +560,9 @@ impl AwareGraph {
                 };
                 // TODO: for now I check that all nodes in the path have a low coverage
                 // think about a different (better?) way to keep/discard paths
-                if nodes.iter().all(|nid| self.nodes[nid].ctg.depth() < 5.0 ) {
-                    continue
-                }
+                // if nodes.iter().all(|nid| self.nodes[nid].ctg.depth() < 5.0 ) {
+                //     continue
+                // }
                 let id = aware_paths.len();
                 nodes.iter().for_each(|n| { node_to_path.insert(*n, id); });
                 aware_paths.push(AwarePath{ nodes, edges });
