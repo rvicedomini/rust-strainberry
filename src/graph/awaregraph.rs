@@ -721,6 +721,10 @@ impl AwareGraph {
 
         // TODO: handle self loops
         for edge_key in self.edges.keys() {
+
+            if !node_index.contains_key(&edge_key.id_from) || !node_index.contains_key(&edge_key.id_to) {
+                continue
+            }
             
             let id_from = node_index[&edge_key.id_from];
             let id_to = node_index[&edge_key.id_to];
