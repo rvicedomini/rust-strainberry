@@ -31,7 +31,7 @@ impl SeqDatabase {
 
     pub fn build(path: &Path, index_names: bool) -> Result<SeqDatabase> {
 
-        let mut reader = needletail::parse_fastx_file(&path)?;
+        let mut reader = needletail::parse_fastx_file(path)?;
     
         let mut index = HashMap::new();
         let mut sequences = Vec::new();

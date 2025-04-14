@@ -97,7 +97,7 @@ fn load_variants_at_positions(bam_reader: &mut IndexedReader, tid: usize, positi
                     let base = alignment.record().seq()[alignment.qpos().unwrap()];
                     let base = 0b11 & ((base >> 2) ^ (base >> 1));
                     let b = 2 * (base as usize) + (record.is_reverse() as usize);
-                    strand_counts[b as usize] += 1;
+                    strand_counts[b] += 1;
                 }
             }
         }
