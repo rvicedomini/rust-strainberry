@@ -90,7 +90,7 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     spdlog::info!("{} sequences processed", ref_db.size());
 
     spdlog::info!("Building read index");
-    let read_db = seq::SeqDatabase::build(&reads_path, false)?;
+    let read_db = seq::SeqDatabase::build(reads_path, false)?;
     spdlog::info!("{} sequences processed", read_db.size());
 
     let variants = if let Some(vcf) = &opts.vcf {
@@ -107,10 +107,10 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     spdlog::info!("{} variants found", variants.values().map(|vars| vars.len()).sum::<usize>());    
 
     // TODO:
-    // Consider estimating lookback length when a flag "--auto-lookback" is provided
-    // let read_n90 = strainberry::bam::estimate_lookback(&bam_path, 90, 0).unwrap_or(opts.lookback);
-    // opts.lookback = read_n90;
-    // spdlog::info!("Read N90 {} bp", read_n90);
+    // Consider setting lookback as read Nx for an appropriate value of x.
+    let read_n75 = strainberry::bam::estimate_lookback(&bam_path, 75, 0).unwrap();
+    opts.lookback = read_n75;
+    spdlog::info!("Read N75 {} bp", read_n75);
 
     let ref_intervals = if opts.no_split {
         ref_db.sequences.iter().enumerate()
