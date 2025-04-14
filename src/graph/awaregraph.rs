@@ -388,7 +388,7 @@ impl AwareGraph {
 
             let mut nb_resolved = 0;
             let mut junctions = self.find_junctions();
-            junctions.sort_by_key(|j| j.size());
+            junctions.sort_by_key(|j| j.inner_nodes().map(|x| self.nodes[&x].ctg.length()).sum::<usize>());
             for junc in &junctions {
                 nb_resolved += self.resolve_read_junction(junc, min_reads) as usize;
             }
@@ -426,7 +426,7 @@ impl AwareGraph {
         });
 
         // let inner_length: usize = junc.inner_nodes().map(|x| self.nodes[&x].ctg.length()).sum();
-        // if inner_length <= 10_000 && (is_fully_covered && !is_strictly_covered) {
+        // if inner_length <= 10_000 && !is_fully_covered {
         //     spdlog::debug!("{junc} Length={inner_length}");
         //     spdlog::debug!("  is_fully_covered: {is_fully_covered}");
         //     spdlog::debug!("  bridges:");
@@ -444,7 +444,7 @@ impl AwareGraph {
         }
 
         if !is_strictly_covered {
-            // println!("  not strictly covered");
+            // try remove low-weight edges and see if it becomes strictly covered.
             bridges.retain(|key| self.get_transitive(key).is_some_and(|e| e.observations >= min_reads));
             let ndeg: HashMap<usize, usize> = crate::utils::counter_from_iter(bridges.iter().flat_map(|key| [key.id_from,key.id_to]));
             if junc.inout_nodes().any(|n| ndeg.get(&n).is_none_or(|c| *c == 0)) {
