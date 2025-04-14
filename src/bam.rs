@@ -116,7 +116,7 @@ pub fn seq_length_from_cigar(cigarstring: &CigarString, include_hard_clip: bool)
 
 
 pub fn estimate_lookback(bam_path: &Path, n: usize, nb_reads: usize) -> Option<usize> {
-    if n < 10 || n > 90 {
+    if !(10..=90).contains(&n) {
         return None
     }
 
