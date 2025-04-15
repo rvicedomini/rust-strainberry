@@ -75,7 +75,7 @@ pub fn run_minimap2(reference: &Path, reads: &Path, bam: &Path, opts: &Options) 
         crate::cli::Mode::Nano => "-xmap-ont",
     };
     
-    let mm2_args = ["-t", &opts.nb_threads.to_string(), "-a", mm2_preset, "--no-long-join", reference.to_str().unwrap(), reads.to_str().unwrap()];
+    let mm2_args = ["-t", &opts.nb_threads.to_string(), "-a", mm2_preset, "--no-long-join", "-r100", reference.to_str().unwrap(), reads.to_str().unwrap()];
     let minimap2 = Command::new("minimap2")
         .args(mm2_args)
         .stdout(Stdio::piped())
