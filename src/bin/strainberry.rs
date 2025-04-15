@@ -108,9 +108,9 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
 
     // TODO:
     // Consider setting lookback as read Nx for an appropriate value of x.
-    let read_n75 = strainberry::bam::estimate_lookback(&bam_path, 75, 0).unwrap();
-    opts.lookback = read_n75;
-    spdlog::info!("Read N75 {} bp", read_n75);
+    // let read_n75 = strainberry::bam::estimate_lookback(&bam_path, 75, 0).unwrap();
+    // opts.lookback = read_n75;
+    // spdlog::info!("Read N75 {} bp", read_n75);
 
     let ref_intervals = if opts.no_split {
         ref_db.sequences.iter().enumerate()
@@ -126,24 +126,46 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     spdlog::info!("Loading read alignments");
     let read_alignments = seq::alignment::load_bam_alignments(&bam_path, &ref_db, &read_db, &opts);
 
-    if opts.no_phase {
+    // if opts.no_phase {
 
-        let aware_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &HashMap::new(), opts.min_aware_ctg_len);
+    //     let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &HashMap::new(), opts.min_aware_ctg_len);
         
-        let split_assembly = preprocess_dir.join("assembly_split.fasta");
-        let mut writer = crate::utils::get_file_writer(&split_assembly);
-        for ac in aware_contigs {
-            let header = format!(">{}_{}-{}\n", ac.tid(), ac.beg(), ac.end());
-            writer.write_all(header.as_bytes())?;
-            let sequence = ref_db.sequences[ac.tid()].subseq(ac.beg(),ac.end());
-            let sequence = crate::utils::insert_newlines(std::str::from_utf8(&sequence)?, 120);
-            writer.write_all(sequence.as_bytes())?;
-            writer.write_all(b"\n")?;
-        }
+    //     spdlog::info!("{} strain-aware contigs built", aware_contigs.len());
 
-        spdlog::info!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
-        return Ok(());
-    }
+    //     spdlog::info!("Building succinct reads");
+    //     let succinct_reads = seq::build_succinct_sequences(&bam_path, &ref_db, &read_db, &variants, &opts);
+
+    //     spdlog::info!("Read realignment to haplotypes");
+    //     let seq2haplo = strainberry::phase::separate_reads(&succinct_reads, &HashMap::new(), opts.min_shared_snv);
+
+    //     spdlog::info!("Mapping reads to strain-aware contigs");
+    //     let read2aware = strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut aware_contigs, &seq2haplo);
+
+    //     let graphs_dir = output_dir.join("40-graphs");
+    //     fs::create_dir_all(graphs_dir.as_path()).with_context(|| format!("Cannot create graphs directory: \"{}\"", graphs_dir.display()))?;
+        
+    //     spdlog::info!("Building strain-aware graph");
+    //     let mut aware_graph = AwareGraph::build(&aware_contigs);
+    //     aware_graph.add_edges_from_aware_alignments(&read2aware);
+    //     aware_graph.write_gfa(graphs_dir.join("aware_graph.raw.gfa"), &ref_db)?;
+
+    //     aware_graph.remove_weak_edges(5);
+    //     aware_graph.write_gfa(graphs_dir.join("aware_graph.gfa"), &ref_db)?;
+
+    //     spdlog::info!("Strain-aware graph resolution");
+    //     let nb_tedges = aware_graph.add_bridges(&read2aware);
+    //     aware_graph.write_dot(graphs_dir.join("aware_graph.dot"))?;
+    //     spdlog::debug!("{nb_tedges} read bridges added");
+
+    //     let nb_resolved = aware_graph.resolve_read_bridges(opts.min_alt_count);
+    //     spdlog::info!("{nb_resolved} junctions resolved");
+
+    //     aware_graph.write_gfa(graphs_dir.join("aware_graph.resolved.gfa"), &ref_db)?;
+    //     aware_graph.write_dot(graphs_dir.join("aware_graph.resolved.dot"))?;
+
+    //     spdlog::info!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
+    //     return Ok(());
+    // }
 
     let phased_dir = output_dir.join("20-phased");
     spdlog::info!("Phasing strains");
