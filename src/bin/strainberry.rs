@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Instant;
 
-use ahash::AHashMap as HashMap;
+// use ahash::AHashMap as HashMap;
 use anyhow::{bail,Context};
 use clap::Parser;
 use itertools::Itertools;
@@ -38,10 +38,12 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
         (None, None) => { bail!("Either --in-hifi or --in-ont is required. For more information, try '--help'.") },
         (Some(hifi_path), None) => {
             opts.mode = cli::Mode::Hifi;
+            opts.strand_bias_pvalue = 0.005;
             Path::new(hifi_path)
         },
         (None, Some(ont_path)) => {
             opts.mode = cli::Mode::Nano;
+            opts.strand_bias_pvalue = 0.01;
             Path::new(ont_path)
         },
         _ => unreachable!()
@@ -108,9 +110,9 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
 
     // TODO:
     // Consider setting lookback as read Nx for an appropriate value of x.
-    // let read_n75 = strainberry::bam::estimate_lookback(&bam_path, 75, 0).unwrap();
+    let read_n75 = strainberry::bam::estimate_lookback(&bam_path, 75, 0).unwrap();
+    spdlog::info!("Read N75 {} bp", read_n75);
     // opts.lookback = read_n75;
-    // spdlog::info!("Read N75 {} bp", read_n75);
 
     let ref_intervals = if opts.no_split {
         ref_db.sequences.iter().enumerate()
@@ -195,7 +197,7 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     aware_graph.write_gfa(graphs_dir.join("aware_graph.raw.gfa"), &ref_db)?;
     aware_graph.write_dot(graphs_dir.join("aware_graph.raw.dot"))?;
 
-    aware_graph.remove_weak_edges(5);
+    aware_graph.remove_weak_edges(opts.min_alt_count);
     aware_graph.write_gfa(graphs_dir.join("aware_graph.gfa"), &ref_db)?;
 
     spdlog::info!("Strain-aware graph resolution");

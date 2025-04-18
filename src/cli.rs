@@ -97,6 +97,10 @@ pub struct Options {
     #[arg(long = "min-aware-ctg-len", value_name = "NUM", default_value_t = 1000)]
     pub min_aware_ctg_len: usize,
 
+    /// Minimum aware-contig length
+    #[arg(long = "p-value", value_name = "FLOAT", default_value_t = 0.005, hide = true)]
+    pub strand_bias_pvalue: f64,
+
     /// Sequencing read technology
     #[arg(value_enum, long="mode", value_name="STR", default_value_t = Mode::Hifi, hide = true)]
     pub mode: Mode,

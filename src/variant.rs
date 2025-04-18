@@ -67,6 +67,7 @@ fn load_variants_at_positions_threaded(bam_path: &Path, ref_db: &SeqDatabase, po
 fn load_variants_at_positions(bam_reader: &mut IndexedReader, tid: usize, positions: Option<&HashSet<usize>>, opts: &Options) -> Vec<Var> {
 
     let mut variants: Vec<Var> = vec![];
+    // let header = bam_reader.header().clone();
 
     bam_reader.fetch(tid as u32).unwrap();
     for pileup in bam_reader.pileup() {
@@ -113,25 +114,28 @@ fn load_variants_at_positions(bam_reader: &mut IndexedReader, tid: usize, positi
         if alleles.len() == 2 {
 
             // From longshot: https://github.com/pjedge/longshot/blob/99ace95bada7b360dc338deae65073590d6dc35d/src/main.rs#L478
-            // let b1 = alleles[0].0;
-            // let b2 = alleles[1].0;
-            // let counts = [
-            //     strand_counts[2*b1] as u32, strand_counts[2*b1+1] as u32,
-            //     strand_counts[2*b2] as u32, strand_counts[2*b2+1] as u32,
-            // ];
-            // let fishers_exact_pvalues = fishers_exact::fishers_exact(&counts)
-            //     .expect("error calculating Fisher's exact test for strand bias.");
+            let b1 = alleles[0].0;
+            let b2 = alleles[1].0;
+            let counts = [
+                strand_counts[2*b1] as u32, strand_counts[2*b1+1] as u32,
+                strand_counts[2*b2] as u32, strand_counts[2*b2+1] as u32,
+            ];
 
-            // if fishers_exact_pvalues.two_tail_pvalue >= 0.01 {
-            //     // let tid = tid as usize;
-            //     let alleles = alleles.into_iter().map(|(b,c)| (BASES[b], c)).collect();
-            //     let var = Var{tid,pos,depth,alleles};
-            //     variants.push(var);
-            // }
+            let fishers_exact_pvalues = fishers_exact::fishers_exact(&counts)
+                .expect("error calculating Fisher's exact test for strand bias.");
 
-            let alleles = alleles.into_iter().map(|(b,c)| (BASES[b], c)).collect();
-            let var = Var{tid,pos,depth,alleles};
-            variants.push(var);
+            if fishers_exact_pvalues.two_tail_pvalue >= opts.strand_bias_pvalue && counts.iter().all(|c| *c > 1) {
+                // let tid = tid as usize;
+                // let name = std::str::from_utf8(header.tid2name(tid as u32)).unwrap();
+                // spdlog::trace!("{name} @ {pos}: {} | {:?}", fishers_exact_pvalues.two_tail_pvalue, counts);
+                let alleles = alleles.into_iter().map(|(b,c)| (BASES[b], c)).collect();
+                let var = Var{tid,pos,depth,alleles};
+                variants.push(var);
+            }
+
+            // let alleles = alleles.into_iter().map(|(b,c)| (BASES[b], c)).collect();
+            // let var = Var{tid,pos,depth,alleles};
+            // variants.push(var);
         }
     }
 
