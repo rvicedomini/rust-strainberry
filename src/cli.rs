@@ -108,6 +108,10 @@ pub struct Options {
     /// Variant-call method
     #[arg(value_enum, long="call", value_name="STR", default_value_t = VarCaller::Longcalld)]
     pub caller: VarCaller,
+
+    /// Print debug information
+    #[arg(long = "debug")]
+    pub debug:bool,
 }
 
 

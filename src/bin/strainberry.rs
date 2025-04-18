@@ -21,12 +21,14 @@ use strainberry::variant;
 
 
 fn main() -> anyhow::Result<(), anyhow::Error> {
-
-    spdlog::default_logger().set_level_filter(spdlog::LevelFilter::All);
     
     let t_start = Instant::now();
 
     let mut opts = cli::Options::parse();
+
+    if opts.debug {
+        spdlog::default_logger().set_level_filter(spdlog::LevelFilter::MoreSevereEqual(spdlog::Level::Debug));
+    }
 
     utils::check_dependencies(&["minimap2", "samtools", "racon"])?;
 
