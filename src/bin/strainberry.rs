@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Instant;
 
-// use ahash::AHashMap as HashMap;
+use ahash::AHashMap as HashMap;
 use anyhow::{bail,Context};
 use clap::Parser;
 use itertools::Itertools;
@@ -171,6 +171,14 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     //     return Ok(());
     // }
 
+    let ref_intervals = {
+        spdlog::info!("Filtering low-coverage sequences");
+        let mut ref_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &HashMap::new(), opts.min_aware_ctg_len);
+        strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut ref_contigs, &HashMap::new());
+        ref_contigs.retain(|ctg| ctg.depth() >= opts.min_alt_count as f64);
+        ref_contigs.into_iter().map(|ctg| ctg.interval()).collect_vec()
+    };
+
     let phased_dir = output_dir.join("20-phased");
     spdlog::info!("Phasing strains");
     let phaser = phase::Phaser::new(&bam_path, &ref_db, &read_db, &ref_intervals, phased_dir, &opts).unwrap();
@@ -178,7 +186,7 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     spdlog::info!("{} haplotypes phased", haplotypes.len());
 
     spdlog::info!("Building strain-aware contigs");
-    let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &haplotypes, opts.min_aware_ctg_len);
+    let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &haplotypes, 0);
     spdlog::info!("{} strain-aware contigs built", aware_contigs.len());
 
     spdlog::info!("Building succinct reads");
