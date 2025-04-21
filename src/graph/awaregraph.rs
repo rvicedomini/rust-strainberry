@@ -54,14 +54,13 @@ impl AwareGraph {
         // insert edges between contigs adjacent on reference
         aware_contigs.iter().tuple_windows().enumerate()
             .filter(|(_,(a,b))| a.tid() == b.tid() && !a.is_phased() && !b.is_phased())
-            // .filter(|(_,(a,b))| a.depth() >= 5.0 && b.depth() >= 5.0)
             .for_each(|(i,(a,b))| {
                 let edge_key = EdgeKey::new(i, b'-', i+1, b'+');
-                let canon_key = biedge::canonical_edgekey(&edge_key);
-                let edge = aware_graph.get_biedge_or_create(&canon_key);
+                let edge = aware_graph.get_biedge_or_create(&edge_key);
                 let interval = SeqInterval{ tid: a.tid(), beg: a.end(), end: b.beg() };
                 // strand of edge sequence is defined according to the "direction" of the canonical edge
-                let aware_contig = AwareContig::new(SeqType::Unphased, interval, b'-', 0);
+                assert!(edge_key.is_canonical());
+                let aware_contig = AwareContig::new(SeqType::Unphased, interval, b'+', 0);
                 edge.seq_desc.push(aware_contig);
             });
 
@@ -341,6 +340,10 @@ impl AwareGraph {
                 if in_edges.len() <= 1 {
                     continue
                 }
+                if !in_edges.iter().all(|edge_key| self.node_degree(edge_key.id_to, edge_key.strand_to) == 1) {
+                    continue
+                }
+
                 // possibly found the "start" of junction
                 visited.insert((node_id,node_dir));
                 let mut junc = Junction::new();
@@ -361,9 +364,15 @@ impl AwareGraph {
                     if out_edges.len() > 1 { // found the "end" of the junction
                         visited.insert((src,src_dir));
                         junc.out_edges.extend(out_edges);
+
+                        if !junc.outputs().all(|(node_id,dir)| self.node_degree(node_id, dir) == 1) {
+                            break;
+                        }
+
                         if HashSet::from_iter(junc.input_nodes()).intersection(&HashSet::from_iter(junc.output_nodes())).count() == 0 {
                             junctions.push(junc);
                         }
+
                         break;
                     }
                     node = &self.nodes[&succ];
@@ -389,6 +398,25 @@ impl AwareGraph {
             let mut nb_resolved = 0;
             let mut junctions = self.find_junctions();
             junctions.sort_by_key(|j| j.inner_nodes().map(|x| self.nodes[&x].ctg.length()).sum::<usize>());
+
+            // if num_iter == 1 {
+            //     for junc in junctions.iter().filter(|j| j.inner_nodes().map(|x| self.nodes[&x].ctg.length()).sum::<usize>() < 3000) {
+            //         let mut bridges = vec![];
+            //         for (node_id, node_dir) in junc.inputs() {
+            //             for t_key in &self.nodes[&node_id].transitives {
+            //                 if (t_key.strand_from == node_dir) && junc.outputs().any(|out| out == (t_key.id_to,t_key.strand_to)) {
+            //                     let tedge = self.get_transitive(t_key).unwrap();
+            //                     bridges.push((*t_key,tedge.observations));
+            //                 }
+            //             }
+            //         }
+            //         spdlog::debug!("small junction: {junc}:");
+            //         for (edge_key, nb_reads) in bridges {
+            //             spdlog::debug!("  * {edge_key}: {nb_reads}");
+            //         }
+            //     }
+            // }
+
             for junc in &junctions {
                 nb_resolved += self.resolve_read_junction(junc, min_reads) as usize;
             }
@@ -681,7 +709,7 @@ impl AwareGraph {
 
             // run racon to polish the backbone sequence with strain-specific reads
 
-            let polished_path = work_dir.join(format!("{}.polished.fa", id));
+            let polished_path = tmp_dir.join(format!("{}.polished.fa", id));
             crate::polish::racon_polish(&target_path, &read_path, &polished_path, PolishMode::Oblivious, &tmp_dir, opts)?;
             
             let polished_sequence = {
@@ -709,6 +737,51 @@ impl AwareGraph {
         Ok(haplotigs)
     }
 
+    fn write_info(&self, ref_db: &SeqDatabase, read_db: &SeqDatabase, aware_paths:&[AwarePath], info_path:&Path) -> Result<()> {
+        
+        let mut info_writer = crate::utils::get_file_writer(info_path);
+        
+        for (utg_id, ap) in aware_paths.iter().enumerate() {
+            let node_id = unsafe { ap.nodes.first().unwrap_unchecked() };
+            let node_dir = if ap.edges.is_empty() { b'+' } else { flip_strand(ap.edges[0].strand_from) };
+            let node_iter = std::iter::once((*node_id, node_dir))
+                .chain(ap.edges.iter().map(|key| (key.id_to, key.strand_to)));
+
+            let mut utg_pos = 0;
+            for (node_id, node_dir) in node_iter {
+
+                let aware_contig = &self.nodes[&node_id].ctg;
+                let SeqInterval { tid, beg, end } = aware_contig.interval();
+                let is_reverse = node_dir != aware_contig.strand();
+                let strand = b"+-"[is_reverse as usize] as char;
+                let ctg_len = end - beg;
+                let utg_end = utg_pos + ctg_len;
+
+                match aware_contig.contig_type() {
+                    SeqType::Unphased => {
+                        let ref_name = ref_db.names[tid].as_str();
+                        let line = format!("{utg_id}\t{utg_pos}\t{utg_end}\t{ctg_len}\tREF\t{ref_name}\t{beg}\t{end}\t{strand}\n");
+                        info_writer.write_all(line.as_bytes())?;
+                    },
+                    SeqType::Haplotype(hid) => {
+                        let ref_name = ref_db.names[tid].as_str();
+                        let line = format!("{utg_id}\t{utg_pos}\t{utg_end}\t{ctg_len}\tHAP\t{ref_name}\t{beg}\t{end}\th{hid}\t{strand}\n");
+                        info_writer.write_all(line.as_bytes())?;
+                    },
+                    SeqType::Read => {
+                        let read_name = read_db.names[tid].as_str();
+                        let line = format!("{utg_id}\t{utg_pos}\t{utg_end}\t{ctg_len}\tREAD\t{read_name}\t{beg}\t{end}\t{strand}\n");
+                        info_writer.write_all(line.as_bytes())?;
+                    },
+                };
+
+                utg_pos = utg_end;
+            }
+        }
+
+        Ok(())
+    }
+
     // TODO: handle self loops
     // TODO: handle negative gaps
     pub fn build_assembly_graph(&mut self, ref_db: &SeqDatabase, read_db: &SeqDatabase, fragment_dir:&Path, work_dir:&Path, opts: &Options) -> Result<AsmGraph<usize>> {
@@ -719,6 +792,9 @@ impl AwareGraph {
         self.expand_edges();
 
         let (aware_paths, node_index) = self.extract_aware_paths();
+
+        let info_path = work_dir.join("paths.info.txt");
+        self.write_info(ref_db, read_db, &aware_paths, &info_path)?;
         
         let haplotigs = self.build_haplotigs(&aware_paths, ref_db, read_db, fragment_dir, work_dir, opts)?;
         assert!(haplotigs.len() == aware_paths.len());
