@@ -94,7 +94,7 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     spdlog::info!("{} sequences processed", ref_db.size());
 
     spdlog::info!("Building read index");
-    let read_db = seq::SeqDatabase::build(reads_path, false)?;
+    let read_db = seq::SeqDatabase::build(reads_path, true)?;
     spdlog::info!("{} sequences processed", read_db.size());
 
     let variants = if let Some(vcf) = &opts.vcf {
