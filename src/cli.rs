@@ -34,7 +34,7 @@ pub struct Options {
     pub lookback: usize,
 
     /// Minimum MAPQ value to consider a read alignment
-    #[arg(short = 'q', long = "min-mapq", value_name = "NUM", default_value_t = 10)]
+    #[arg(short = 'q', long = "min-mapq", value_name = "NUM", default_value_t = 30)]
     pub min_mapq: u8,
 
     /// Maximum number of theads
@@ -94,7 +94,7 @@ pub struct Options {
     pub min_overhang: usize,
 
     /// Minimum aware-contig length
-    #[arg(long = "min-aware-ctg-len", value_name = "NUM", default_value_t = 1000)]
+    #[arg(long = "min-aware-ctg-len", value_name = "NUM", default_value_t = 3000)]
     pub min_aware_ctg_len: usize,
 
     /// Minimum aware-contig length
