@@ -235,13 +235,13 @@ impl AwareGraph {
             .filter_map(|&edge_id| {
                 let edge = self.get_biedge_idx(edge_id);
                 if edge.observations < min_obs {
-                    return Some(&edge.key)
-                    // // delete only edges that would not disconnect another node
-                    // let a_degree = self.node_degree(edge.key.id_from, edge.key.strand_from);
-                    // let b_degree = self.node_degree(edge.key.id_to, edge.key.strand_to);
-                    // if a_degree != 1 && b_degree != 1 {
-                    //     return Some(&edge.key)
-                    // }
+                    // return Some(&edge.key)
+                    // delete only edges that would not disconnect another node
+                    let a_degree = self.node_degree(edge.key.id_from, edge.key.strand_from);
+                    let b_degree = self.node_degree(edge.key.id_to, edge.key.strand_to);
+                    if a_degree != 1 && b_degree != 1  {
+                        return Some(&edge.key)
+                    }
                 }
                 None
             }).cloned().collect_vec();
