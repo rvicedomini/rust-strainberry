@@ -527,7 +527,7 @@ impl AwareGraph {
             // remove low-weight edges while keeping the junction fully covered
             bridges.sort_by_key(|key| -(self.get_transitive(key).unwrap().observations as i32));
             loop {
-                if self.get_transitive(bridges.last().unwrap()).unwrap().observations < min_reads {
+                if self.get_transitive(bridges.last().unwrap()).unwrap().observations >= min_reads {
                     break
                 }
                 let ndeg: HashMap<usize, usize> = crate::utils::counter_from_iter(bridges[..bridges.len()-1].iter().flat_map(|key| [key.id_from,key.id_to]));
