@@ -148,6 +148,12 @@ impl AwareGraph {
         self.edge_data.get(edge_idx)
     }
 
+    fn get_transitive_mut(&mut self, edge_key:&EdgeKey) -> Option<&mut BiEdge> {
+        let edge_key = biedge::canonical_edgekey(edge_key);
+        let edge_idx = *self.transitives.get(&edge_key)?;
+        self.edge_data.get_mut(edge_idx)
+    }
+
     fn get_transitive_or_create(&mut self, edge_key:&EdgeKey) -> &mut BiEdge {
         let edge_key= biedge::canonical_edgekey(edge_key).into_owned();
         let edge_id = *self.transitives.entry(edge_key).or_insert_with_key(|edge_key| {
@@ -241,6 +247,22 @@ impl AwareGraph {
     }
 
     pub fn remove_weak_edges(&mut self, min_obs:usize) {
+
+        let weak_bridges = self.edges.keys()
+            .filter(|&edge_key| self.contains_transitive(edge_key))
+            .filter(|&edge_key| {
+                let edge_len = self.get_biedge(edge_key).unwrap().gaps.first().unwrap_or(&0).abs();
+                let transitive_len = self.get_transitive(edge_key).unwrap().gaps.first().unwrap_or(&0).abs();
+                1.0 - (edge_len.min(transitive_len) as f64 / edge_len.max(transitive_len) as f64) < 0.3
+            }).cloned().collect_vec();
+        
+        weak_bridges.iter().for_each(|edge_key| {
+            let nb_reads = self.get_biedge(edge_key).unwrap().observations;
+            let transitive = self.get_transitive_mut(edge_key).unwrap();
+            transitive.observations += nb_reads;
+            self.remove_biedge(edge_key);
+        });
+
         let weak_edges = self.edges.values()
             .filter_map(|&edge_id| {
                 let edge = self.get_biedge_idx(edge_id);
@@ -501,18 +523,37 @@ impl AwareGraph {
                 self.remove_transitives_from(&bridges);
                 return false
             }
-            if !is_strictly_covered {
-                // try remove low-weight edges and see if it becomes strictly covered.
-                bridges.retain(|key| self.get_transitive(key).is_some_and(|e| e.observations >= min_reads));
-                let ndeg: HashMap<usize, usize> = crate::utils::counter_from_iter(bridges.iter().flat_map(|key| [key.id_from,key.id_to]));
-                if junc.inout_nodes().any(|n| ndeg.get(&n).is_none_or(|c| *c == 0)) {
-                    self.remove_transitives_from(&bridges);
-                    return false
+
+            // remove low-weight edges while keeping the junction fully covered
+            bridges.sort_by_key(|key| -(self.get_transitive(key).unwrap().observations as i32));
+            loop {
+                if self.get_transitive(bridges.last().unwrap()).unwrap().observations < min_reads {
+                    break
+                }
+                let ndeg: HashMap<usize, usize> = crate::utils::counter_from_iter(bridges[..bridges.len()-1].iter().flat_map(|key| [key.id_from,key.id_to]));
+                let is_fully_covered = junc.inout_nodes().all(|n| ndeg.get(&n).is_some_and(|c| *c > 0));
+                if is_fully_covered {
+                    bridges.pop();
+                } else {
+                    break
                 }
             }
-        // } else {
+
+            // if !is_strictly_covered {
+            //     // try remove low-weight edges and see if it becomes strictly covered.
+            //     bridges.retain(|key| self.get_transitive(key).is_some_and(|e| e.observations >= min_reads));
+            //     let ndeg: HashMap<usize, usize> = crate::utils::counter_from_iter(bridges.iter().flat_map(|key| [key.id_from,key.id_to]));
+            //     if junc.inout_nodes().any(|n| ndeg.get(&n).is_none_or(|c| *c == 0)) {
+            //         self.remove_transitives_from(&bridges);
+            //         return false
+            //     }
+            // }
+        // } else { // small junction
+
         //     bridges.retain(|key| self.get_transitive(key).is_some_and(|e| e.observations >= min_reads));
-        //     if bridges.is_empty() {
+        //     let ndeg: HashMap<usize, usize> = crate::utils::counter_from_iter(bridges.iter().flat_map(|key| [key.id_from,key.id_to]));
+        //     let is_fully_covered = junc.inout_nodes().all(|n| ndeg.get(&n).is_some_and(|c| *c > 0));
+        //     if bridges.is_empty() || !is_fully_covered {
         //         return false;
         //     }
         // }
