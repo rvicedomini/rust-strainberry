@@ -210,12 +210,14 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     aware_graph.remove_weak_edges(opts.min_alt_count);
     aware_graph.write_gfa(graphs_dir.join("aware_graph.gfa"), &ref_db)?;
 
+    aware_graph.find_mini_bubbles();
+
     spdlog::info!("Strain-aware graph resolution");
     let nb_tedges = aware_graph.add_bridges(&read2aware);
     aware_graph.write_dot(graphs_dir.join("aware_graph.dot"))?;
     spdlog::debug!("{nb_tedges} read bridges added");
 
-    let nb_resolved = aware_graph.resolve_read_bridges(opts.min_alt_count);
+    let nb_resolved = aware_graph.resolve_read_bridges(opts.min_alt_count, opts.lookback);
     spdlog::info!("{nb_resolved} junctions resolved");
 
     aware_graph.write_gfa(graphs_dir.join("aware_graph.resolved.gfa"), &ref_db)?;

@@ -230,6 +230,16 @@ impl AwareGraph {
             .count()
     }
 
+    fn edges_from(&self, node_id:usize, dir:u8) -> impl Iterator<Item = &EdgeKey> {
+        self.nodes[&node_id].edges.iter()
+            .filter(move |&key| key.strand_from == dir)
+    }
+
+    fn successors(&self, node_id:usize, dir:u8) -> impl Iterator<Item = (usize,u8)> {
+        self.edges_from(node_id, dir)
+            .map(|edge_key| (edge_key.id_to, edge_key.strand_to))
+    }
+
     pub fn remove_weak_edges(&mut self, min_obs:usize) {
         let weak_edges = self.edges.values()
             .filter_map(|&edge_id| {
@@ -388,7 +398,7 @@ impl AwareGraph {
         junctions
     }
 
-    pub fn resolve_read_bridges(&mut self, min_reads:usize) -> usize {
+    pub fn resolve_read_bridges(&mut self, min_reads:usize, max_len:usize) -> usize {
 
         let mut tot_resolved = 0;
         for num_iter in 1_usize.. {
@@ -418,7 +428,7 @@ impl AwareGraph {
             // }
 
             for junc in &junctions {
-                nb_resolved += self.resolve_read_junction(junc, min_reads) as usize;
+                nb_resolved += self.resolve_read_junction(junc, min_reads, max_len) as usize;
             }
 
             if nb_resolved == 0 {
@@ -431,7 +441,7 @@ impl AwareGraph {
         tot_resolved
     }
 
-    fn resolve_read_junction(&mut self, junc:&Junction, min_reads:usize) -> bool {
+    fn resolve_read_junction(&mut self, junc:&Junction, min_reads:usize, max_len:usize) -> bool {
         // first check if it is still a valid junction
         if junc.inputs().any(|(node_id,_)| !self.nodes.contains_key(&node_id)) || junc.outputs().any(|(node_id,_)| !self.nodes.contains_key(&node_id)) {
             return false
@@ -453,6 +463,26 @@ impl AwareGraph {
             ndeg.get(&key.id_from).is_some_and(|c| *c == 1) || ndeg.get(&key.id_to).is_some_and(|c| *c == 1)
         });
 
+        // let max_junction_len = {
+
+        //     let max_input_len = junc.in_edges.iter()
+        //         .map(|key| *self.get_biedge(&key).unwrap().gaps.first().unwrap_or(&0))
+        //         .max().unwrap_or(0);
+
+        //     let inner_nodes_len = junc.inner_nodes()
+        //         .map(|node_id| self.nodes[&node_id].ctg.length() as i32)
+        //         .sum::<i32>();
+        //     let inner_edges_len = junc.mid_edges.iter()
+        //         .map(|key| *self.get_biedge(&key).unwrap().gaps.first().unwrap_or(&0))
+        //         .max().unwrap_or(0);
+
+        //     let max_output_len = junc.out_edges.iter()
+        //     .map(|key| *self.get_biedge(&key).unwrap().gaps.first().unwrap_or(&0))
+        //     .max().unwrap_or(0);
+
+        //     max_input_len + inner_edges_len + inner_nodes_len + max_output_len
+        // };
+
         // let inner_length: usize = junc.inner_nodes().map(|x| self.nodes[&x].ctg.length()).sum();
         // if inner_length <= 10_000 && !is_fully_covered {
         //     spdlog::debug!("{junc} Length={inner_length}");
@@ -465,21 +495,27 @@ impl AwareGraph {
         //     }
         // }
 
-        if !is_fully_covered {
-            // println!("  not fully covered");
-            self.remove_transitives_from(&bridges);
-            return false
-        }
-
-        if !is_strictly_covered {
-            // try remove low-weight edges and see if it becomes strictly covered.
-            bridges.retain(|key| self.get_transitive(key).is_some_and(|e| e.observations >= min_reads));
-            let ndeg: HashMap<usize, usize> = crate::utils::counter_from_iter(bridges.iter().flat_map(|key| [key.id_from,key.id_to]));
-            if junc.inout_nodes().any(|n| ndeg.get(&n).is_none_or(|c| *c == 0)) {
+        // if max_junction_len >= max_len as i32 {
+            if !is_fully_covered {
+                // println!("  not fully covered");
                 self.remove_transitives_from(&bridges);
                 return false
             }
-        }
+            if !is_strictly_covered {
+                // try remove low-weight edges and see if it becomes strictly covered.
+                bridges.retain(|key| self.get_transitive(key).is_some_and(|e| e.observations >= min_reads));
+                let ndeg: HashMap<usize, usize> = crate::utils::counter_from_iter(bridges.iter().flat_map(|key| [key.id_from,key.id_to]));
+                if junc.inout_nodes().any(|n| ndeg.get(&n).is_none_or(|c| *c == 0)) {
+                    self.remove_transitives_from(&bridges);
+                    return false
+                }
+            }
+        // } else {
+        //     bridges.retain(|key| self.get_transitive(key).is_some_and(|e| e.observations >= min_reads));
+        //     if bridges.is_empty() {
+        //         return false;
+        //     }
+        // }
 
         let mut bridge_paths = vec![];
         for EdgeKey { id_from, strand_from, id_to, strand_to } in &bridges {
@@ -550,6 +586,79 @@ impl AwareGraph {
         // delete old nodes/edges
         self.remove_biedges_from(&deleted_edges);
         self.remove_nodes_from(&deleted_nodes);
+    }
+
+
+    pub fn find_mini_bubbles(&self) {
+        
+        let bubble_iter = self.nodes.keys()
+            .flat_map(|node_id| [(node_id,b'-'), (node_id,b'+')])
+            .filter_map(|(node_id, node_dir)| self.detect_mini_bubble_from(*node_id, node_dir))
+            .flat_map(|b| b.into_iter());
+
+        for (key, alts) in bubble_iter {
+
+            let ac_edge = self.get_biedge(&key).unwrap();
+            let ac_len = ac_edge.gaps.first().unwrap_or(&0).abs();
+            let ac_obs = ac_edge.observations;
+
+            for (alt_id, alt_dir) in alts {
+
+                let ab_key = EdgeKey::new(key.id_from, key.strand_from, alt_id, alt_dir);
+                let ab_edge_len = *self.get_biedge(&ab_key).unwrap().gaps.first().unwrap_or(&0);
+
+                let b_len = self.nodes[&alt_id].ctg.length() as i32;
+
+                let bc_key = EdgeKey::new(alt_id, flip_strand(alt_dir), key.id_to, key.strand_to);
+                let bc_edge_len = *self.get_biedge(&bc_key).unwrap().gaps.first().unwrap_or(&0);
+
+                let alt_len = (ab_edge_len + b_len + bc_edge_len).abs();
+                let alt_obs = self.nodes[&alt_id].ctg.depth() as usize;
+
+                if 1.0 - (ac_len.min(alt_len) as f64 / ac_len.max(alt_len) as f64) < 0.3 {
+                    spdlog::warn!("suspicious bridge {key} with node {alt_id}: edge_len={ac_len}/{ac_obs} alt_len={alt_len}/{alt_obs}");
+                }
+            }
+        }
+    }
+
+    // finds small bubbles where src directly connects to sink
+    // and alternative paths contain just one node
+    fn detect_mini_bubble_from(&self, start:usize, start_dir:u8) -> Option<HashMap<EdgeKey,Vec<(usize,u8)>>> {
+
+        use std::collections::VecDeque;
+
+        if self.node_degree(start, start_dir) < 2 {
+            return None
+        }
+
+        let mut bubbles: HashMap<EdgeKey,Vec<(usize,u8)>> = HashMap::new();
+        let mut visited: HashMap<(usize,u8),usize> = HashMap::new();
+        let mut queue = VecDeque::new();
+
+        visited.insert((start,start_dir),0);
+        queue.push_back((start,start_dir,0_usize));
+        while let Some((node,node_dir,dist)) = queue.pop_front() {
+            if dist >= 2 {
+                break
+            }
+            for (succ,succ_dir) in self.successors(node, node_dir) {
+                if visited.get(&(succ,succ_dir)).is_some_and(|succ_dist| *succ_dist == 1) {
+                    let key = EdgeKey::new(start, start_dir, succ, succ_dir);
+                    bubbles.entry(key).or_default().push((node,flip_strand(node_dir)));
+                } else if !visited.contains_key(&(succ,succ_dir)) {
+                    visited.insert((succ,succ_dir), dist+1);
+                    queue.push_back((succ,flip_strand(succ_dir),dist+1));
+                }
+            }
+        }
+
+        bubbles.retain(|_,v| !v.is_empty());
+        if bubbles.is_empty() {
+            return None
+        }
+
+        Some(bubbles)
     }
 
 
