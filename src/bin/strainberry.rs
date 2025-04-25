@@ -168,7 +168,6 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     
     aware_graph.resolve_junctions(opts.min_alt_count);
     aware_graph.write_gfa(graphs_dir.join("aware_graph.resolved.gfa"), &ref_db)?;
-    aware_graph.clear_transitive_edges();
 
     if opts.no_asm {
         return Ok(());
