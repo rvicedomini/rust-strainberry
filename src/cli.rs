@@ -21,9 +21,9 @@ pub struct Options {
     #[arg(short = 'b', long = "bam", value_name = "PATH")]
     pub bam: Option<String>,
 
-    /// User provided vcf file of SNV positions to consider
-    #[arg(short = 'v', long = "vcf", value_name = "PATH")]
-    pub vcf: Option<String>,
+    // /// User provided vcf file of SNV positions to consider
+    // #[arg(short = 'v', long = "vcf", value_name = "PATH")]
+    // pub vcf: Option<String>,
 
     /// Output directory
     #[arg(short = 'o', long = "out-dir", value_name = "PATH")]
@@ -106,7 +106,7 @@ pub struct Options {
     pub mode: Mode,
 
     /// Variant-call method
-    #[arg(value_enum, long="call", value_name="STR", default_value_t = VarCaller::Longcalld)]
+    #[arg(value_enum, long="call", value_name="STR", default_value_t = VarCaller::Pileup, hide = true)]
     pub caller: VarCaller,
 
     /// Print debug information
@@ -123,8 +123,8 @@ pub enum Mode {
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 pub enum VarCaller {
-    Longcalld,
     Pileup,
+    Longcalld,
 }
 
 

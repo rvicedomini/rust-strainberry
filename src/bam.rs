@@ -115,48 +115,6 @@ pub fn seq_length_from_cigar(cigarstring: &CigarString, include_hard_clip: bool)
 }
 
 
-pub fn estimate_lookback(bam_path: &Path, n: usize, nb_reads: usize) -> Option<usize> {
-    if !(10..=90).contains(&n) {
-        return None
-    }
-
-    let mut bam_reader = bam::Reader::from_path(bam_path).unwrap();
-    
-    let mut total_length: usize = 0;
-    let mut read_lengths = Vec::with_capacity(nb_reads);
-    let mut record = bam::Record::new();
-    while (nb_reads == 0 || read_lengths.len() < nb_reads) && bam_reader.read(&mut record).is_some() {
-        if record.is_unmapped() 
-            || record.is_secondary() 
-            || record.is_quality_check_failed() 
-            || record.is_duplicate() 
-            || record.is_supplementary()
-        {
-            continue;
-        }
-        total_length += record.seq_len();
-        read_lengths.push(record.seq_len());
-    }
-
-    if read_lengths.is_empty() {
-        return None
-    }
-
-    read_lengths.sort_unstable_by(|a, b| b.cmp(a));
-    
-    let n = (n * total_length)/100;
-    let mut cumulative: usize = 0;
-    for length in read_lengths {
-        cumulative += length;
-        if cumulative >= n {
-            return Some(length)
-        }
-    }
-
-    None
-}
-
-
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct BamRecordId {
     pub index:usize,

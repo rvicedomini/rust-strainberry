@@ -31,9 +31,9 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     }
 
     utils::check_dependencies(&["minimap2", "samtools", "racon"])?;
-    if opts.caller == cli::VarCaller::Longcalld {
-        utils::check_dependencies(&["longcallD"])?;
-    }
+    // if opts.caller == cli::VarCaller::Longcalld {
+    //     utils::check_dependencies(&["longcallD"])?;
+    // }
 
     if opts.in_hifi.is_none() && opts.in_ont.is_none() {
         bail!("Either --in-hifi or --in-ont is required. For more information, try '--help'.")
@@ -108,26 +108,12 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
 
     spdlog::info!("Building read index");
     let read_db = seq::SeqDatabase::build(reads_path, true)?;
-    spdlog::info!("{} sequences processed", read_db.size());
+    let read_n75 = read_db.compute_nx(75).unwrap();
+    spdlog::debug!("{} sequences loaded / N75: {read_n75}", read_db.size());
 
-    let variants = if let Some(vcf) = &opts.vcf {
-        spdlog::info!("Loading and filtering variants from: {vcf}");
-        variant::load_variants_from_vcf(Path::new(vcf), &bam_path, &ref_db, &opts)
-    } else if opts.caller == cli::VarCaller::Longcalld {
-        spdlog::info!("Calling variants using longcallD");
-        let vcf_path = preprocess_dir.join("variants.vcf.gz");
-        variant::run_longcalld(&reference_path, &bam_path, &ref_db, &vcf_path, &opts)?
-    } else {
-        spdlog::info!("Calling variants from pileup");
-        variant::load_variants_from_bam(&bam_path, &ref_db, &opts)
-    };
-    spdlog::info!("{} variants found", variants.values().map(|vars| vars.len()).sum::<usize>());    
-
-    // TODO:
-    // Consider setting lookback as read Nx for an appropriate value of x.
-    let read_n75 = strainberry::bam::estimate_lookback(&bam_path, 75, 0).unwrap();
-    spdlog::info!("Read N75 {} bp", read_n75);
-    // opts.lookback = read_n75;
+    spdlog::info!("Calling variants from pileup");
+    let variants = variant::load_variants_from_bam(&bam_path, &ref_db, &opts);
+    spdlog::debug!("{} variants identified", variants.values().map(|vars| vars.len()).sum::<usize>());
 
     let ref_intervals = if opts.no_split {
         ref_db.sequences.iter().enumerate()
@@ -136,7 +122,7 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     } else {
         spdlog::info!("Splitting reference at putative misjoins");
         let intervals = misassembly::partition_reference(&bam_path, &ref_db, &read_db, &opts);
-        spdlog::info!("{} sequences after split", intervals.len());
+        spdlog::debug!("{} sequences after split", intervals.len());
         intervals
     };
 

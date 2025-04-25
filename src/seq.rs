@@ -25,6 +25,7 @@ pub struct SeqDatabase {
     pub index: HashMap<String,usize>,
     pub sequences: Vec<BitSeq>,
     pub names: Vec<String>,
+    pub nb_bases: usize,
 }
 
 impl SeqDatabase {
@@ -37,6 +38,7 @@ impl SeqDatabase {
         let mut sequences = Vec::new();
         let mut names = Vec::new();
     
+        let mut nb_bases = 0;
         while let Some(record) = reader.next() {
             let record = record.unwrap();
             let name = std::str::from_utf8(record.id().split(|b| b.is_ascii_whitespace()).next().unwrap()).unwrap();
@@ -44,15 +46,14 @@ impl SeqDatabase {
                 bail!("duplicate reference identifier: {name}");
             }
             let sequence = BitSeq::from_utf8(record.normalize(false).as_ref());
+            nb_bases += sequence.len();
             sequences.push(sequence);
             if index_names {
                 names.push(name.to_string());
             }
         }
-    
         assert!(index.len() == sequences.len());
-    
-        Ok(SeqDatabase { index, sequences, names })
+        Ok(SeqDatabase { index, sequences, names, nb_bases })
     }
 
     pub fn size(&self) -> usize {
@@ -61,6 +62,23 @@ impl SeqDatabase {
 
     pub fn get_index(&self, name: &str) -> usize {
         self.index[name]
+    }
+
+    pub fn compute_nx(&self, x:usize) -> Option<usize> {
+        assert!((10..=90).contains(&x));
+
+        let mut lengths = Vec::with_capacity(self.sequences.len());
+        self.sequences.iter().for_each(|seq| lengths.push(seq.len()));
+        lengths.sort_unstable_by(|a,b| b.cmp(a));
+
+        let mut cumulative_len = 0;
+        for len in lengths {
+            cumulative_len += len;
+            if 100 * cumulative_len >= x * self.nb_bases {
+                return Some(len)
+            }
+        }
+        None
     }
 }
 
