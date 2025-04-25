@@ -49,9 +49,9 @@ pub struct Options {
     #[arg(long = "no-derep")]
     pub no_derep: bool,
 
-    /// Do not split at putative misassembly events
-    #[arg(long = "no-split")]
-    pub no_split: bool,
+    // /// Do not split at putative misassembly events
+    // #[arg(long = "no-split")]
+    // pub no_split: bool,
 
     /// Disable assembly de-replication
     #[arg(long = "no-phase")]

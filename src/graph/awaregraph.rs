@@ -593,11 +593,6 @@ impl AwareGraph {
                     let first = unsafe { edges.first().unwrap_unchecked().id_from };
                     std::iter::once(first).chain(edges.iter().map(|key| key.id_to)).collect_vec()
                 };
-                // TODO: for now I check that all nodes in the path have a low coverage
-                // think about a different (better?) way to keep/discard paths
-                // if nodes.iter().all(|nid| self.nodes[nid].ctg.depth() < 5.0 ) {
-                //     continue
-                // }
                 let id = aware_paths.len();
                 nodes.iter().for_each(|n| { node_to_path.insert(*n, id); });
                 aware_paths.push(AwarePath{ nodes, edges });

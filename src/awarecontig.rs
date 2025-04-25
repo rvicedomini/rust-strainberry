@@ -162,6 +162,8 @@ pub fn build_aware_contigs(ref_intervals:&[SeqInterval], haplotypes:&HashMap<Hap
     );
 
     aware_contigs.sort_by_key(|ctg| (ctg.interval(), ctg.hid()));
+    spdlog::debug!("{} strain-aware contigs built", aware_contigs.len());
+
     aware_contigs
 }
 

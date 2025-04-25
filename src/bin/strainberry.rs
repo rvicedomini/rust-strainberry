@@ -14,8 +14,7 @@ use strainberry::cli;
 use strainberry::graph::awaregraph::AwareGraph;
 use strainberry::misassembly;
 use strainberry::phase;
-// use strainberry::polish::racon_polish;
-use strainberry::seq::{self, SeqInterval};
+use strainberry::seq;
 use strainberry::utils;
 use strainberry::variant;
 
@@ -89,12 +88,13 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     }
 
     if !opts.no_derep {
-        spdlog::info!("Purging duplications from reference: {}", reference_path.display());
+        spdlog::info!("Purging duplications from input reference");
         reference_path = strainberry::derep::derep_assembly(&reference_path, &preprocess_dir, &opts)?;
+        spdlog::info!("Dereplicated reference written to {}", reference_path.display());
     }
 
     let bam_path = if !opts.no_derep || opts.bam.is_none() {
-        spdlog::info!("Mapping reads to reference assembly: {}", reference_path.display());
+        spdlog::info!("Mapping reads to dereplicated reference");
         let bam_path = preprocess_dir.join("alignment.bam");
         utils::run_minimap2(&reference_path, reads_path, &bam_path, &opts)?;
         bam_path
@@ -115,16 +115,9 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     let variants = variant::load_variants_from_bam(&bam_path, &ref_db, &opts);
     spdlog::debug!("{} variants identified", variants.values().map(|vars| vars.len()).sum::<usize>());
 
-    let ref_intervals = if opts.no_split {
-        ref_db.sequences.iter().enumerate()
-            .map(|(ref_idx,seq)| SeqInterval{ tid:ref_idx, beg:0, end:seq.len() })
-            .collect_vec()
-    } else {
-        spdlog::info!("Splitting reference at putative misjoins");
-        let intervals = misassembly::partition_reference(&bam_path, &ref_db, &read_db, &opts);
-        spdlog::debug!("{} sequences after split", intervals.len());
-        intervals
-    };
+    spdlog::info!("Splitting reference at putative misjoins");
+    let ref_intervals = misassembly::partition_reference(&bam_path, &ref_db, &read_db, &opts);
+    spdlog::debug!("{} sequences after split", ref_intervals.len());
 
     spdlog::info!("Loading read alignments");
     let read_alignments = seq::alignment::load_bam_alignments(&bam_path, &ref_db, &read_db, &opts);
@@ -142,14 +135,13 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     };
 
     let phased_dir = output_dir.join("20-phased");
-    spdlog::info!("Phasing strains");
+    spdlog::info!("Phasing strain haplotypes");
     let phaser = phase::Phaser::new(&bam_path, &ref_db, &read_db, &ref_intervals, phased_dir, &opts).unwrap();
     let phaser_result = phaser.phase(&variants);
     spdlog::info!("{} haplotypes phased", phaser_result.haplotypes.len());
 
     spdlog::info!("Building strain-aware contigs");
     let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &phaser_result.haplotypes, 0);
-    spdlog::info!("{} strain-aware contigs built", aware_contigs.len());
 
     spdlog::info!("Building succinct reads");
     let succinct_reads = seq::build_succinct_sequences(&bam_path, &ref_db, &read_db, &variants, &opts);
@@ -189,13 +181,6 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     let assembly_fasta_path = output_dir.join("assembly.fasta");
     unitig_graph.write_fasta(&assembly_fasta_path)?;
     spdlog::info!("Final assembly written to {}", assembly_fasta_path.display());
-
-    // spdlog::info!("Polishing assembly");
-    // let polish_dir = output_dir.join("60-polishing");
-    // let in_reads_path = Path::new(opts.in_hifi.as_ref().unwrap());
-    // let polished_fasta_path = output_dir.join("assembly.fasta");
-    // racon_polish(&unpolished_fasta_path, in_reads_path, &polished_fasta_path, strainberry::polish::PolishMode::Aware, &polish_dir, &opts)?;
-    // spdlog::info!("Final assembly written to {}", polished_fasta_path.display());
     
     Ok(())
 }
