@@ -74,7 +74,8 @@ pub fn canonical_edgekey(edge_key:&EdgeKey) -> Cow<'_, EdgeKey> {
 #[derive(Debug)]
 pub struct BiEdge {
     pub key: EdgeKey, // TODO: check whether I really need to store the key in the struct
-    pub observations: usize,
+    pub nb_reads: usize,
+    pub min_shared_snvs: usize,
     pub gaps: Vec<i32>,
     pub seq_desc: Vec<AwareContig>,
 }
@@ -84,7 +85,8 @@ impl BiEdge {
     pub fn new(key:EdgeKey) -> Self {
         Self {
             key,
-            observations:0,
+            nb_reads:0,
+            min_shared_snvs:0,
             gaps: Vec::new(),
             seq_desc: Vec::new()
         }

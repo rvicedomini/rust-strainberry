@@ -98,7 +98,8 @@ impl AwareGraph {
         let mut edge_key: EdgeKey = EdgeKey::from_alignments(a, b);
         let was_canonical = edge_key.canonicalize();
         let edge = self.get_biedge_or_create(&edge_key);
-        edge.observations += 1;
+        edge.nb_reads += 1;
+        edge.min_shared_snvs = edge.min_shared_snvs.max(a.nb_shared_snvs.min(b.nb_shared_snvs));
         edge.gaps.push((b.query_beg as i32) - (a.query_end as i32));
         if edge.seq_desc.is_empty() && b.query_beg > a.query_end {
             let interval = SeqInterval{ tid: a.query_idx, beg: a.query_end, end: b.query_beg };
@@ -246,7 +247,7 @@ impl AwareGraph {
             .map(|edge_key| (edge_key.id_to, edge_key.strand_to))
     }
 
-    pub fn remove_weak_edges(&mut self, min_obs:usize) {
+    pub fn remove_weak_edges(&mut self, min_reads:usize) {
 
         let weak_bridges = self.edges.keys()
             .filter(|&edge_key| self.contains_transitive(edge_key))
@@ -257,16 +258,16 @@ impl AwareGraph {
             }).cloned().collect_vec();
         
         weak_bridges.iter().for_each(|edge_key| {
-            let nb_reads = self.get_biedge(edge_key).unwrap().observations;
+            let nb_reads = self.get_biedge(edge_key).unwrap().nb_reads;
             let transitive = self.get_transitive_mut(edge_key).unwrap();
-            transitive.observations += nb_reads;
+            transitive.nb_reads += nb_reads;
             self.remove_biedge(edge_key);
         });
 
         let weak_edges = self.edges.values()
             .filter_map(|&edge_id| {
                 let edge = self.get_biedge_idx(edge_id);
-                if edge.observations < min_obs {
+                if edge.nb_reads < min_reads {
                     // return Some(&edge.key)
                     // delete only edges that would not disconnect another node
                     let a_degree = self.node_degree(edge.key.id_from, edge.key.strand_from);
@@ -316,7 +317,8 @@ impl AwareGraph {
                         let mut tedge_key = EdgeKey::from_alignments(a, b);
                         let was_canonical = tedge_key.canonicalize();
                         let tedge = self.get_transitive_or_create(&tedge_key);
-                        tedge.observations += 1;
+                        tedge.nb_reads += 1;
+                        tedge.min_shared_snvs = tedge.min_shared_snvs.max(a.nb_shared_snvs.min(b.nb_shared_snvs));
                         tedge.gaps.push((b.query_beg as i32) - (a.query_end as i32));
                         if tedge.seq_desc.is_empty() && b.query_beg > a.query_end {
                             let interval = SeqInterval{ tid: a.query_idx, beg: a.query_end, end: b.query_beg };
@@ -345,7 +347,7 @@ impl AwareGraph {
                     let mut tedge_key = EdgeKey::from_alignments(a, b);
                     let was_canonical = tedge_key.canonicalize();
                     let tedge = self.get_transitive_or_create(&tedge_key);
-                    tedge.observations += 1;
+                    tedge.nb_reads += 1;
                     tedge.gaps.push((b.query_beg as i32) - (a.query_end as i32));
                     if tedge.seq_desc.is_empty() && b.query_beg > a.query_end {
                         let interval = SeqInterval{ tid: a.query_idx, beg: a.query_end, end: b.query_beg };
@@ -471,14 +473,31 @@ impl AwareGraph {
         // });
 
         if !is_fully_covered {
+            // if !bridges.is_empty() {
+            //     spdlog::debug!("Uncovered junction {junc}");
+            //     for key in &bridges {
+            //         let bridge = self.get_transitive(key).unwrap();
+            //         spdlog::debug!("  * {key} (reads: {}, SNVs:{})", bridge.nb_reads, bridge.min_shared_snvs);
+            //     }
+            // }
             self.remove_transitives_from(&bridges);
             return false
         }
 
+        // if is_fully_covered && !is_strictly_covered {
+        //     if !bridges.is_empty() {
+        //         spdlog::debug!("Junction not strictly covered: {junc}");
+        //         for key in &bridges {
+        //             let bridge = self.get_transitive(key).unwrap();
+        //             spdlog::debug!("  * {key} (reads: {}, SNVs:{})", bridge.nb_reads, bridge.min_shared_snvs);
+        //         }
+        //     }
+        // }
+
         // remove low-weight edges while keeping the junction fully covered
-        bridges.sort_by_key(|key| -(self.get_transitive(key).unwrap().observations as i32));
+        bridges.sort_by_key(|key| -(self.get_transitive(key).unwrap().nb_reads as i32));
         loop {
-            if self.get_transitive(bridges.last().unwrap()).unwrap().observations >= min_reads {
+            if self.get_transitive(bridges.last().unwrap()).unwrap().nb_reads >= min_reads {
                 break
             }
             let ndeg: HashMap<usize, usize> = crate::utils::counter_from_iter(bridges[..bridges.len()-1].iter().flat_map(|key| [key.id_from,key.id_to]));
@@ -489,6 +508,16 @@ impl AwareGraph {
                 break
             }
         }
+
+        // if is_fully_covered && !is_strictly_covered {
+        //     if !bridges.is_empty() {
+        //         spdlog::debug!("Solving with:");
+        //         for key in &bridges {
+        //             let bridge = self.get_transitive(key).unwrap();
+        //             spdlog::debug!("  * {key} (reads: {}, SNVs:{})", bridge.nb_reads, bridge.min_shared_snvs);
+        //         }
+        //     }
+        // }
 
         // if !is_strictly_covered {
         //     // try remove low-weight edges and see if it becomes strictly covered.
@@ -545,13 +574,15 @@ impl AwareGraph {
             let last = unsafe { path.last().unwrap_unchecked() };
             let tkey = EdgeKey::new(first.id_from, first.strand_from, last.id_to, last.strand_to);
             let tedge = self.get_transitive(&tkey).unwrap();
-            let tedge_observations = tedge.observations;
+            let tedge_nb_reads = tedge.nb_reads;
+            let tedge_min_shared_snvs = tedge.min_shared_snvs;
             let tedge_gaps = tedge.gaps.clone();
             let tedge_seq_desc = tedge.seq_desc.clone();
 
             // create new edge
             let edge = self.get_biedge_or_create(&tkey);
-            edge.observations = tedge_observations;
+            edge.nb_reads = tedge_nb_reads;
+            edge.min_shared_snvs = tedge_min_shared_snvs;
             edge.gaps = tedge_gaps; // junc_seq
             edge.seq_desc = tedge_seq_desc;
         }
@@ -875,7 +906,7 @@ impl AwareGraph {
                 SeqType::Unphased => format!("{}_{}-{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), id_to),
                 SeqType::Read => format!("read{}_{}-{}_id{}", node_ctg.tid(), node_ctg.beg(), node_ctg.end(), id_to),
             };
-            let edge_line = format!("L\t{}\t{}\t{}\t{}\t0M\tRC:i:{}\n", name_from, crate::utils::flip_strand(strand_from) as char, name_to, strand_to as char, edge.observations );
+            let edge_line = format!("L\t{}\t{}\t{}\t{}\t0M\tRC:i:{}\n", name_from, crate::utils::flip_strand(strand_from) as char, name_to, strand_to as char, edge.nb_reads );
             gfa.write_all(edge_line.as_bytes())?;
         }
         Ok(())
@@ -897,7 +928,7 @@ impl AwareGraph {
             let arrow_tail = if strand_from == b'+' { "normal" } else { "inv" };
             let arrow_head = if strand_to == b'+' { "normal" } else { "inv" };
             let edge_gap = if edge.gaps.is_empty() { 0 } else { *edge.gaps.iter().sorted_unstable().nth(edge.gaps.len()/2).unwrap() };
-            let edge_label = format!("{}/{}bp", edge.observations, edge_gap);
+            let edge_label = format!("{}/{}bp", edge.nb_reads, edge_gap);
             let edge_line = format!("\t{id_from} -> {id_to}\t[arrowtail={arrow_tail}, arrowhead={arrow_head}, dir=both, label=\"{edge_label}\"];\n");
             dot.write_all(edge_line.as_bytes())?;
         }
@@ -907,7 +938,7 @@ impl AwareGraph {
             let arrow_tail = if strand_from == b'+' { "normal" } else { "inv" };
             let arrow_head = if strand_to == b'+' { "normal" } else { "inv" };
             let edge_gap = if edge.gaps.is_empty() { 0 } else { *edge.gaps.iter().sorted_unstable().nth(edge.gaps.len()/2).unwrap() };
-            let edge_label = format!("{}/{}bp", edge.observations, edge_gap);
+            let edge_label = format!("{}/{}bp", edge.nb_reads, edge_gap);
             let edge_line = format!("\t{id_from} -> {id_to}\t[arrowtail={arrow_tail}, arrowhead={arrow_head}, dir=both, color=\"red\", label=\"{edge_label}\"];\n");
             dot.write_all(edge_line.as_bytes())?;
         }
