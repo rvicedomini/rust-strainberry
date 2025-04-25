@@ -36,14 +36,17 @@ use self::haplotype::{Haplotype, HaplotypeId, HaplotypeHit};
 //   - phased haplotypes (with read files)
 //   - filtered variant positions
 
+#[derive(Default)]
+pub struct PhaseResult {
+    pub haplotypes: HashMap<HaplotypeId,Haplotype>,
+    pub seq2haplo: HashMap<BamRecordId,Vec<HaplotypeHit>>,
+}
+
 pub struct Phaser<'a> {
     bam_path: &'a Path,
     ref_db: &'a SeqDatabase,
     read_db: &'a SeqDatabase,
     ref_intervals: &'a [SeqInterval],
-    // ref_names: &'a [String],
-    // read_index: &'a HashMap<String,usize>,
-    // read_sequences: &'a [BitSeq],
     bam_index: Vec<usize>,
     fragments_dir: PathBuf,
     dots_dir: PathBuf,
@@ -84,7 +87,7 @@ impl<'a> Phaser<'a> {
         self.fragments_dir.as_path()
     }
     
-    pub fn phase(&self, variants: &VarDict) -> HashMap<HaplotypeId,Haplotype> {
+    pub fn phase(&self, variants: &VarDict) -> PhaseResult {
 
         let mut interval_variants = vec![];
         for siv in self.ref_intervals {
@@ -106,27 +109,31 @@ impl<'a> Phaser<'a> {
                 let inteval_variants_ref = &interval_variants;
                 scope.spawn(move || {
                     for &(target_interval, variants) in inteval_variants_ref[thread_id..].iter().step_by(nb_threads) {
-                        let haplotypes = self.phase_interval(target_interval, variants);
-                        sender.send(haplotypes).unwrap();
+                        let result = self.phase_interval(target_interval, variants);
+                        sender.send(result).unwrap();
                     }
                 });
             }
         });
 
-        (0..interval_variants.len())
-            .flat_map(|_| rx.recv().unwrap())
-            .collect()
+        let mut result = PhaseResult::default();
+        for _ in 0..interval_variants.len() {
+            let PhaseResult { haplotypes, seq2haplo } = rx.recv().unwrap();
+            result.haplotypes.extend(haplotypes);
+            result.seq2haplo.extend(seq2haplo);
+        }
+        result
     }
 
-    fn phase_interval(&self, ref_interval:&SeqInterval, variants: &[Var]) -> HashMap<HaplotypeId,Haplotype> {
+    fn phase_interval(&self, ref_interval:&SeqInterval, variants: &[Var]) -> PhaseResult {
 
         // spdlog::debug!("----- Phasing {target_interval} ({} variants) -----", variants.len());
-        let (haplotypes, succinct_records) = self.phase_variants(ref_interval,variants);
+        let (haplotypes, succinct_seqs) = self.phase_variants(ref_interval,variants);
 
         let variant_positions = self.variant_positions(&haplotypes);
         let haplotypes: HashMap<HaplotypeId,Haplotype> = self.remove_false_haplotypes(haplotypes, &variant_positions);
 
-        let sread_haplotypes = self::separate_reads(&succinct_records, &haplotypes, 1);
+        let sread_haplotypes = self::separate_reads(&succinct_seqs, &haplotypes, 1);
 
         let mut haplograph = HaploGraph::new(haplotypes, sread_haplotypes);
         let dot_file = format!("{}_{}-{}.raw.dot", self.ref_db.names[ref_interval.tid], ref_interval.beg, ref_interval.end);
@@ -137,10 +144,13 @@ impl<'a> Phaser<'a> {
         let dot_file = format!("{}_{}-{}.final.dot", self.ref_db.names[ref_interval.tid], ref_interval.beg, ref_interval.end);
         haplograph.write_dot(&self.dots_dir.join(dot_file)).unwrap();
 
-        let sread_haplotypes = self::separate_reads(&succinct_records, &haplotypes, 1);
-        self.write_reads(&haplotypes, &sread_haplotypes).unwrap();
-        
-        haplotypes
+        let seq2haplo = self::separate_reads(&succinct_seqs, &haplotypes, 1);
+        self.write_reads(&haplotypes, &seq2haplo).unwrap();
+
+        PhaseResult {
+            haplotypes,
+            seq2haplo,
+        }
     }
 
 

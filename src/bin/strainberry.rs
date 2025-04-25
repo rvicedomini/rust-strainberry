@@ -158,18 +158,19 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     let phased_dir = output_dir.join("20-phased");
     spdlog::info!("Phasing strains");
     let phaser = phase::Phaser::new(&bam_path, &ref_db, &read_db, &ref_intervals, phased_dir, &opts).unwrap();
-    let haplotypes = phaser.phase(&variants);
-    spdlog::info!("{} haplotypes phased", haplotypes.len());
+    let phaser_result = phaser.phase(&variants);
+    spdlog::info!("{} haplotypes phased", phaser_result.haplotypes.len());
 
     spdlog::info!("Building strain-aware contigs");
-    let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &haplotypes, 0);
+    let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &phaser_result.haplotypes, 0);
     spdlog::info!("{} strain-aware contigs built", aware_contigs.len());
 
     spdlog::info!("Building succinct reads");
     let succinct_reads = seq::build_succinct_sequences(&bam_path, &ref_db, &read_db, &variants, &opts);
 
     spdlog::info!("Read realignment to haplotypes");
-    let seq2haplo = strainberry::phase::separate_reads(&succinct_reads, &haplotypes, opts.min_shared_snv);
+    let seq2haplo = strainberry::phase::separate_reads(&succinct_reads, &phaser_result.haplotypes, opts.min_shared_snv);
+    drop(phaser_result);
 
     spdlog::info!("Mapping reads to strain-aware contigs");
     let read2aware = strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut aware_contigs, &seq2haplo);
