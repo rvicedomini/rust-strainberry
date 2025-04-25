@@ -24,18 +24,31 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     
     let t_start = Instant::now();
 
-    let mut opts = cli::Options::parse();
+    let opts = cli::Options::parse();
 
     if opts.debug {
         spdlog::default_logger().set_level_filter(spdlog::LevelFilter::MoreSevereEqual(spdlog::Level::Debug));
     }
 
     utils::check_dependencies(&["minimap2", "samtools", "racon"])?;
-
     if opts.caller == cli::VarCaller::Longcalld {
         utils::check_dependencies(&["longcallD"])?;
     }
 
+    if opts.in_hifi.is_none() && opts.in_ont.is_none() {
+        bail!("Either --in-hifi or --in-ont is required. For more information, try '--help'.")
+    }
+
+    run_pipeline(opts)?;
+
+    spdlog::info!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
+
+    Ok(())
+}
+
+
+fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
+    
     let reads_path = match (opts.in_hifi.as_ref(), opts.in_ont.as_ref()) {
         (None, None) => { bail!("Either --in-hifi or --in-ont is required. For more information, try '--help'.") },
         (Some(hifi_path), None) => {
@@ -130,46 +143,9 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     spdlog::info!("Loading read alignments");
     let read_alignments = seq::alignment::load_bam_alignments(&bam_path, &ref_db, &read_db, &opts);
 
-    // if opts.no_phase {
-
-    //     let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &HashMap::new(), opts.min_aware_ctg_len);
-        
-    //     spdlog::info!("{} strain-aware contigs built", aware_contigs.len());
-
-    //     spdlog::info!("Building succinct reads");
-    //     let succinct_reads = seq::build_succinct_sequences(&bam_path, &ref_db, &read_db, &variants, &opts);
-
-    //     spdlog::info!("Read realignment to haplotypes");
-    //     let seq2haplo = strainberry::phase::separate_reads(&succinct_reads, &HashMap::new(), opts.min_shared_snv);
-
-    //     spdlog::info!("Mapping reads to strain-aware contigs");
-    //     let read2aware = strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut aware_contigs, &seq2haplo);
-
-    //     let graphs_dir = output_dir.join("40-graphs");
-    //     fs::create_dir_all(graphs_dir.as_path()).with_context(|| format!("Cannot create graphs directory: \"{}\"", graphs_dir.display()))?;
-        
-    //     spdlog::info!("Building strain-aware graph");
-    //     let mut aware_graph = AwareGraph::build(&aware_contigs);
-    //     aware_graph.add_edges_from_aware_alignments(&read2aware);
-    //     aware_graph.write_gfa(graphs_dir.join("aware_graph.raw.gfa"), &ref_db)?;
-
-    //     aware_graph.remove_weak_edges(5);
-    //     aware_graph.write_gfa(graphs_dir.join("aware_graph.gfa"), &ref_db)?;
-
-    //     spdlog::info!("Strain-aware graph resolution");
-    //     let nb_tedges = aware_graph.add_bridges(&read2aware);
-    //     aware_graph.write_dot(graphs_dir.join("aware_graph.dot"))?;
-    //     spdlog::debug!("{nb_tedges} read bridges added");
-
-    //     let nb_resolved = aware_graph.resolve_read_bridges(opts.min_alt_count);
-    //     spdlog::info!("{nb_resolved} junctions resolved");
-
-    //     aware_graph.write_gfa(graphs_dir.join("aware_graph.resolved.gfa"), &ref_db)?;
-    //     aware_graph.write_dot(graphs_dir.join("aware_graph.resolved.dot"))?;
-
-    //     spdlog::info!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
-    //     return Ok(());
-    // }
+    if opts.no_phase {
+        return Ok(());
+    }
 
     let ref_intervals = {
         spdlog::info!("Filtering low-coverage sequences");
@@ -205,25 +181,17 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     let mut aware_graph = AwareGraph::build(&aware_contigs);
     aware_graph.add_edges_from_aware_alignments(&read2aware);
     aware_graph.write_gfa(graphs_dir.join("aware_graph.raw.gfa"), &ref_db)?;
-    aware_graph.write_dot(graphs_dir.join("aware_graph.raw.dot"))?;
-
-    aware_graph.remove_weak_edges(opts.min_alt_count);
-    aware_graph.write_gfa(graphs_dir.join("aware_graph.gfa"), &ref_db)?;
 
     spdlog::info!("Strain-aware graph resolution");
-    let nb_tedges = aware_graph.add_bridges(&read2aware);
-    aware_graph.write_dot(graphs_dir.join("aware_graph.dot"))?;
-    spdlog::debug!("{nb_tedges} read bridges added");
-
-    let nb_resolved = aware_graph.resolve_read_bridges(opts.min_alt_count, opts.lookback);
-    spdlog::info!("{nb_resolved} junctions resolved");
-
+    aware_graph.add_bridges(&read2aware);
+    aware_graph.remove_weak_edges(opts.min_alt_count);
+    aware_graph.write_gfa(graphs_dir.join("aware_graph.gfa"), &ref_db)?;
+    
+    aware_graph.resolve_junctions(opts.min_alt_count);
     aware_graph.write_gfa(graphs_dir.join("aware_graph.resolved.gfa"), &ref_db)?;
-    aware_graph.write_dot(graphs_dir.join("aware_graph.resolved.dot"))?;
     aware_graph.clear_transitive_edges();
 
     if opts.no_asm {
-        spdlog::info!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
         return Ok(());
     }
 
@@ -241,8 +209,6 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
     // let polished_fasta_path = output_dir.join("assembly.fasta");
     // racon_polish(&unpolished_fasta_path, in_reads_path, &polished_fasta_path, strainberry::polish::PolishMode::Aware, &polish_dir, &opts)?;
     // spdlog::info!("Final assembly written to {}", polished_fasta_path.display());
-
-    spdlog::info!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
-
+    
     Ok(())
 }
