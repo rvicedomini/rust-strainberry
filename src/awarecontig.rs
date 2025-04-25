@@ -225,7 +225,7 @@ pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contig
 
             if ctg.is_phased() && seq2haplo.contains_key(&sa_id) {
                 if let Some(hit) = seq2haplo[&sa_id].iter().find(|hit| hit.hid == ctg.haplotype_id().unwrap()) {
-                    is_ambiguous &= hit.nb_alt > 0;
+                    is_ambiguous = hit.nb_alt > 0;
                     nb_shared_snvs = hit.size
                 }
             }

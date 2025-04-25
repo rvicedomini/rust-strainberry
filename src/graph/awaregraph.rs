@@ -692,6 +692,7 @@ impl AwareGraph {
 
             let read_path = {
                 let out_path = tmp_dir.join(format!("{}.reads.fa.gz", id));
+                let mut read_ids = HashSet::new();
                 let mut unitig_read_writer = crate::utils::get_file_writer(&out_path);
                 let haplotype_files = aware_path.nodes.iter()
                     .filter_map(|nid| self.nodes[nid].ctg.haplotype_id())
@@ -700,7 +701,11 @@ impl AwareGraph {
                     if let Ok(mut reader) = needletail::parse_fastx_file(&htfile) {
                         while let Some(record) = reader.next() {
                             let record = record.unwrap();
-                            record.write(&mut unitig_read_writer, None)?;
+                            let read_name = std::str::from_utf8(record.id().split(|b| b.is_ascii_whitespace()).next().unwrap()).unwrap();
+                            if !read_ids.contains(read_name) {
+                                read_ids.insert(read_name.to_string());
+                                record.write(&mut unitig_read_writer, None)?;
+                            }
                         }
                     } else {
                         spdlog::warn!("Empty haplotype read file: {}", htfile.display());
