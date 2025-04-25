@@ -446,8 +446,6 @@ impl<'a> Phaser<'a> {
     fn process_pileup(&self, pileup: &bam::pileup::Pileup, ref_idx: usize, succinct_records: &mut HashMap<BamRecordId,SuccinctSeq>, supporting_sreads: &mut HashSet<BamRecordId>, var_nucleotides: &[u8]) -> Vec<(u8,u8)> {
 
         let position = pileup.pos() as usize;
-        // let mut nuc_counter: FxHashMap<u8,usize> = FxHashMap::default();
-        // let mut total_obs: usize = 0;
 
         let mut edge_total_obs: usize = 0;
         let mut edge_counter: HashMap<(u8,u8),usize> = HashMap::new();
@@ -463,8 +461,6 @@ impl<'a> Phaser<'a> {
             {
                 continue;
             }
-
-            // total_obs += 1;
             
             let record_id = BamRecordId::from_record(&record, self.read_db);
             let record_nuc = if !alignment.is_del() && !alignment.is_refskip() { 
@@ -472,8 +468,6 @@ impl<'a> Phaser<'a> {
             } else { 
                 b'-'
             };
-
-            // *nuc_counter.entry(record_nuc).or_default() += 1;
 
             if !succinct_records.contains_key(&record_id) {
                 let srec = SuccinctSeq::build(record_id, ref_idx);
@@ -498,16 +492,6 @@ impl<'a> Phaser<'a> {
             }
         }
 
-        // eprintln!("pileup at {}: {} >={}MAPQ", position, total_obs, self.opts.min_mapq);
-
-        // let nucleotides = nuc_counter.iter()
-        //     .filter(|&(_nuc,&cnt)| cnt >= self.opts.min_alt_count && (cnt as f64) >= self.opts.min_alt_frac * (total_obs as f64))
-        //     .map(|(nuc,_cnt)| *nuc)
-        //     .collect_vec();
-
-        // let edge_total_obs = edge_counter.values().sum::<usize>() as f64;
-        // let _x = edge_counter.iter().map(|(&(u,v),&cnt)| (format!("{}{}",u as char, v as char),cnt)).collect_vec();
-        // eprintln!("|E|:{edge_total_obs}, Edge: {_x:?}");
         let edges = edge_counter.iter()
             .filter(|&(_edge,&cnt)| cnt >= self.opts.min_alt_count && (cnt as f64) >= self.opts.min_alt_frac * (edge_total_obs as f64))
             .map(|(&edge,_cnt)| edge)
