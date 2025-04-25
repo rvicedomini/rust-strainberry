@@ -109,6 +109,7 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     spdlog::info!("Building read index");
     let read_db = seq::SeqDatabase::build(reads_path, true)?;
     let read_n75 = read_db.compute_nx(75).unwrap();
+    opts.lookback = (9 * read_n75) / 10;
     spdlog::debug!("{} sequences loaded / N75: {read_n75}", read_db.size());
 
     spdlog::info!("Calling variants from pileup");
