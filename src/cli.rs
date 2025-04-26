@@ -94,7 +94,7 @@ pub struct Options {
     pub min_overhang: usize,
 
     /// Minimum aware-contig length
-    #[arg(long = "min-aware-ctg-len", value_name = "NUM", default_value_t = 3000)]
+    #[arg(long = "min-aware-ctg-len", value_name = "NUM", default_value_t = 2000)]
     pub min_aware_ctg_len: usize,
 
     /// Minimum aware-contig length
