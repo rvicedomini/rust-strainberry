@@ -83,14 +83,10 @@ impl AwareGraph {
     pub fn add_edges_from_aware_alignments(&mut self, aware_alignments:&HashMap<usize,Vec<AwareAlignment>>) {
         
         for alignments in aware_alignments.values() {
-            
-            let alignments = alignments.iter()
-                .filter(|a| self.nodes[&a.aware_id].ctg.is_phased())
+            let alignments_iter = alignments.iter()
                 .tuple_windows()
-                .filter(|(a,b)| !a.is_ambiguous && !b.is_ambiguous)
-                .collect_vec();
-
-            for (a, b) in alignments {
+                .filter(|(a,b)| !a.is_ambiguous && !b.is_ambiguous);
+            for (a, b) in alignments_iter {
                 self.add_edge_from_consecutive_alignments(a,b);
             }
         }
