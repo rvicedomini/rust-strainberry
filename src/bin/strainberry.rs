@@ -131,13 +131,13 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
         return Ok(());
     }
 
-    // let ref_intervals = {
-    //     spdlog::info!("Filtering low-coverage sequences");
-    //     let mut ref_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &HashMap::new(), opts.min_aware_ctg_len);
-    //     strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut ref_contigs, &HashMap::new());
-    //     ref_contigs.retain(|ctg| ctg.depth() >= opts.min_alt_count as f64);
-    //     ref_contigs.into_iter().map(|ctg| ctg.interval()).collect_vec()
-    // };
+    let ref_intervals = {
+        spdlog::info!("Filtering low-coverage sequences");
+        let mut ref_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &HashMap::new(), opts.min_aware_ctg_len);
+        strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut ref_contigs, &HashMap::new());
+        ref_contigs.retain(|ctg| ctg.depth() >= opts.min_alt_count as f64);
+        ref_contigs.into_iter().map(|ctg| ctg.interval()).collect_vec()
+    };
 
     let phased_dir = output_dir.join("20-phased");
     spdlog::info!("Phasing strain haplotypes");
