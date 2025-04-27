@@ -183,7 +183,7 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     let unitig_graph = aware_graph.build_assembly_graph(&ref_db, &read_db, phaser.fragments_dir(), &unitig_dir, &opts)?;
     unitig_graph.write_gfa(&output_dir.join("assembly.gfa"))?;
     let assembly_fasta_path = output_dir.join("assembly.fasta");
-    unitig_graph.write_fasta(&assembly_fasta_path)?;
+    unitig_graph.write_fasta(&assembly_fasta_path, 100)?;
     spdlog::info!("Final assembly written to {}", assembly_fasta_path.display());
     
     Ok(())

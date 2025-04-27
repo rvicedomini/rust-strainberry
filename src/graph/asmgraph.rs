@@ -209,10 +209,13 @@ where
         Ok(())
     }
 
-    pub fn write_fasta(&self, fasta_path: &Path) -> std::io::Result<()> {
+    pub fn write_fasta(&self, fasta_path: &Path, min_length:usize) -> std::io::Result<()> {
 
         let mut fasta_writer = crate::utils::get_file_writer(fasta_path);
         for (node_id, node) in self.segments() {
+            if node.sequence.len() < min_length {
+                continue;
+            }
             let header = format!(">{node_id}\n");
             fasta_writer.write_all(header.as_bytes())?;
             let sequence = node.sequence.as_bytes();
