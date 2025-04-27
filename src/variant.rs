@@ -64,6 +64,32 @@ fn load_variants_at_positions_threaded(bam_path: &Path, ref_db: &SeqDatabase, po
 }
 
 
+pub fn filter_variants_hp(mut variants:VarDict, ref_db: &SeqDatabase, hp_len:usize) -> VarDict {
+
+    for (tid,variants) in variants.iter_mut() {
+        let ref_seq = &ref_db.sequences[*tid];
+        let ref_len = ref_seq.len();
+        variants.retain(|var| {
+            let seq_after = ref_seq.subseq(var.pos+1, (var.pos+hp_len).max(ref_len));
+            let after_len = seq_after.iter().enumerate().take_while(|&(i,c)| i==0 || seq_after[i-1] == *c).count();
+            let after_nuc = seq_after.first().cloned();
+            let mut seq_before = ref_seq.subseq(var.pos.saturating_sub(hp_len), var.pos.saturating_sub(1));
+            seq_before.reverse();
+            let before_len = seq_before.iter().rev().enumerate().take_while(|&(i,c)| i==0 || seq_after[i-1] == *c).count();
+            let before_nuc = seq_before.first().cloned();
+            if before_len >= hp_len || after_len >= hp_len { return false }
+            let var_nuc = ref_seq.get(var.pos);
+            let mut incl_len = 1;
+            if after_nuc.is_some_and(|n| n == var_nuc) { incl_len += after_len }
+            if before_nuc.is_some_and(|n| n == var_nuc) { incl_len += before_len }
+            incl_len < hp_len
+        });
+    }
+
+    variants
+}
+
+
 fn load_variants_at_positions(bam_reader: &mut IndexedReader, tid: usize, positions: Option<&HashSet<usize>>, opts: &Options) -> Vec<Var> {
 
     let mut variants: Vec<Var> = vec![];

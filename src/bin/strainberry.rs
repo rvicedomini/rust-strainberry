@@ -119,6 +119,10 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     let variant_path = preprocess_dir.join("variants.vcf");
     variant::write_variants_to_file(&variant_path, &variants, &ref_db)?;
     spdlog::debug!("{} variants identified", variants.values().map(|vars| vars.len()).sum::<usize>());
+    // let variants = variant::filter_variants_hp(variants, &ref_db, 3);
+    // let variant_path = preprocess_dir.join("variants.filtered.vcf");
+    // variant::write_variants_to_file(&variant_path, &variants, &ref_db)?;
+    // spdlog::debug!("{} variants retained", variants.values().map(|vars| vars.len()).sum::<usize>());
 
     spdlog::info!("Splitting reference at putative misjoins");
     let ref_intervals = misassembly::partition_reference(&bam_path, &ref_db, &read_db, &opts);
