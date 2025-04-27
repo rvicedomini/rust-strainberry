@@ -86,7 +86,7 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
         let mut fasta_name = reference_path.file_stem().unwrap().to_os_string();
         fasta_name.push(".fasta");
         reference_path = preprocess_dir.join(fasta_name);
-        gfa_graph.write_fasta(&reference_path)?;
+        gfa_graph.write_fasta(&reference_path, 0)?;
     }
 
     if !opts.no_derep {
