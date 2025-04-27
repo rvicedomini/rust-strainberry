@@ -25,7 +25,9 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
 
     let opts = cli::Options::parse();
 
-    if opts.debug {
+    if opts.trace {
+        spdlog::default_logger().set_level_filter(spdlog::LevelFilter::All);
+    } else if opts.debug {
         spdlog::default_logger().set_level_filter(spdlog::LevelFilter::MoreSevereEqual(spdlog::Level::Debug));
     }
 
@@ -114,6 +116,8 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
 
     spdlog::info!("Calling variants from pileup");
     let variants = variant::load_variants_from_bam(&bam_path, &ref_db, &opts);
+    let variant_path = preprocess_dir.join("variants.vcf");
+    variant::write_variants_to_file(&variant_path, &variants, &ref_db)?;
     spdlog::debug!("{} variants identified", variants.values().map(|vars| vars.len()).sum::<usize>());
 
     spdlog::info!("Splitting reference at putative misjoins");
@@ -127,13 +131,13 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
         return Ok(());
     }
 
-    let ref_intervals = {
-        spdlog::info!("Filtering low-coverage sequences");
-        let mut ref_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &HashMap::new(), opts.min_aware_ctg_len);
-        strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut ref_contigs, &HashMap::new());
-        ref_contigs.retain(|ctg| ctg.depth() >= opts.min_alt_count as f64);
-        ref_contigs.into_iter().map(|ctg| ctg.interval()).collect_vec()
-    };
+    // let ref_intervals = {
+    //     spdlog::info!("Filtering low-coverage sequences");
+    //     let mut ref_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &HashMap::new(), opts.min_aware_ctg_len);
+    //     strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut ref_contigs, &HashMap::new());
+    //     ref_contigs.retain(|ctg| ctg.depth() >= opts.min_alt_count as f64);
+    //     ref_contigs.into_iter().map(|ctg| ctg.interval()).collect_vec()
+    // };
 
     let phased_dir = output_dir.join("20-phased");
     spdlog::info!("Phasing strain haplotypes");

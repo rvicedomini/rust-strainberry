@@ -18,7 +18,7 @@ pub struct Options {
     pub reference: String,
 
     /// Long-read alignment in BAM format
-    #[arg(short = 'b', long = "bam", value_name = "PATH")]
+    #[arg(short = 'b', long = "bam", value_name = "PATH", hide = true)]
     pub bam: Option<String>,
 
     // /// User provided vcf file of SNV positions to consider
@@ -30,7 +30,7 @@ pub struct Options {
     pub output_dir: String,
 
     /// Lookback distance
-    #[arg(short = 'l', long = "lookback", value_name = "NUM", default_value_t = 3000)]
+    #[arg(short = 'l', long = "lookback", value_name = "NUM", default_value_t = 3000, hide = true)]
     pub lookback: usize,
 
     /// Minimum MAPQ value to consider a read alignment
@@ -65,9 +65,9 @@ pub struct Options {
     #[arg(long = "no-polish")]
     pub no_polish: bool,
 
-    /// Minimum QUAL value for loaded variants (effective only with --vcf)
-    #[arg(long = "min-var-qual", value_name = "NUM", default_value_t = 0)]
-    pub min_var_qual: usize,
+    // /// Minimum QUAL value for loaded variants (effective only with --vcf)
+    // #[arg(long = "min-var-qual", value_name = "NUM", default_value_t = 0)]
+    // pub min_var_qual: usize,
 
     /// Minimum number of phased variants to retain a haplotype
     #[arg(long = "min-snv", value_name = "NUM", default_value_t = 3)]
@@ -105,13 +105,17 @@ pub struct Options {
     #[arg(value_enum, long="mode", value_name="STR", default_value_t = Mode::Hifi, hide = true)]
     pub mode: Mode,
 
-    /// Variant-call method
-    #[arg(value_enum, long="call", value_name="STR", default_value_t = VarCaller::Pileup, hide = true)]
-    pub caller: VarCaller,
+    // /// Variant-call method
+    // #[arg(value_enum, long="call", value_name="STR", default_value_t = VarCaller::Pileup, hide = true)]
+    // pub caller: VarCaller,
 
     /// Print debug information
     #[arg(long = "debug")]
     pub debug:bool,
+
+    /// Print debug information
+    #[arg(long = "trace", hide = true)]
+    pub trace:bool,
 }
 
 
@@ -121,11 +125,11 @@ pub enum Mode {
     Nano,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
-pub enum VarCaller {
-    Pileup,
-    Longcalld,
-}
+// #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+// pub enum VarCaller {
+//     Pileup,
+//     Longcalld,
+// }
 
 
 // TODO: validate parsed options and possibly estimate other parameters

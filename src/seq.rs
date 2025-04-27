@@ -111,7 +111,8 @@ pub struct SuccinctSeq {
     record_id: BamRecordId,
     ref_idx: usize,
     positions: Vec<usize>,
-    nucleotides: Vec<u8>
+    nucleotides: Vec<u8>,
+    qualities: Vec<u8>,
 }
 
 
@@ -125,12 +126,13 @@ impl fmt::Display for SuccinctSeq {
 
 impl SuccinctSeq {
 
-    pub fn build(record_id:BamRecordId, ref_idx:usize) -> Self {
+    pub fn new(record_id:BamRecordId, ref_idx:usize) -> Self {
         Self { 
             record_id,
             ref_idx,
-            positions: vec![],
-            nucleotides: vec![] 
+            positions: Vec::new(),
+            nucleotides: Vec::new(),
+            qualities: Vec::new(),
         }
     }
 
@@ -138,6 +140,7 @@ impl SuccinctSeq {
     pub fn tid(&self) -> usize { self.ref_idx }
     pub fn positions(&self) -> &[usize] { &self.positions }
     pub fn nucleotides(&self) -> &[u8] { &self.nucleotides }
+    pub fn qualities(&self) -> &[u8] { &self.qualities }
 
     pub fn len(&self) -> usize { self.positions.len() }
     pub fn is_empty(&self) -> bool { self.len() == 0 }
@@ -148,9 +151,10 @@ impl SuccinctSeq {
         SeqInterval { tid: self.tid(), beg: self.beg(), end: self.end() }
     }
 
-    pub fn push(&mut self, pos:usize, nuc:u8) {
+    pub fn push(&mut self, pos:usize, nuc:u8, qual:u8) {
         self.positions.push(pos);
         self.nucleotides.push(nuc);
+        self.qualities.push(qual);
     }
 
     pub fn from_bam_record(record: &Record, target_variants: &[Var], mut var_idx: usize, read_db: &SeqDatabase) -> Option<SuccinctSeq> {
@@ -161,11 +165,12 @@ impl SuccinctSeq {
 
         let record_id = BamRecordId::from_record(record, read_db);
         let target_id = record.tid() as usize;
-        let mut sseq = SuccinctSeq::build(record_id, target_id);
+        let mut sseq = SuccinctSeq::new(record_id, target_id);
 
         let mut target_pos = record.pos() as usize;
         let mut query_pos = 0;
         let query_seq = record.seq();
+        let query_qual = record.qual();
 
         let mut var_pos = target_variants[var_idx].pos;
         for cig in record.cigar().iter() {
@@ -188,7 +193,7 @@ impl SuccinctSeq {
                         target_pos += dist;
                         query_pos += dist;
                         oplen -= dist;
-                        sseq.push(target_pos, query_seq[query_pos]);
+                        sseq.push(target_pos, query_seq[query_pos], query_qual[query_pos]);
                         // consume match on both reference/query and retrieve next variant position
                         var_idx += 1;
                         if var_idx >= target_variants.len() {
@@ -212,7 +217,7 @@ impl SuccinctSeq {
                         let dist = var_pos - target_pos;
                         target_pos += dist;
                         oplen -= dist;
-                        sseq.push(target_pos, b'-');
+                        sseq.push(target_pos, b'-', 0);
                         // consume deletion on reference and retrieve next variant position
                         var_idx += 1;
                         if var_idx >= target_variants.len(){

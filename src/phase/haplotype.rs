@@ -32,9 +32,26 @@ impl std::fmt::Display for HaplotypeId {
 #[derive(Debug, Clone, Copy)]
 pub struct HaplotypeHit {
     pub hid: HaplotypeId,
-    pub size: usize,
     pub dist: usize,
+    pub nb_pos: usize,
     pub nb_alt: usize
+}
+
+impl HaplotypeHit {
+
+    pub fn new(hid: HaplotypeId, dist:usize, nb_pos:usize, nb_alt:usize) -> Self {
+        Self {
+            hid,
+            dist,
+            nb_pos,
+            nb_alt
+        }
+    }
+
+    pub fn is_ambiguous(&self) -> bool {
+        self.nb_pos == 0 || self.nb_alt > 0
+    }
+    
 }
 
 

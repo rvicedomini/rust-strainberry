@@ -84,11 +84,13 @@ impl AwareGraph {
         
         for alignments in aware_alignments.values() {
             
-            let alignment_iter = alignments.iter()
+            let alignments = alignments.iter()
+                .filter(|a| self.nodes[&a.aware_id].ctg.is_phased())
                 .tuple_windows()
-                .filter(|(a,b)| !a.is_ambiguous && !b.is_ambiguous);
+                .filter(|(a,b)| !a.is_ambiguous && !b.is_ambiguous)
+                .collect_vec();
 
-            for (a, b) in alignment_iter {
+            for (a, b) in alignments {
                 self.add_edge_from_consecutive_alignments(a,b);
             }
         }

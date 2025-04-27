@@ -1,10 +1,10 @@
-use std::io::BufRead;
+// use std::io::BufRead;
 use std::sync::mpsc;
 use std::thread;
 use std::path::Path;
 
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use itertools::Itertools;
 use rust_htslib::bam::{self, Read,IndexedReader};
 use tinyvec::ArrayVec;
@@ -148,71 +148,89 @@ pub fn load_variants_from_bam(bam_path:&Path, ref_db: &SeqDatabase, opts:&Option
 }
 
 
-pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, ref_db: &SeqDatabase, opts:&Options) -> VarDict {
+pub fn write_variants_to_file(path:&Path, variants:&VarDict, ref_db: &SeqDatabase) -> Result<()> {
 
-    let vcf_reader = crate::utils::get_file_reader(vcf_path);
-    let positions = vcf_reader.lines()
-        .map_while(Result::ok)
-        .filter_map(|line| { // CHROM POS ID REF ALT QUAL FILTER INFO FORMAT SAMPLE
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') { return None }
-            let mut record = line.split('\t');
-            let ref_name = record.next().unwrap();
-            let ref_index = ref_db.get_index(ref_name);
-            let pos = record.next().unwrap().parse::<usize>().unwrap();
-            let qual = record.nth(3).unwrap().parse::<usize>().unwrap();
-            if qual >= opts.min_var_qual { Some((ref_index,pos-1)) } else { None }
-        })
-        .sorted_unstable()
-        .collect_vec();
-
-    let positions = positions.into_iter()
-        .chunk_by(|&(ref_idx,_)| ref_idx).into_iter()
-        .map(|(ref_idx,ref_positions)| (
-            ref_idx,
-            ref_positions.into_iter().map(|(_,pos)| pos).collect()
-        ))
-        .collect::<VarPositions>();
-
-    load_variants_at_positions_threaded(bam_path, ref_db, Some(&positions), opts)
-}
-
-
-pub fn run_longcalld(reference_path: &Path, bam_path: &Path, ref_db: &SeqDatabase, vcf_path: &Path, opts: &Options) -> Result<VarDict> {
-
-    use std::process::{Command, Stdio};
-    use std::io::{BufRead,BufReader};
-
-    let lcd_preset = match opts.mode {
-        crate::cli::Mode::Hifi => "--hifi",
-        crate::cli::Mode::Nano => "--ont",
-    };
-    
-    let args = ["call", lcd_preset, "-t", &opts.nb_threads.to_string(), reference_path.to_str().unwrap(), bam_path.to_str().unwrap()];
-    let stdout = Command::new("longcallD").args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn().context("cannot run minimap2")?
-        .stdout
-        .with_context(|| "Could not capture standard output.")?;
-    
-    let reader = BufReader::new(stdout);
-    let vcf_lines = reader.lines()
-        .map_while(Result::ok)
-        .filter_map(|line| {
-            let line = line.trim();
-            if !line.is_empty() { Some(line.to_string()) } else { None }
-        }).collect_vec();
-
-    let mut vcf_writer = crate::utils::get_file_writer(vcf_path);
-    for line in vcf_lines {
-        let fields = line.split('\t').collect_vec();
-        if line.starts_with('#') || (fields.len() >= 5 && fields[3].len() == 1 && fields[4].len() == 1) {
-            vcf_writer.write_all(line.as_bytes())?;
-            vcf_writer.write_all(b"\n")?;
+    let mut writer = crate::utils::get_file_writer(path);
+    // CHROM POS ID REF ALT QUAL FILTER INFO FORMAT SAMPLE
+    for (ref_idx, ref_variants) in variants.iter() {
+        for var in ref_variants {
+            let ref_name = ref_db.names[*ref_idx].as_str();
+            let var_pos = var.pos;
+            let (var_nuc, _var_depth) = var.alleles[0];
+            let (alt_nuc, _alt_depth) = var.alleles[1];
+            let line = format!("{ref_name}\t{var_pos}\t{var_nuc}\t{alt_nuc}\n");
+            writer.write_all(line.as_bytes())?;
         }
     }
-
-    let var_dict = load_variants_from_vcf(vcf_path, bam_path, ref_db, opts);
-    Ok(var_dict)
+    Ok(())
 }
+
+
+// pub fn load_variants_from_vcf(vcf_path:&Path, bam_path:&Path, ref_db: &SeqDatabase, opts:&Options) -> VarDict {
+
+//     let vcf_reader = crate::utils::get_file_reader(vcf_path);
+//     let positions = vcf_reader.lines()
+//         .map_while(Result::ok)
+//         .filter_map(|line| { // CHROM POS ID REF ALT QUAL FILTER INFO FORMAT SAMPLE
+//             let line = line.trim();
+//             if line.is_empty() || line.starts_with('#') { return None }
+//             let mut record = line.split('\t');
+//             let ref_name = record.next().unwrap();
+//             let ref_index = ref_db.get_index(ref_name);
+//             let pos = record.next().unwrap().parse::<usize>().unwrap();
+//             let qual = record.nth(3).unwrap().parse::<usize>().unwrap();
+//             if qual >= opts.min_var_qual { Some((ref_index,pos-1)) } else { None }
+//         })
+//         .sorted_unstable()
+//         .collect_vec();
+
+//     let positions = positions.into_iter()
+//         .chunk_by(|&(ref_idx,_)| ref_idx).into_iter()
+//         .map(|(ref_idx,ref_positions)| (
+//             ref_idx,
+//             ref_positions.into_iter().map(|(_,pos)| pos).collect()
+//         ))
+//         .collect::<VarPositions>();
+
+//     load_variants_at_positions_threaded(bam_path, ref_db, Some(&positions), opts)
+// }
+
+
+// pub fn run_longcalld(reference_path: &Path, bam_path: &Path, ref_db: &SeqDatabase, vcf_path: &Path, opts: &Options) -> Result<VarDict> {
+
+//     use std::process::{Command, Stdio};
+//     use std::io::{BufRead,BufReader};
+
+//     let lcd_preset = match opts.mode {
+//         crate::cli::Mode::Hifi => "--hifi",
+//         crate::cli::Mode::Nano => "--ont",
+//     };
+    
+//     let args = ["call", lcd_preset, "-t", &opts.nb_threads.to_string(), reference_path.to_str().unwrap(), bam_path.to_str().unwrap()];
+//     let stdout = Command::new("longcallD").args(args)
+//         .stdout(Stdio::piped())
+//         .stderr(Stdio::null())
+//         .spawn().context("cannot run minimap2")?
+//         .stdout
+//         .with_context(|| "Could not capture standard output.")?;
+    
+//     let reader = BufReader::new(stdout);
+//     let vcf_lines = reader.lines()
+//         .map_while(Result::ok)
+//         .filter_map(|line| {
+//             let line = line.trim();
+//             if !line.is_empty() { Some(line.to_string()) } else { None }
+//         }).collect_vec();
+
+//     let mut vcf_writer = crate::utils::get_file_writer(vcf_path);
+//     for line in vcf_lines {
+//         let fields = line.split('\t').collect_vec();
+//         if line.starts_with('#') || (fields.len() >= 5 && fields[3].len() == 1 && fields[4].len() == 1) {
+//             vcf_writer.write_all(line.as_bytes())?;
+//             vcf_writer.write_all(b"\n")?;
+//         }
+//     }
+
+//     let var_dict = load_variants_from_vcf(vcf_path, bam_path, ref_db, opts);
+//     Ok(var_dict)
+// }
