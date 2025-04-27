@@ -121,6 +121,8 @@ fn load_variants_at_positions(bam_reader: &mut IndexedReader, tid: usize, positi
 
             if !alignment.is_del() && !alignment.is_refskip() {
                 if let bam::pileup::Indel::None = alignment.indel() {
+                    let qual = alignment.record().qual()[alignment.qpos().unwrap()];
+                    if qual < 10 { continue }
                     let base = alignment.record().seq()[alignment.qpos().unwrap()];
                     let base = 0b11 & ((base >> 2) ^ (base >> 1));
                     let b = 2 * (base as usize) + (record.is_reverse() as usize);

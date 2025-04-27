@@ -413,19 +413,21 @@ impl<'a> Phaser<'a> {
                 let sr_left = sr.positions().partition_point(|pos| *pos < back_pos);
                 let sr_right = sr.positions().partition_point(|pos| *pos <= ht.last_pos());
                 let sr_nucleotides = sr.nucleotides().get(sr_left..sr_right).unwrap();
+                let sr_qualities = sr.qualities().get(sr_left..sr_right).unwrap();
                 let ht_nucleotides = ht.raw_variants().get(back_i..).unwrap();
-                
-                let hamming_dist = sr_nucleotides.iter().cloned()
-                    .zip_eq(ht_nucleotides.iter().map(|snv| snv.nuc))
-                    .filter(|(a,b)| a != b)
-                    .count();
 
-                if 3 * hamming_dist <= (sr_right-sr_left) {
-                    sr_distances.push((ht.hid(), hamming_dist, back_i));
+                let (dist,nb_pos) = itertools::izip!(ht_nucleotides, sr_nucleotides, sr_qualities)
+                    .fold((0,0), |(dist,size),(a, b, qual)| {
+                        if *qual < 10 { return (dist, size) }
+                        (dist + (a.nuc != *b) as usize, size + 1)
+                    });
+
+                if 3 * dist <= nb_pos && nb_pos > 0 {
+                    sr_distances.push((ht.hid(), dist, back_i));
                 }
             }
             if sr_distances.is_empty() {
-                return vec![]
+                return Vec::new()
             }
             let min_dist = sr_distances.iter().map(|(_,d,_)| *d).min().unwrap();
             sr_distances.into_iter()
@@ -550,12 +552,11 @@ fn best_sread_haplotypes(sread: &SuccinctSeq, haplotypes: &[&Haplotype], min_sha
     -> Vec<HaplotypeHit> {
     
     let mut candidates = HashMap::new();
-    // let sread_positions: HashSet<(usize,usize)> = sread.positions().iter().map(|var_pos| (sread.tid(),*var_pos)).collect();
 
     let idx = haplotypes.partition_point(|ht| ht.tid() < sread.tid() || (ht.tid() == sread.tid() && ht.end() <= sread.beg()));
     for ht in haplotypes[idx..].iter().take_while(|ht| ht.beg() < sread.end()) {
         if let Some(hit) = sread_haplotype_distance(sread, ht) {
-            if hit.nb_pos >= min_shared_pos {
+            if hit.nb_pos > 0 && hit.nb_pos >= min_shared_pos {
                 let range = ht.beg()..ht.end();
                 candidates.entry(range)
                     .or_insert(vec![])
