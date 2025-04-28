@@ -133,6 +133,11 @@ impl<'a> Phaser<'a> {
         let variant_positions = self.variant_positions(&haplotypes);
         let haplotypes: HashMap<HaplotypeId,Haplotype> = self.remove_false_haplotypes(haplotypes, &variant_positions);
 
+        // spdlog::trace!("Local Haplotypes @ {}:{}-{}", self.ref_db.names[ref_interval.tid].as_str(), ref_interval.beg, ref_interval.end);
+        // for ht in haplotypes.keys().sorted_unstable() {
+        //     spdlog::trace!("  * {}", haplotypes[ht]);
+        // }
+
         let sread_haplotypes = self::separate_reads(&succinct_seqs, &haplotypes, 1);
 
         let mut haplograph = HaploGraph::new(haplotypes, sread_haplotypes);
@@ -145,7 +150,7 @@ impl<'a> Phaser<'a> {
         haplograph.write_dot(&self.dots_dir.join(dot_file)).unwrap();
 
         let seq2haplo = self::separate_reads(&succinct_seqs, &haplotypes, 1);
-        self.write_reads(&haplotypes, &seq2haplo).unwrap();
+        // self.write_reads(&haplotypes, &seq2haplo).unwrap();
 
         PhaseResult {
             haplotypes,
@@ -258,21 +263,11 @@ impl<'a> Phaser<'a> {
             if target_pos < var_position {
                 continue;
             }
-
-            // eprintln!("-----> SNV position = {var_position}");
             debug_assert_eq!(target_pos, var_position);
 
-            // load pileup column
+            // load edges from pileup and previous variant position
             let edges = self.process_pileup(&pileup, ref_interval.tid, &mut succinct_records, &mut supporting_sreads, &var_nucleotides);
             lookback_positions.push_back(var_position);
-
-            // eprintln!("  Var:{var:?} Nucleotides: {}, Edges: {:?}", String::from_utf8(var_nucleotides.clone()).unwrap(), edges.iter().map(|&(u,v)| (u as char, v as char)).collect_vec());
-
-            // filter lookback positions too far away
-            // while var_position - lookback_positions[0] > self.opts.lookback {
-            //     lookback_positions.pop_front();
-            // }
-            // debug_assert!(!lookback_positions.is_empty());
 
             // if this is the start a new phased block
             if lookback_positions.len() == 1 {
@@ -292,7 +287,7 @@ impl<'a> Phaser<'a> {
                 continue
             }
 
-            // spdlog::trace!("Haplotypes @ {}:{target_pos}", self.ref_db.names[ref_interval.tid].as_str());
+            // spdlog::trace!("Current haplotypes @ {}:{target_pos}", self.ref_db.names[ref_interval.tid].as_str());
             // for ht in phasedblock.haplotypes().values() {
             //     spdlog::trace!("  * {ht}");
             // }
@@ -305,9 +300,9 @@ impl<'a> Phaser<'a> {
 
             // possibly save haplotypes and start a new phased block
             if !unsupported_haplotypes.is_empty() && (var_position - phasedblock.begin() > self.opts.lookback) {
-                // eprintln!("Saving haplotypes after impossible extension");
-                // for ht in phasedblock.haplotypes().values() {
-                //     eprintln!("{ht}");
+                // for hid in unsupported_haplotypes {
+                //     spdlog::trace!("Cannot edge-extend for haplotypes @ {}:{target_pos}", self.ref_db.names[ref_interval.tid].as_str());
+                //     spdlog::trace!("  * {}", phasedblock.haplotypes().get(&hid).unwrap());
                 // }
                 for ht in phasedblock.drain() {
                     haplotypes.insert(ht.uid(), ht);
@@ -329,23 +324,22 @@ impl<'a> Phaser<'a> {
             let mut _is_ambiguous = phasedblock.extend(var_position, edges);
 
             // discard haplotypes unsupported by the reads
-            // let back_pos = (var_position+1).saturating_sub(self.opts.lookback);
-            // let back_i = lookback_positions.partition_point(|&pos| pos < back_pos);
-            // let min_position = lookback_positions[back_i];
-            
+            let back_pos = (var_position+1).saturating_sub(self.opts.lookback);
+            let back_i = lookback_positions.partition_point(|&pos| pos < back_pos);
+            let min_position = lookback_positions[back_i];
             supporting_sreads.retain(|sr_id| succinct_records[sr_id].positions().last().unwrap() == &var_position);
             let candidate_records = supporting_sreads.iter()
-                //.filter(|&sr_id| succinct_records[sr_id].positions()[0] <= min_position)
+                .filter(|&sr_id| succinct_records[sr_id].positions()[0] <= min_position)
                 .collect_vec();
 
-            // eprintln!("min_position: {}", min_position);
-            // eprintln!("supporting_records: {}", succinct_records.len());
-            // eprintln!("candidate_records: {}", candidate_records.len());
+            // spdlog::trace!("Current haplotypes @ {}:{target_pos}", self.ref_db.names[ref_interval.tid].as_str());
+            // for hid in phasedblock.haplotypes().keys() {
+            //     spdlog::trace!("  * {}", phasedblock.haplotypes().get(hid).unwrap());
+            // }
 
             let (unsupported_haplotypes, ambiguous_haplotypes) = self.validate_haplotypes(&succinct_records, &candidate_records, &phasedblock);
-            // eprintln!("  haplotypes: candidates={} unsupported={} ambiguous={}", phasedblock.len(), unsupported_haplotypes.len(), ambiguous_haplotypes.len());
 
-            if !unsupported_haplotypes.is_empty() && (var_position - phasedblock.begin() > self.opts.lookback) {
+            if !unsupported_haplotypes.is_empty() && (var_position - phasedblock.begin() + 1 > self.opts.lookback) {
                 phasedblock.split_and_init(0);
                 // eprintln!("Saved haplotypes after finding unsupported ones:");
                 // for ht in phasedblock.haplotypes().values() {
@@ -359,19 +353,22 @@ impl<'a> Phaser<'a> {
                 lookback_positions.push_back(var_position);
                 continue;
             }
-            for hid in unsupported_haplotypes {
+            if !unsupported_haplotypes.is_empty() {
                 // spdlog::trace!("Removing unsupported haplotypes @ {}:{target_pos}", self.ref_db.names[ref_interval.tid].as_str());
-                // spdlog::trace!("  * {}", phasedblock.haplotypes().get(&hid).unwrap());
-                phasedblock.remove_haplotype(hid);
+                for hid in unsupported_haplotypes {
+                    // spdlog::trace!("  * {}", phasedblock.haplotypes().get(&hid).unwrap());
+                    phasedblock.remove_haplotype(hid);
+                }
             }
-            // for hid in ambiguous_haplotypes.iter() {
-            //     eprintln!("ambiguous: {}", phasedblock.haplotypes().get(&hid).unwrap());
-            // }
 
             let is_ambiguous = !ambiguous_haplotypes.is_empty(); // is_ambiguous |= !ambiguous_haplotypes.is_empty();
 
             // if ambiguous extension, create a new phaseset (should a minimum of 3 SNVs be requested here too?)
             if is_ambiguous && (var_position - phasedblock.begin() > self.opts.lookback) {
+                // for hid in ambiguous_haplotypes {
+                //     spdlog::trace!("Ambiguous extension for haplotypes @ {}:{target_pos}", self.ref_db.names[ref_interval.tid].as_str());
+                //     spdlog::trace!("  * {}", phasedblock.haplotypes().get(&hid).unwrap());
+                // }
                 let mut new_phasedblock = phasedblock.split_and_init(self.opts.lookback);
                 for ht in phasedblock.drain() {
                     haplotypes.insert(ht.uid(), ht);
@@ -385,17 +382,8 @@ impl<'a> Phaser<'a> {
                     phasedblock.remove_haplotype(hid);
                 }
             }
-
-            // eprintln!("Validated haplotypes:");
-            // for ht in phasedblock.haplotypes().values() {
-            //     eprintln!("  {ht}");
-            // }
         }
 
-        // eprintln!("Saving remaining haplotypes:");
-        // for ht in phasedblock.haplotypes().values() {
-        //     eprintln!("  {ht}");
-        // }
         for ht in phasedblock.drain() { // previously only if phasedblock.haplotypes().values().next().unwrap().raw_size() >= self.opts.min_snv
             haplotypes.insert(ht.uid(), ht);
         }
@@ -403,7 +391,7 @@ impl<'a> Phaser<'a> {
         (haplotypes, succinct_records.into_values().collect_vec())
     }
 
-    fn validate_haplotypes(&self, succinct_records: &HashMap<BamRecordId,SuccinctSeq>, candidate_records: &Vec<&BamRecordId>, phasedblock: &PhasedBlock) -> (Vec<usize>,Vec<usize>) {
+    fn validate_haplotypes(&self, succinct_records: &HashMap<BamRecordId,SuccinctSeq>, supporting_records: &[&BamRecordId], phasedblock: &PhasedBlock) -> (Vec<usize>,Vec<usize>) {
 
         fn get_best_haplotypes(sr: &SuccinctSeq, haplotypes:&[&Haplotype]) -> Vec<usize> {
             let mut sr_distances = Vec::with_capacity(haplotypes.len());
@@ -413,16 +401,17 @@ impl<'a> Phaser<'a> {
                 let sr_left = sr.positions().partition_point(|pos| *pos < back_pos);
                 let sr_right = sr.positions().partition_point(|pos| *pos <= ht.last_pos());
                 let sr_nucleotides = sr.nucleotides().get(sr_left..sr_right).unwrap();
-                let sr_qualities = sr.qualities().get(sr_left..sr_right).unwrap();
+                // let sr_qualities = sr.qualities().get(sr_left..sr_right).unwrap();
                 let ht_nucleotides = ht.raw_variants().get(back_i..).unwrap();
 
-                let (dist,nb_pos) = itertools::izip!(ht_nucleotides, sr_nucleotides, sr_qualities)
-                    .fold((0,0), |(dist,size),(a, b, qual)| {
-                        if *qual < 10 { return (dist, size) }
-                        (dist + (a.nuc != *b) as usize, size + 1)
+                let (dist,nb_pos) = itertools::izip!(ht_nucleotides, sr_nucleotides) //, sr_qualities)
+                    .fold((0,0), |(dist,nb_pos),(a, b)| { //, _qual)| {
+                        // if *qual < 10 { return (dist, nb_pos) }
+                        (dist + (a.nuc != *b) as usize, nb_pos + 1)
                     });
-
-                if 3 * dist <= nb_pos && nb_pos > 0 {
+                
+                // let min_shared_snv = sr_nucleotides.len().min(min_snv);
+                if 3 * dist <= nb_pos && nb_pos > 0 { // nb_pos > 0 && nb_pos >= min_shared_snv {
                     sr_distances.push((ht.hid(), dist, back_i));
                 }
             }
@@ -440,7 +429,7 @@ impl<'a> Phaser<'a> {
         let mut unambiguous: HashMap<usize,usize> = HashMap::new();
         let haplotypes = phasedblock.haplotypes().values().collect_vec();
 
-        for &sr_id in candidate_records {
+        for sr_id in supporting_records {
             let sr = &succinct_records[sr_id];
             let mut best_haplotypes = get_best_haplotypes(sr, &haplotypes);
             if best_haplotypes.len() == 1 {
@@ -453,12 +442,23 @@ impl<'a> Phaser<'a> {
             }
         }
 
+        spdlog::trace!("Supporting:");
+        for (hid,count) in supporting.iter() {
+            spdlog::trace!("  * h{hid} => {count}");
+        }
+
+        spdlog::trace!("Unambiguous:");
+        for (hid,count) in unambiguous.iter() {
+            spdlog::trace!("  * h{hid} => {count}");
+        }
+
         let unsupported_haplotypes = phasedblock.haplotypes().keys()
-            .filter(|&hid| !supporting.contains_key(hid) || supporting[hid] < self.opts.min_alt_count)
+            .filter(|hid| supporting.get(hid).is_none_or(|cnt| *cnt < self.opts.min_alt_count))
             .cloned()
             .collect_vec();
+
         let ambiguous_haplotypes = phasedblock.haplotypes().keys()
-            .filter(|&hid| supporting.contains_key(hid) && supporting[hid] >= self.opts.min_alt_count && (!unambiguous.contains_key(hid) || unambiguous[hid] < self.opts.min_alt_count))
+            .filter(|hid| supporting.get(hid).is_some_and(|cnt| *cnt >= self.opts.min_alt_count) && unambiguous.get(hid).is_none_or(|cnt| *cnt < self.opts.min_alt_count))
             .cloned()
             .collect_vec();
 
