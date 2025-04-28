@@ -48,6 +48,7 @@ impl PhasedBlock {
     // pub fn get(&self, hid:usize) -> &Haplotype { &self.haplotypes[&hid] }
 
     pub fn begin(&self) -> usize { self.begin }
+    pub fn end(&self) -> usize { self.haplotypes.values().next().unwrap().end() }
 
     pub fn remove_haplotype(&mut self, hid:usize) {
         self.haplotypes.remove(&hid);
