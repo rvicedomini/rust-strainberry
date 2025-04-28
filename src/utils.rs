@@ -72,7 +72,7 @@ pub fn run_minimap2(reference: &Path, reads: &Path, bam: &Path, opts: &Options) 
 
     let mm2_preset = match opts.mode {
         crate::cli::Mode::Hifi => "-xmap-hifi",
-        crate::cli::Mode::Nano => "-xmap-ont",
+        crate::cli::Mode::Nano => "-xlr:hq",//"-xmap-ont",
     };
     
     let mm2_args = ["-t", &opts.nb_threads.to_string(), "-a", mm2_preset, "--no-long-join", "-r50", "-g2k", "-z200", reference.to_str().unwrap(), reads.to_str().unwrap()];
