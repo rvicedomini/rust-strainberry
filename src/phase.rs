@@ -442,15 +442,15 @@ impl<'a> Phaser<'a> {
             }
         }
 
-        spdlog::trace!("Supporting:");
-        for (hid,count) in supporting.iter() {
-            spdlog::trace!("  * h{hid} => {count}");
-        }
+        // spdlog::trace!("Supporting:");
+        // for (hid,count) in supporting.iter() {
+        //     spdlog::trace!("  * h{hid} => {count}");
+        // }
 
-        spdlog::trace!("Unambiguous:");
-        for (hid,count) in unambiguous.iter() {
-            spdlog::trace!("  * h{hid} => {count}");
-        }
+        // spdlog::trace!("Unambiguous:");
+        // for (hid,count) in unambiguous.iter() {
+        //     spdlog::trace!("  * h{hid} => {count}");
+        // }
 
         let unsupported_haplotypes = phasedblock.haplotypes().keys()
             .filter(|hid| supporting.get(hid).is_none_or(|cnt| *cnt < self.opts.min_alt_count))
