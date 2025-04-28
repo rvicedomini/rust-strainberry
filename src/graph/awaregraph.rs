@@ -891,7 +891,7 @@ impl AwareGraph {
                 SeqType::Unphased => format!("{}_{}-{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), node_id),
                 SeqType::Read => format!("read{}_{}-{}_id{}", node_ctg.tid(), node_ctg.beg(), node_ctg.end(), node_id),
             };
-            let node_line = format!("S\t{}\t*\tLN:i:{}\tdp:i:{}\n", node_name, node_ctg.length(), node_ctg.depth() as usize);
+            let node_line = format!("S\t{}\t*\tLN:i:{}\tdp:f:{:.1}\n", node_name, node_ctg.length(), node_ctg.depth());
             gfa.write_all(node_line.as_bytes())?;
         }
 
