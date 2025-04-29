@@ -6,7 +6,7 @@ use std::path::Path;
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use anyhow::Result;
 use itertools::Itertools;
-use rust_htslib::bam::{self, Read,IndexedReader};
+use rust_htslib::bam::{Read,IndexedReader};
 use tinyvec::ArrayVec;
 
 use crate::cli::Options;
@@ -66,24 +66,16 @@ fn load_variants_at_positions_threaded(bam_path: &Path, ref_db: &SeqDatabase, po
 
 pub fn filter_variants_hp(mut variants:VarDict, ref_db: &SeqDatabase, hp_len:usize) -> VarDict {
 
-    for (tid,variants) in variants.iter_mut() {
-        let ref_seq = &ref_db.sequences[*tid];
-        let ref_len = ref_seq.len();
-        variants.retain(|var| {
-            let seq_after = ref_seq.subseq(var.pos+1, (var.pos+hp_len).max(ref_len));
-            let after_len = seq_after.iter().enumerate().take_while(|&(i,c)| i==0 || seq_after[i-1] == *c).count();
-            let after_nuc = seq_after.first().cloned();
-            let mut seq_before = ref_seq.subseq(var.pos.saturating_sub(hp_len), var.pos.saturating_sub(1));
-            seq_before.reverse();
-            let before_len = seq_before.iter().rev().enumerate().take_while(|&(i,c)| i==0 || seq_after[i-1] == *c).count();
-            let before_nuc = seq_before.first().cloned();
-            if before_len >= hp_len || after_len >= hp_len { return false }
-            let var_nuc = ref_seq.get(var.pos);
-            let mut incl_len = 1;
-            if after_nuc.is_some_and(|n| n == var_nuc) { incl_len += after_len }
-            if before_nuc.is_some_and(|n| n == var_nuc) { incl_len += before_len }
-            incl_len < hp_len
+    for (tid, positions) in variants.iter_mut() {
+        let ref_seq = ref_db.sequences[*tid].as_bytes();
+        let mut filtered = HashSet::from_iter(positions.iter().map(|var| var.pos));
+        ref_seq.chunk_by(|a,b| a == b).fold(0_usize, |i,chunk| {
+            let beg = i.saturating_sub(1);
+            let end = (i + chunk.len() + 1).min(ref_seq.len());
+            if chunk.len() >= hp_len { (beg..end).for_each(|pos| { filtered.remove(&pos); }); }
+            i + chunk.len()
         });
+        positions.retain(|var| filtered.contains(&var.pos));
     }
 
     variants
@@ -106,6 +98,8 @@ fn load_variants_at_positions(bam_reader: &mut IndexedReader, tid: usize, positi
             }
         }
 
+        let mut depth: usize = 0;
+        let mut nb_del: usize = 0;
         let mut strand_counts = [0_usize; 8]; // A+,A-,C+,C-,G+,G-,T+,T-
         for alignment in pileup.alignments() {
 
@@ -119,20 +113,27 @@ fn load_variants_at_positions(bam_reader: &mut IndexedReader, tid: usize, positi
                 continue;
             }
 
-            if !alignment.is_del() && !alignment.is_refskip() {
-                if let bam::pileup::Indel::None = alignment.indel() {
-                    let qual = alignment.record().qual()[alignment.qpos().unwrap()];
-                    if qual < 10 { continue }
-                    let base = alignment.record().seq()[alignment.qpos().unwrap()];
-                    let base = 0b11 & ((base >> 2) ^ (base >> 1));
-                    let b = 2 * (base as usize) + (record.is_reverse() as usize);
-                    strand_counts[b] += 1;
-                }
+            depth += 1;
+
+            if alignment.is_del() || alignment.is_refskip() {
+                nb_del += 1;
+                continue;
+            }
+
+            if alignment.record().qual()[alignment.qpos().unwrap()] >= 10 {
+                let base = alignment.record().seq()[alignment.qpos().unwrap()];
+                let base = 0b11 & ((base >> 2) ^ (base >> 1));
+                let b = 2 * (base as usize) + (record.is_reverse() as usize);
+                strand_counts[b] += 1;
             }
         }
 
-        let depth = strand_counts.iter().sum::<usize>();
         let min_depth = std::cmp::max(opts.min_alt_count, (opts.min_alt_frac * (depth as f64)) as usize);
+
+        if nb_del >= min_depth {
+            continue
+        }
+
         let alleles: ArrayVec<[(usize,usize);4]> = strand_counts.chunks_exact(2)
             .map(|c| c[0]+c[1])
             .enumerate()
