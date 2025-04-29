@@ -247,21 +247,6 @@ impl AwareGraph {
 
     pub fn remove_weak_edges(&mut self, min_reads:usize) {
 
-        let weak_bridges = self.edges.keys()
-            .filter(|&edge_key| self.contains_transitive(edge_key))
-            .filter(|&edge_key| {
-                let edge_len = self.get_biedge(edge_key).unwrap().gaps.first().unwrap_or(&0).abs();
-                let transitive_len = self.get_transitive(edge_key).unwrap().gaps.first().unwrap_or(&0).abs();
-                1.0 - (edge_len.min(transitive_len) as f64 / edge_len.max(transitive_len) as f64) < 0.3
-            }).cloned().collect_vec();
-        
-        weak_bridges.iter().for_each(|edge_key| {
-            let nb_reads = self.get_biedge(edge_key).unwrap().nb_reads;
-            let transitive = self.get_transitive_mut(edge_key).unwrap();
-            transitive.nb_reads += nb_reads;
-            self.remove_biedge(edge_key);
-        });
-
         let weak_edges = self.edges.values()
             .filter_map(|&edge_id| {
                 let edge = self.get_biedge_idx(edge_id);
@@ -277,6 +262,25 @@ impl AwareGraph {
                 None
             }).cloned().collect_vec();
         self.remove_biedges_from(&weak_edges);
+
+        // let weak_bridges = self.edges.keys()
+        //     .filter(|&edge_key| self.contains_transitive(edge_key))
+        //     .filter(|&edge_key| {
+        //         let edge_len = self.get_biedge(edge_key).unwrap().gaps.first().unwrap_or(&0).abs();
+        //         let transitive_len = self.get_transitive(edge_key).unwrap().gaps.first().unwrap_or(&0).abs();
+        //         let diff = 1.0 - (edge_len.min(transitive_len) as f64 / edge_len.max(transitive_len) as f64);
+        //         spdlog::trace!("found weak edge {edge_key}: edge_len={edge_len}, trans_len={transitive_len}, diff={diff:.3} weak={:?}", diff < 0.3);
+        //         diff < 0.3
+        //     })
+        //     .cloned()
+        //     .collect_vec();
+        
+        // weak_bridges.iter().for_each(|edge_key| {
+        //     let nb_reads = self.get_biedge(edge_key).unwrap().nb_reads;
+        //     let transitive = self.get_transitive_mut(edge_key).unwrap();
+        //     transitive.nb_reads += nb_reads;
+        //     self.remove_biedge(edge_key);
+        // });
     }
 
     pub fn clear_transitive_edges(&mut self) {
