@@ -1,6 +1,8 @@
 use itertools::Itertools;
 use ahash::AHashMap as HashMap;
 
+use crate::seq::SeqInterval;
+
 use super::haplotree::{HaploTree,Snv};
 use super::haplotype::Haplotype;
 
@@ -49,6 +51,10 @@ impl PhasedBlock {
 
     pub fn begin(&self) -> usize { self.begin }
     pub fn end(&self) -> usize { self.haplotypes.values().next().unwrap().end() }
+    pub fn interval(&self) -> Option<SeqInterval> {
+        if self.haplotypes().is_empty() { return None }
+        Some(SeqInterval { tid: self.tid, beg: self.begin(), end: self.end() })
+    }
 
     pub fn remove_haplotype(&mut self, hid:usize) {
         self.haplotypes.remove(&hid);
