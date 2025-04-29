@@ -72,9 +72,9 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     // TODO: consider adding "--force" option and terminate if directory already exists
     fs::create_dir_all(output_dir).with_context(|| format!("Cannot create output directory: \"{}\"", output_dir.display()))?;
 
-    // -------------
+    // --------------
     // PREPROCESSING
-    // -------------
+    // --------------
     
     let preprocess_dir = output_dir.join("00-preprocess");
     std::fs::create_dir_all(&preprocess_dir)
@@ -114,6 +114,10 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     opts.lookback = (9 * read_n75) / 10;
     spdlog::debug!("{} sequences loaded / N75: {read_n75}", read_db.size());
 
+    // ----------------
+    // VARIANT CALLING
+    // ----------------
+
     spdlog::info!("Calling variants from pileup");
     let variants = variant::load_variants_from_bam(&bam_path, &ref_db, &opts);
     let variant_path = preprocess_dir.join("variants.vcf");
@@ -143,14 +147,22 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
         ref_contigs.into_iter().map(|ctg| ctg.interval()).collect_vec()
     };
 
+    // ------------------
+    // HAPLOTYPE PHASING
+    // ------------------
+
     let phased_dir = output_dir.join("20-phased");
     spdlog::info!("Phasing strain haplotypes");
     let phaser = phase::Phaser::new(&bam_path, &ref_db, &read_db, &ref_intervals, phased_dir, &opts).unwrap();
     let phaser_result = phaser.phase(&variants);
     spdlog::info!("{} haplotypes phased", phaser_result.haplotypes.len());
 
+    // -------------------
+    // STRAIN-AWARE GRAPH
+    // -------------------
+
     spdlog::info!("Building strain-aware contigs");
-    let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &phaser_result.haplotypes, 0);
+    let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &phaser_result.haplotypes, opts.min_aware_ctg_len);
 
     spdlog::info!("Building succinct reads");
     let succinct_reads = seq::build_succinct_sequences(&bam_path, &ref_db, &read_db, &variants, &opts);
@@ -181,6 +193,10 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     if opts.no_asm {
         return Ok(());
     }
+
+    // ---------------
+    // ASSEMBLY GRAPH
+    // ---------------
 
     spdlog::info!("Building assembly graph");
     let unitig_dir = output_dir.join("50-unitigs");
