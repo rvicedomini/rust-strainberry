@@ -64,6 +64,16 @@ fn load_variants_at_positions_threaded(bam_path: &Path, ref_db: &SeqDatabase, po
 }
 
 
+pub fn filter_variants_by_density(mut variants:VarDict, ref_db: &SeqDatabase, density:f64) -> VarDict {
+    variants.iter_mut().for_each(|(ref_idx,ref_variants)| {
+        if (ref_variants.len() as f64) / (ref_db.sequences[*ref_idx].len() as f64) < density {
+            ref_variants.clear();
+        }
+    });
+    variants
+}
+
+
 pub fn filter_variants_hp(mut variants:VarDict, ref_db: &SeqDatabase, hp_len:usize) -> VarDict {
 
     for (tid, positions) in variants.iter_mut() {
@@ -178,7 +188,6 @@ pub fn load_variants_from_bam(bam_path:&Path, ref_db: &SeqDatabase, opts:&Option
 
 
 pub fn write_variants_to_file(path:&Path, variants:&VarDict, ref_db: &SeqDatabase) -> Result<()> {
-
     let mut writer = crate::utils::get_file_writer(path);
     // CHROM POS ID REF ALT QUAL FILTER INFO FORMAT SAMPLE
     for (ref_idx, ref_variants) in variants.iter() {
@@ -190,6 +199,17 @@ pub fn write_variants_to_file(path:&Path, variants:&VarDict, ref_db: &SeqDatabas
             let line = format!("{ref_name}\t{var_pos}\t{var_nuc}\t{alt_nuc}\n");
             writer.write_all(line.as_bytes())?;
         }
+    }
+    Ok(())
+}
+
+pub fn write_variants_info(path:&Path, variants:&VarDict, ref_db: &SeqDatabase) -> Result<()> {
+    let mut writer = crate::utils::get_file_writer(path);
+    for (ref_idx, ref_variants) in variants.iter() {
+        let ref_name = ref_db.names[*ref_idx].as_str();
+        let density = ref_variants.len() as f64 / ref_db.sequences[*ref_idx].len() as f64;
+        let line = format!("{ref_name}\t{density}\n");
+        writer.write_all(line.as_bytes())?;
     }
     Ok(())
 }

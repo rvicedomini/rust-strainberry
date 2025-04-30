@@ -69,6 +69,10 @@ pub struct Options {
     // #[arg(long = "min-var-qual", value_name = "NUM", default_value_t = 0)]
     // pub min_var_qual: usize,
 
+    /// Minimum SNV fraction to phase haplotypes in a sequence
+    #[arg(long = "min-snv-density", value_name = "NUM", default_value_t = 0.001)]
+    pub min_snv_density: f64,
+
     /// Minimum number of phased variants to retain a haplotype
     #[arg(long = "min-snv", value_name = "NUM", default_value_t = 3)]
     pub min_snv: usize,
@@ -113,7 +117,7 @@ pub struct Options {
     #[arg(long = "debug")]
     pub debug:bool,
 
-    /// Print debug information
+    /// Print more verbose debug information
     #[arg(long = "trace", hide = true)]
     pub trace:bool,
 }
