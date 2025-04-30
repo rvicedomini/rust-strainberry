@@ -157,6 +157,20 @@ impl<'a> Phaser<'a> {
         let seq2haplo = self::separate_reads(&succinct_seqs, &haplotypes, 1);
         self.write_reads(&haplotypes, &seq2haplo).unwrap();
 
+        if self.opts.trace {
+            let mut haplo_bases: HashMap<HaplotypeId, usize> = HashMap::new();
+            for hits in seq2haplo.values() {
+                for h in hits.iter().filter(|h| !h.is_ambiguous()) {
+                    haplo_bases.entry(h.hid).and_modify(|e| *e += h.nb_pos).or_insert(h.nb_pos);
+                }
+            }
+            for (hid, bases) in haplo_bases {
+                if bases / haplotypes[&hid].raw_size() < self.opts.min_alt_count {
+                    spdlog::warn!("Haplotype {hid} has low coverage: {}", bases / haplotypes[&hid].raw_size());
+                }
+            }
+        }
+
         PhaseResult {
             haplotypes,
             seq2haplo,
