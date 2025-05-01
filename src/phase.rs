@@ -293,7 +293,7 @@ impl<'a> Phaser<'a> {
                 continue
             }
 
-            // if self.ref_db.names[ref_interval.tid].as_str() == "ctg2192" && [3547752,3557261].contains(&phasedblock.begin()) {
+            // if self.ref_db.names[ref_interval.tid].as_str() == "ctg2192" && [1383429].contains(&phasedblock.begin()) {
             //     spdlog::trace!("Current haplotypes @ {}:{target_pos}", self.ref_db.names[ref_interval.tid].as_str());
             //     for ht in phasedblock.haplotypes().values() {
             //         spdlog::trace!("  * {ht}");
@@ -356,7 +356,7 @@ impl<'a> Phaser<'a> {
             //     spdlog::trace!("  * {}", phasedblock.haplotypes().get(hid).unwrap());
             // }
 
-            // if self.ref_db.names[ref_interval.tid].as_str() == "ctg2192" && [3547752,3557261].contains(&phasedblock.begin()) {
+            // if self.ref_db.names[ref_interval.tid].as_str() == "ctg2192" && [1383429].contains(&phasedblock.begin()) {
             //     spdlog::trace!("Extended haplotypes @ {}:{target_pos}", self.ref_db.names[ref_interval.tid].as_str());
             //     for ht in phasedblock.haplotypes().values() {
             //         spdlog::trace!("  * {ht}");
@@ -367,10 +367,6 @@ impl<'a> Phaser<'a> {
 
             if !unsupported_haplotypes.is_empty() && (var_position - phasedblock.begin() + 1 > self.opts.lookback) {
                 phasedblock.split_and_init(0);
-                // eprintln!("Saved haplotypes after finding unsupported ones:");
-                // for ht in phasedblock.haplotypes().values() {
-                //     eprintln!("  {ht}");
-                // }
                 let phased_interval = phasedblock.interval().unwrap();
                 haplotypes.insert(phased_interval, phasedblock.drain());
                 phasedblock.init(var_position, var_nucleotides);
@@ -379,7 +375,7 @@ impl<'a> Phaser<'a> {
                 continue;
             }
             if !unsupported_haplotypes.is_empty() {
-                // if self.ref_db.names[ref_interval.tid].as_str() == "ctg2192" && [3547752,3557261].contains(&phasedblock.begin()) {
+                // if self.ref_db.names[ref_interval.tid].as_str() == "ctg2192" && [1383429].contains(&phasedblock.begin()) {
                 //     spdlog::trace!("Unsupported haplotypes");
                 //     for hid in &unsupported_haplotypes {
                 //         spdlog::trace!("  * {}", phasedblock.haplotypes().get(hid).unwrap());
@@ -394,19 +390,28 @@ impl<'a> Phaser<'a> {
 
             // if ambiguous extension, create a new phaseset (should a minimum of 3 SNVs be requested here too?)
             if is_ambiguous && (var_position - phasedblock.begin() > self.opts.lookback) {
-                // if self.ref_db.names[ref_interval.tid].as_str() == "ctg2192" && [3547752,3557261].contains(&phasedblock.begin()) {
+                // if self.ref_db.names[ref_interval.tid].as_str() == "ctg2192" && [1383429].contains(&phasedblock.begin()) {
                 //     spdlog::trace!("Ambiguous extension; split and init new phasedblock");
                 //     for hid in &ambiguous_haplotypes {
                 //         spdlog::trace!("  * {}", phasedblock.haplotypes().get(hid).unwrap());
                 //     }
                 // }
-                let mut new_phasedblock = phasedblock.split_and_init(self.opts.lookback);
+                
+                phasedblock.split_and_init(0);
                 let phased_interval = phasedblock.interval().unwrap();
                 haplotypes.insert(phased_interval, phasedblock.drain());
-                std::mem::swap(&mut phasedblock, &mut new_phasedblock);
+                phasedblock.init(var_position, var_nucleotides);
+                lookback_positions.clear();
+                lookback_positions.push_back(var_position);
                 continue;
+
+                // let mut new_phasedblock = phasedblock.split_and_init(self.opts.lookback);
+                // let phased_interval = phasedblock.interval().unwrap();
+                // haplotypes.insert(phased_interval, phasedblock.drain());
+                // std::mem::swap(&mut phasedblock, &mut new_phasedblock);
+                // continue;
             }
-            // if self.ref_db.names[ref_interval.tid].as_str() == "ctg2192" && [3547752,3557261].contains(&phasedblock.begin()) {
+            // if self.ref_db.names[ref_interval.tid].as_str() == "ctg2192" && [1383429].contains(&phasedblock.begin()) {
             //     spdlog::trace!("Deleted ambiguous haplotypes");
             //     for hid in &ambiguous_haplotypes {
             //         spdlog::trace!("  * {}", phasedblock.haplotypes().get(hid).unwrap());
@@ -418,7 +423,7 @@ impl<'a> Phaser<'a> {
             }
         }
 
-        // if self.ref_db.names[ref_interval.tid].as_str() == "ctg2192" && [3547752,3557261].contains(&phasedblock.begin()) {
+        // if self.ref_db.names[ref_interval.tid].as_str() == "ctg2192" && [1383429].contains(&phasedblock.begin()) {
         //     spdlog::trace!("Saving remaining haplotypes:");
         //     for ht in phasedblock.haplotypes().values() {
         //         spdlog::trace!("  * {ht}");
@@ -481,7 +486,7 @@ impl<'a> Phaser<'a> {
             }
         }
 
-        // if self.ref_db.names[phasedblock.interval().unwrap().tid].as_str() == "ctg2192" && [3547752,3557261].contains(&phasedblock.begin()) {
+        // if self.ref_db.names[phasedblock.interval().unwrap().tid].as_str() == "ctg2192" && [1383429].contains(&phasedblock.begin()) {
         //     spdlog::trace!("Supporting:");
         //     for (hid,count) in supporting.iter() {
         //         spdlog::trace!("  * h{hid} => {:.1}", *count as f64 / nb_snvs as f64);
