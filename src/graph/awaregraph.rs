@@ -455,9 +455,9 @@ impl AwareGraph {
     fn resolve_junction(&mut self, junc:&Junction, min_reads:usize) -> bool {
 
         // resolve only junctions between phased sequences
-        if junc.inout_nodes().any(|node_id| !self.nodes[&node_id].ctg.is_phased()) {
-            return false
-        }
+        // if junc.inout_nodes().any(|node_id| !self.nodes[&node_id].ctg.is_phased()) {
+        //     return false
+        // }
 
         // first check if it is still a valid junction
         if junc.inputs().any(|(node_id,_)| !self.nodes.contains_key(&node_id)) || junc.outputs().any(|(node_id,_)| !self.nodes.contains_key(&node_id)) {
