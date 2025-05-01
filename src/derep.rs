@@ -42,9 +42,10 @@ fn compute_matching_intervals(fasta_path: &Path, opts: &Options) -> Result<HashM
         .collect();
 
     let mut matching_intervals: HashMap<String,Vec<(usize,usize,String)>> = HashMap::new();
-    for a in alignments.into_iter().filter(|a| a.mapping_length >= 2000 && a.query_name != a.target_name) {
+    for a in alignments.into_iter().filter(|a| a.query_name != a.target_name) {
         let map_type = a.map_type(1000, 0.8);
-        let identity = if a.mapping_length > 0 { (a.matches as f64)/(a.mapping_length as f64) } else { 0.0 };
+        assert!(a.mapping_length > 0);
+        let identity = (a.matches as f64)/(a.mapping_length as f64);
         // println!("{a} => {map_type:?} / {identity:.2}");
         if identity < 0.90 {
             continue
