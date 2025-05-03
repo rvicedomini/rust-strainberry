@@ -126,10 +126,10 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     let variant_info = preprocess_dir.join("variants.info.txt");
     variant::write_variants_info(&variant_info, &variants, &ref_db)?;
 
-    spdlog::info!("Filtering variants");
-    let variants = variant::filter_variants_by_density(variants, &ref_db, opts.min_snv_density);
-    let variant_path = preprocess_dir.join("variants.filtered.vcf");
-    variant::write_variants_to_file(&variant_path, &variants, &ref_db)?;
+    // spdlog::info!("Filtering variants");
+    // let variants = variant::filter_variants_by_density(variants, &ref_db, opts.min_snv_density);
+    // let variant_path = preprocess_dir.join("variants.filtered.vcf");
+    // variant::write_variants_to_file(&variant_path, &variants, &ref_db)?;
     // let variants = variant::filter_variants_hp(variants, &ref_db, 3);
     // let variant_path = preprocess_dir.join("variants.filtered.vcf");
     // variant::write_variants_to_file(&variant_path, &variants, &ref_db)?;
