@@ -293,7 +293,7 @@ impl<'a> Phaser<'a> {
                 continue
             }
 
-            // if self.ref_db.names[ref_interval.tid].as_str() == "ctg2192" && [1383429].contains(&phasedblock.begin()) {
+            // if self.ref_db.names[ref_interval.tid].as_str() == "edge_49" && [3017727].contains(&phasedblock.begin()) {
             //     spdlog::trace!("Current haplotypes @ {}:{target_pos}", self.ref_db.names[ref_interval.tid].as_str());
             //     for ht in phasedblock.haplotypes().values() {
             //         spdlog::trace!("  * {ht}");
@@ -356,7 +356,7 @@ impl<'a> Phaser<'a> {
             //     spdlog::trace!("  * {}", phasedblock.haplotypes().get(hid).unwrap());
             // }
 
-            // if self.ref_db.names[ref_interval.tid].as_str() == "ctg2192" && [1383429].contains(&phasedblock.begin()) {
+            // if self.ref_db.names[ref_interval.tid].as_str() == "edge_49" && [3017727].contains(&phasedblock.begin()) {
             //     spdlog::trace!("Extended haplotypes @ {}:{target_pos}", self.ref_db.names[ref_interval.tid].as_str());
             //     for ht in phasedblock.haplotypes().values() {
             //         spdlog::trace!("  * {ht}");
@@ -486,7 +486,7 @@ impl<'a> Phaser<'a> {
             }
         }
 
-        // if self.ref_db.names[phasedblock.interval().unwrap().tid].as_str() == "ctg2192" && [1383429].contains(&phasedblock.begin()) {
+        // if self.ref_db.names[phasedblock.interval().unwrap().tid].as_str() == "edge_49" && [3017727].contains(&phasedblock.begin()) {
         //     spdlog::trace!("Supporting:");
         //     for (hid,count) in supporting.iter() {
         //         spdlog::trace!("  * h{hid} => {:.1}", *count as f64 / nb_snvs as f64);

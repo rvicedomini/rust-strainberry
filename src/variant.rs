@@ -27,43 +27,6 @@ pub type VarDict = HashMap<usize,Vec<Var>>;
 type VarPositions = HashMap<usize,HashSet<usize>>;
 
 
-fn load_variants_at_positions_threaded(bam_path: &Path, ref_db: &SeqDatabase, positions: Option<&VarPositions>, opts: &Options) -> VarDict {
-
-    let (tx, rx) = mpsc::channel();
-
-    let index_to_tid = crate::bam::build_target_index(bam_path, ref_db);
-
-    let ref_variants = if let Some(positions) = positions {
-        positions.iter()
-            .map(|(ref_idx,ref_positions)| (index_to_tid[*ref_idx], Some(ref_positions)))
-            .collect_vec()
-    } else {
-        (0..ref_db.size())
-            .map(|ref_idx| (index_to_tid[ref_idx], None))
-            .collect_vec()
-    };
-
-    thread::scope(|scope| {
-        for thread_id in 0..opts.nb_threads {
-            let sender = tx.clone();
-            let ref_variants_ref = &ref_variants;
-            scope.spawn(move || {
-                let mut bam_reader = IndexedReader::from_path(bam_path).unwrap();
-                for i in (thread_id..ref_variants_ref.len()).step_by(opts.nb_threads) {
-                    let (tid, target_positions) = ref_variants_ref[i];
-                    let variants = load_variants_at_positions(&mut bam_reader, tid, target_positions, opts);
-                    sender.send((tid,variants)).unwrap();
-                }
-            });
-        }
-    });
-
-    (0..ref_variants.len())
-        .flat_map(|_| rx.recv())
-        .collect()
-}
-
-
 pub fn filter_variants_by_density(mut variants:VarDict, ref_db: &SeqDatabase, density:f64) -> VarDict {
     variants.iter_mut().for_each(|(ref_idx,ref_variants)| {
         if (ref_variants.len() as f64) / (ref_db.sequences[*ref_idx].len() as f64) < density {
@@ -92,24 +55,20 @@ pub fn filter_variants_hp(mut variants:VarDict, ref_db: &SeqDatabase, hp_len:usi
 }
 
 
-fn load_variants_at_positions(bam_reader: &mut IndexedReader, tid: usize, positions: Option<&HashSet<usize>>, opts: &Options) -> Vec<Var> {
+fn find_pileup_variants(bam_reader: &mut IndexedReader, tid: usize, opts: &Options) -> Vec<Var> {
 
     let mut variants: Vec<Var> = vec![];
     // let header = bam_reader.header().clone();
 
+    let mut last_indel_pos: usize = 0;
     bam_reader.fetch(tid as u32).unwrap();
     for pileup in bam_reader.pileup() {
         let pileup = pileup.unwrap();
         let pos = pileup.pos() as usize;
 
-        if let Some(positions) = positions {
-            if !positions.contains(&pos) {
-                continue;
-            }
-        }
-
         let mut depth: usize = 0;
         let mut nb_del: usize = 0;
+        let mut nb_ins: usize = 0;
         let mut strand_counts = [0_usize; 8]; // A+,A-,C+,C-,G+,G-,T+,T-
         for alignment in pileup.alignments() {
 
@@ -125,22 +84,30 @@ fn load_variants_at_positions(bam_reader: &mut IndexedReader, tid: usize, positi
 
             depth += 1;
 
-            if alignment.is_del() || alignment.is_refskip() {
+            if !alignment.is_del() && !alignment.is_refskip() {
+                if alignment.record().qual()[alignment.qpos().unwrap()] >= 10 {
+                    let base = alignment.record().seq()[alignment.qpos().unwrap()];
+                    let base = 0b11 & ((base >> 2) ^ (base >> 1));
+                    let b = 2 * (base as usize) + (record.is_reverse() as usize);
+                    strand_counts[b] += 1;
+                }
+            } else {
                 nb_del += 1;
-                continue;
             }
 
-            if alignment.record().qual()[alignment.qpos().unwrap()] >= 10 {
-                let base = alignment.record().seq()[alignment.qpos().unwrap()];
-                let base = 0b11 & ((base >> 2) ^ (base >> 1));
-                let b = 2 * (base as usize) + (record.is_reverse() as usize);
-                strand_counts[b] += 1;
+            if let rust_htslib::bam::pileup::Indel::Ins(_) = alignment.indel() {
+                nb_ins += 1;
             }
         }
 
         let min_depth = std::cmp::max(opts.min_alt_count, (opts.min_alt_frac * (depth as f64)) as usize);
 
-        if nb_del >= min_depth {
+        if nb_del >= min_depth || nb_ins >= min_depth {
+            last_indel_pos = pos;
+            continue;
+        }
+
+        if pos - last_indel_pos <= 5 { // skip positions too close to an indel
             continue
         }
 
@@ -183,7 +150,32 @@ fn load_variants_at_positions(bam_reader: &mut IndexedReader, tid: usize, positi
 
 
 pub fn load_variants_from_bam(bam_path:&Path, ref_db: &SeqDatabase, opts:&Options) -> VarDict {
-    load_variants_at_positions_threaded(bam_path, ref_db, None, opts)
+    let (tx, rx) = mpsc::channel();
+
+    let index_to_tid = crate::bam::build_target_index(bam_path, ref_db);
+
+    let ref_variants = (0..ref_db.size())
+        .map(|ref_idx| index_to_tid[ref_idx])
+        .collect_vec();
+
+    thread::scope(|scope| {
+        for thread_id in 0..opts.nb_threads {
+            let sender = tx.clone();
+            let ref_variants_ref = &ref_variants;
+            scope.spawn(move || {
+                let mut bam_reader = IndexedReader::from_path(bam_path).unwrap();
+                for i in (thread_id..ref_variants_ref.len()).step_by(opts.nb_threads) {
+                    let tid = ref_variants_ref[i];
+                    let variants = find_pileup_variants(&mut bam_reader, tid, opts);
+                    sender.send((tid,variants)).unwrap();
+                }
+            });
+        }
+    });
+
+    (0..ref_variants.len())
+        .flat_map(|_| rx.recv())
+        .collect()
 }
 
 
