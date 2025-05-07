@@ -293,7 +293,7 @@ impl<'a> Phaser<'a> {
                 continue
             }
 
-            // if self.ref_db.names[ref_interval.tid].as_str() == "edge_49" && [3017727].contains(&phasedblock.begin()) {
+            // if self.ref_db.names[ref_interval.tid].as_str() == "edge_482" && [269889].contains(&phasedblock.begin()) {
             //     spdlog::trace!("Current haplotypes @ {}:{target_pos}", self.ref_db.names[ref_interval.tid].as_str());
             //     for ht in phasedblock.haplotypes().values() {
             //         spdlog::trace!("  * {ht}");
@@ -356,7 +356,7 @@ impl<'a> Phaser<'a> {
             //     spdlog::trace!("  * {}", phasedblock.haplotypes().get(hid).unwrap());
             // }
 
-            // if self.ref_db.names[ref_interval.tid].as_str() == "edge_49" && [3017727].contains(&phasedblock.begin()) {
+            // if self.ref_db.names[ref_interval.tid].as_str() == "edge_482" && [269889].contains(&phasedblock.begin()) {
             //     spdlog::trace!("Extended haplotypes @ {}:{target_pos}", self.ref_db.names[ref_interval.tid].as_str());
             //     for ht in phasedblock.haplotypes().values() {
             //         spdlog::trace!("  * {ht}");
@@ -375,7 +375,7 @@ impl<'a> Phaser<'a> {
                 continue;
             }
             if !unsupported_haplotypes.is_empty() {
-                // if self.ref_db.names[ref_interval.tid].as_str() == "ctg2192" && [1383429].contains(&phasedblock.begin()) {
+                // if self.ref_db.names[ref_interval.tid].as_str() == "edge_482" && [269889].contains(&phasedblock.begin()) {
                 //     spdlog::trace!("Unsupported haplotypes");
                 //     for hid in &unsupported_haplotypes {
                 //         spdlog::trace!("  * {}", phasedblock.haplotypes().get(hid).unwrap());
@@ -390,7 +390,7 @@ impl<'a> Phaser<'a> {
 
             // if ambiguous extension, create a new phaseset (should a minimum of 3 SNVs be requested here too?)
             if is_ambiguous && (var_position - phasedblock.begin() > self.opts.lookback) {
-                // if self.ref_db.names[ref_interval.tid].as_str() == "ctg2192" && [1383429].contains(&phasedblock.begin()) {
+                // if self.ref_db.names[ref_interval.tid].as_str() == "edge_482" && [269889].contains(&phasedblock.begin()) {
                 //     spdlog::trace!("Ambiguous extension; split and init new phasedblock");
                 //     for hid in &ambiguous_haplotypes {
                 //         spdlog::trace!("  * {}", phasedblock.haplotypes().get(hid).unwrap());
@@ -411,7 +411,7 @@ impl<'a> Phaser<'a> {
                 // std::mem::swap(&mut phasedblock, &mut new_phasedblock);
                 // continue;
             }
-            // if self.ref_db.names[ref_interval.tid].as_str() == "ctg2192" && [1383429].contains(&phasedblock.begin()) {
+            // if self.ref_db.names[ref_interval.tid].as_str() == "edge_482" && [269889].contains(&phasedblock.begin()) {
             //     spdlog::trace!("Deleted ambiguous haplotypes");
             //     for hid in &ambiguous_haplotypes {
             //         spdlog::trace!("  * {}", phasedblock.haplotypes().get(hid).unwrap());
@@ -486,7 +486,7 @@ impl<'a> Phaser<'a> {
             }
         }
 
-        // if self.ref_db.names[phasedblock.interval().unwrap().tid].as_str() == "edge_49" && [3017727].contains(&phasedblock.begin()) {
+        // if self.ref_db.names[phasedblock.interval().unwrap().tid].as_str() == "edge_482" && [269889].contains(&phasedblock.begin()) {
         //     spdlog::trace!("Supporting:");
         //     for (hid,count) in supporting.iter() {
         //         spdlog::trace!("  * h{hid} => {:.1}", *count as f64 / nb_snvs as f64);
@@ -664,4 +664,49 @@ fn sread_haplotype_distance(sread: &SuccinctSeq, ht: &Haplotype) -> Option<Haplo
 
     let ht_hit = HaplotypeHit::new(ht.uid(), dist, nb_pos, 0);
     Some(ht_hit)
+}
+
+
+// version including alternative same-distance matches
+pub fn separate_reads_2(succinct_records: &[SuccinctSeq], haplotypes: &HashMap<HaplotypeId,Haplotype>, min_shared_pos: usize)
+    ->  HashMap<BamRecordId,Vec<HaplotypeHit>> {
+
+    let haplotypes = haplotypes.values().sorted_unstable_by_key(|ht| ht.uid()).collect_vec();
+    let mut sread_haplotypes: HashMap<BamRecordId, Vec<HaplotypeHit>> = HashMap::new();
+    for sread in succinct_records {
+        let best_hits = best_sread_haplotypes_2(sread, &haplotypes, min_shared_pos);
+        sread_haplotypes.entry(sread.record_id()).or_default()
+            .extend(best_hits);
+    }
+    sread_haplotypes
+}
+
+// version including alternative same-distance matches
+// Prerequisite: haplotypes are sorted by target-id and start/end coordinate
+fn best_sread_haplotypes_2(sread: &SuccinctSeq, haplotypes: &[&Haplotype], min_shared_pos: usize)
+    -> Vec<HaplotypeHit> {
+    
+    let mut candidates = HashMap::new();
+    let idx = haplotypes.partition_point(|ht| ht.tid() < sread.tid() || (ht.tid() == sread.tid() && ht.end() <= sread.beg()));
+    for ht in haplotypes[idx..].iter().take_while(|ht| ht.beg() < sread.end()) {
+        if let Some(hit) = sread_haplotype_distance(sread, ht) {
+            if hit.nb_pos > 0 && hit.nb_pos >= min_shared_pos {
+                let range = ht.beg()..ht.end();
+                candidates.entry(range)
+                    .or_insert(vec![])
+                    .push(hit);
+            }
+        }
+    }
+
+    let mut best_hits = vec![];
+    for mut hits in candidates.into_values() {
+        assert!(!hits.is_empty());
+        hits.sort_unstable_by_key(|h| h.dist);
+        let best_dist = hits[0].dist;
+        best_hits.extend(hits.into_iter().take_while(|h| h.dist == best_dist));
+    }
+    best_hits.sort_unstable_by_key(|hit| hit.hid);
+
+    best_hits
 }

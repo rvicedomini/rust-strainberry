@@ -437,7 +437,7 @@ impl AwareGraph {
             junctions.sort_by_key(|j| j.inner_nodes().map(|x| self.nodes[&x].ctg.length()).sum::<usize>());
 
             let nb_resolved = junctions.iter().fold(0, |n,junction| {
-                n + self.resolve_junction(junction, min_reads) as usize
+                n + self.resolve_junction(junction, min_reads, num_iter) as usize
             });
 
             spdlog::debug!("junctions resolved: {nb_resolved}");
@@ -452,7 +452,7 @@ impl AwareGraph {
         spdlog::debug!("total junctions resolved: {tot_resolved}");
     }
 
-    fn resolve_junction(&mut self, junc:&Junction, min_reads:usize) -> bool {
+    fn resolve_junction(&mut self, junc:&Junction, min_reads:usize, num_iter:usize) -> bool {
 
         // resolve only junctions between phased sequences
         // if junc.inout_nodes().any(|node_id| !self.nodes[&node_id].ctg.is_phased()) {
@@ -470,6 +470,14 @@ impl AwareGraph {
                 if (t_key.strand_from == node_dir) && junc.outputs().any(|out| out == (t_key.id_to,t_key.strand_to)) {
                     bridges.push(*t_key);
                 }
+            }
+        }
+
+        if num_iter == 1 {
+            spdlog::trace!("{junc} with bridges:");
+            for key in &bridges {
+                let edge = self.get_transitive(key).unwrap();
+                spdlog::trace!("  * {key} => nb_reads={}", edge.nb_reads);
             }
         }
 

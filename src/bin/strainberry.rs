@@ -11,7 +11,7 @@ use clap::Parser;
 use itertools::Itertools;
 
 use strainberry::cli;
-use strainberry::graph::awaregraph::AwareGraph;
+use strainberry::graph;
 use strainberry::misassembly;
 use strainberry::phase;
 use strainberry::seq;
@@ -185,7 +185,7 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     fs::create_dir_all(graphs_dir.as_path()).with_context(|| format!("Cannot create graphs directory: \"{}\"", graphs_dir.display()))?;
     
     spdlog::info!("Building strain-aware graph");
-    let mut aware_graph = AwareGraph::build(&aware_contigs);
+    let mut aware_graph = graph::AwareGraph::build(&aware_contigs);
     aware_graph.add_edges_from_aware_alignments(&read2aware);
     aware_graph.write_gfa(graphs_dir.join("aware_graph.raw.gfa"), &ref_db)?;
 

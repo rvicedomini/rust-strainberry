@@ -6,3 +6,4 @@ pub mod awaregraph;
 
 pub use asmgraph::AsmGraph;
 pub use asmgraph::GfaGraph;
+pub use awaregraph::AwareGraph;
