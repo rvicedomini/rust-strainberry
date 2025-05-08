@@ -378,9 +378,9 @@ impl AwareGraph {
                 if in_edges.len() <= 1 {
                     continue
                 }
-                if !in_edges.iter().all(|edge_key| self.node_degree(edge_key.id_to, edge_key.strand_to) == 1) {
-                    continue
-                }
+                // if !in_edges.iter().all(|edge_key| self.node_degree(edge_key.id_to, edge_key.strand_to) == 1) {
+                //     continue
+                // }
 
                 // possibly found the "start" of junction
                 visited.insert((node_id,node_dir));
@@ -403,9 +403,9 @@ impl AwareGraph {
                         visited.insert((src,src_dir));
                         junc.out_edges.extend(out_edges);
 
-                        if !junc.outputs().all(|(node_id,dir)| self.node_degree(node_id, dir) == 1) {
-                            break;
-                        }
+                        // if !junc.outputs().all(|(node_id,dir)| self.node_degree(node_id, dir) == 1) {
+                        //     break;
+                        // }
 
                         if HashSet::from_iter(junc.input_nodes()).intersection(&HashSet::from_iter(junc.output_nodes())).count() == 0 {
                             junctions.push(junc);

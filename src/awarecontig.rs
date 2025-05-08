@@ -168,6 +168,25 @@ pub fn build_aware_contigs(ref_intervals:&[SeqInterval], haplotypes:&HashMap<Hap
 }
 
 
+pub fn build_phased_contigs(haplotypes:&HashMap<HaplotypeId,Haplotype>) -> Vec<AwareContig> {
+    
+    let mut aware_contigs = haplotypes.values()
+        .map(|ht| {
+            AwareContig {
+                contig_type: SeqType::Haplotype(ht.hid()),
+                interval: ht.region(),
+                strand: b'+',
+                aligned_bases: 0
+            }
+        }).collect_vec();
+
+    aware_contigs.sort_by_key(|ctg| (ctg.interval(), ctg.hid()));
+    spdlog::debug!("{} strain-aware contigs built", aware_contigs.len());
+
+    aware_contigs
+}
+
+
 pub fn map_sequences_to_aware_contigs(seq_alignments: &HashMap<usize,Vec<SeqAlignment>>, aware_contigs: &mut[AwareContig], seq2haplo: &HashMap<BamRecordId,Vec<HaplotypeHit>>) -> HashMap<usize,Vec<AwareAlignment>> {
 
     let mut read2aware = HashMap::new();
@@ -262,13 +281,13 @@ pub fn filter_aware_alignments(mut aware_alignments: Vec<AwareAlignment>, aware_
     let mut filtered_alignments = Vec::with_capacity(nb_aware_alignments);
     
     aware_alignments.sort_unstable_by_key(|a| (a.query_aln_beg,a.query_beg));
-    for (i,a) in aware_alignments.into_iter().enumerate() {
+    for (_i,a) in aware_alignments.into_iter().enumerate() {
         if a.query_end - a.query_beg < 1 {
             continue
         }
-        if matches!(a.mapping_type, MappingType::DovetailPrefix|MappingType::DovetailSuffix) && 0 < i && i < nb_aware_alignments-1 {
-            continue
-        }
+        // if matches!(a.mapping_type, MappingType::DovetailPrefix|MappingType::DovetailSuffix) && 0 < i && i < nb_aware_alignments-1 {
+        //     continue
+        // }
         let aware_contig = &mut aware_contigs[a.aware_id];
         aware_contig.aligned_bases += a.target_end - a.target_beg;
         filtered_alignments.push(a);
