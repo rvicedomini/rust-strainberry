@@ -25,6 +25,23 @@ pub enum MappingType {
     DovetailPrefix
 }
 
+impl MappingType {
+
+    pub fn is_containment(&self) -> bool {
+        match self {
+            Self::QueryContained | Self::ReferenceContained => true,
+            _ => false
+        }
+    }
+
+    pub fn is_dovetail(&self) -> bool {
+        match self {
+            Self::DovetailPrefix | Self::DovetailSuffix => true,
+            _ => false
+        }
+    }
+}
+
 pub fn classify_mapping(query_range:(usize,usize,usize), target_range:(usize,usize,usize), overhang:usize, r:f64) -> MappingType {
     use MappingType::*;
 
