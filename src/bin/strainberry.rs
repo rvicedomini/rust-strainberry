@@ -111,7 +111,7 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     spdlog::info!("Building read index");
     let read_db = seq::SeqDatabase::build(reads_path, true)?;
     let read_n75 = read_db.compute_nx(75).unwrap();
-    opts.lookback = (9 * read_n75) / 10;
+    // opts.lookback = (9 * read_n75) / 10;
     spdlog::debug!("{} sequences loaded / N75: {read_n75}", read_db.size());
 
     // ----------------
@@ -138,17 +138,36 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     spdlog::info!("Splitting reference at putative misjoins");
     let ref_intervals = misassembly::partition_reference(&bam_path, &ref_db, &read_db, &opts);
     spdlog::debug!("{} sequences after split", ref_intervals.len());
+    // let ref_intervals = ref_db.sequences.iter().enumerate().map(|(tid,seq)| SeqInterval{tid, beg:0, end:seq.len()}).collect_vec();
 
     spdlog::info!("Loading read alignments");
     let read_alignments = seq::alignment::load_bam_alignments(&bam_path, &ref_db, &read_db, &opts);
 
     if opts.no_phase {
+
+        let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &HashMap::new(), opts.min_aware_ctg_len);
+        let read2aware = strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut aware_contigs, &HashMap::new());
+
+        let graphs_dir = output_dir.join("40-graphs");
+        fs::create_dir_all(graphs_dir.as_path()).with_context(|| format!("Cannot create graphs directory: \"{}\"", graphs_dir.display()))?;
+        
+        let mut aware_graph = graph::AwareGraph::build(&aware_contigs);
+        aware_graph.add_edges_from_aware_alignments(&read2aware);
+        aware_graph.write_gfa(graphs_dir.join("backbone.raw.gfa"), &ref_db)?;
+
+        aware_graph.add_bridges(&read2aware);
+        aware_graph.remove_weak_edges(opts.min_alt_count);
+        aware_graph.write_gfa(graphs_dir.join("backbone.gfa"), &ref_db)?;
+
+        aware_graph.resolve_junctions(opts.min_alt_count);
+        aware_graph.write_gfa(graphs_dir.join("backbone.resolved.gfa"), &ref_db)?;
+
         return Ok(());
     }
 
     let ref_intervals = {
         spdlog::info!("Filtering low-coverage sequences");
-        let mut ref_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &HashMap::new(), opts.min_aware_ctg_len);
+        let mut ref_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &HashMap::new(), 0);
         strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut ref_contigs, &HashMap::new());
         ref_contigs.retain(|ctg| ctg.depth() >= opts.min_alt_count as f64);
         ref_contigs.into_iter().map(|ctg| ctg.interval()).collect_vec()
@@ -169,7 +188,8 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     // -------------------
 
     spdlog::info!("Building strain-aware contigs");
-    let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &phaser_result.haplotypes, 0);
+    let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &phaser_result.haplotypes, opts.min_aware_ctg_len);
+    // let mut aware_contigs = strainberry::awarecontig::build_phased_contigs(&phaser_result.haplotypes);
 
     spdlog::info!("Building succinct reads");
     let succinct_reads = seq::build_succinct_sequences(&bam_path, &ref_db, &read_db, &variants, &opts);
