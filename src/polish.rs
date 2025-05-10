@@ -22,7 +22,7 @@ fn run_minimap2(target_path: &Path, read_path: &Path, work_dir: &Path, mode: Pol
 
     let mm2_preset = match opts.mode {
         crate::cli::Mode::Hifi => "-xmap-hifi",
-        crate::cli::Mode::Nano => "-xmap-ont",
+        crate::cli::Mode::Nano => "-xlr:hq", //"-xmap-ont",
     };
     
     let args = ["-t", &opts.nb_threads.to_string(), "-c", mm2_preset, target_path.to_str().unwrap(), read_path.to_str().unwrap()];
