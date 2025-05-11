@@ -5,7 +5,7 @@ use ahash::AHashMap as HashMap;
 
 use crate::phase::haplotype::{HaplotypeId, HaplotypeHit, Haplotype};
 use crate::seq::SeqInterval;
-use crate::seq::alignment::{MappingType, SeqAlignment};
+use crate::alignment::{MappingType, SeqAlignment};
 use crate::bam::BamRecordId;
 
 
@@ -225,15 +225,15 @@ pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contig
             let aware_ctg_range = (aware_ctg_beg, aware_ctg_end, ctg.length());
 
             let query_beg = if sa.is_forward() { sa.query_beg() } else { sa.query_length() - sa.query_end() };
-            let (mut aware_query_beg, aware_target_beg) = crate::seq::alignment::first_match_from(ctg.beg(), query_beg, sa.target_beg(), sa.cigar()).unwrap();
-            let (mut aware_query_end, aware_target_end) = crate::seq::alignment::last_match_until(ctg.end(), query_beg, sa.target_beg(), sa.cigar()).unwrap();
+            let (mut aware_query_beg, aware_target_beg) = crate::alignment::first_match_from(ctg.beg(), query_beg, sa.target_beg(), sa.cigar()).unwrap();
+            let (mut aware_query_end, aware_target_end) = crate::alignment::last_match_until(ctg.end(), query_beg, sa.target_beg(), sa.cigar()).unwrap();
             let aware_query_range = (aware_query_beg, aware_query_end, sa.query_length());
 
             if aware_query_end <= aware_query_beg || aware_target_end <= aware_target_beg {
                 continue
             }
 
-            let maptype = crate::seq::alignment::classify_mapping(aware_query_range, aware_ctg_range, 100, 0.01);
+            let maptype = crate::alignment::classify_mapping(aware_query_range, aware_ctg_range, 100, 0.01);
 
             if sa.is_reverse() {
                 (aware_query_beg, aware_query_end) = (sa.query_length() - aware_query_end, sa.query_length() - aware_query_beg);

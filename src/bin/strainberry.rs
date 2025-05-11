@@ -10,6 +10,7 @@ use anyhow::{bail,Context};
 use clap::Parser;
 use itertools::Itertools;
 
+use strainberry::alignment;
 use strainberry::cli;
 use strainberry::graph;
 use strainberry::misassembly;
@@ -140,7 +141,7 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     spdlog::debug!("{} sequences after split", ref_intervals.len());
 
     spdlog::info!("Loading read alignments");
-    let read_alignments = seq::alignment::load_bam_alignments(&bam_path, &ref_db, &read_db, &opts);
+    let read_alignments = alignment::load_bam_alignments(&bam_path, &ref_db, &read_db, &opts);
 
     if opts.no_phase {
 

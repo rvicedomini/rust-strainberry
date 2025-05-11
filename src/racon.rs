@@ -1,6 +1,5 @@
 mod alignment;
 mod polish;
-mod sequence;
 mod window;
 
 use ahash::AHashMap as HashMap;

@@ -90,7 +90,7 @@ impl Alignment {
 
             let tseq = &ref_sequences[self.target_idx][self.target_beg..self.target_end];
             let mut qseq = read_sequences[self.query_idx][self.query_beg..self.query_end].to_vec();
-            if self.strand == b'-' { crate::racon::sequence::revcomp_inplace(&mut qseq); }
+            if self.strand == b'-' { crate::seq::revcomp_inplace(&mut qseq); }
 
             let ed_cfg = edlibrs::EdlibAlignConfigRs::new(
                 -1,

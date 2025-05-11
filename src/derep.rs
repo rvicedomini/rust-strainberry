@@ -12,7 +12,7 @@ use itertools::Itertools;
 use needletail::Sequence;
 
 use crate::cli::Options;
-use crate::seq::alignment::PafAlignment;
+use crate::alignment::PafAlignment;
 
 
 type MatchInterval = (usize,usize,String);

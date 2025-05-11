@@ -20,7 +20,7 @@ impl EdgeKey {
     pub fn from_alignments(a:&AwareAlignment, b:&AwareAlignment) -> EdgeKey {
         EdgeKey::new(
             a.aware_id,
-            crate::utils::flip_strand(a.strand),
+            crate::seq::flip_strand(a.strand),
             b.aware_id,
             b.strand
         )

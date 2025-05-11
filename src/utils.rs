@@ -128,16 +128,6 @@ pub fn insert_newlines(string:&str, every:usize) -> Cow<'_, str> {
 //     return string if every <= 0 else '\n'.join(string[i:i+every] for i in range(0, len(string), every))
 
 
-// flip strand as u8 character
-// b'+': 00101|01|1
-// b'-': 00101|10|1
-//    6: 00000|11|0
-#[inline(always)]
-pub fn flip_strand(strand:u8) -> u8 {
-    assert!(strand == b'+' || strand == b'-');
-    strand ^ 6
-}
-
 #[inline(always)]
 pub fn counter_from_iter<T>(iter: impl Iterator<Item = T>) -> HashMap<T,usize> 
 where

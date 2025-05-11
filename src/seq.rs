@@ -1,7 +1,3 @@
-pub mod alignment;
-pub mod bitseq;
-pub mod read;
-
 use std::fmt;
 use std::path::Path;
 use std::sync::mpsc;
@@ -19,6 +15,43 @@ use rust_htslib::bam::record::{Cigar, Record};
 use crate::cli::Options;
 use crate::bam::BamRecordId;
 use crate::variant::{Var,VarDict};
+
+
+// flip strand as u8 character
+// b'+': 00101|01|1
+// b'-': 00101|10|1
+//    6: 00000|11|0
+#[inline(always)]
+pub fn flip_strand(strand:u8) -> u8 {
+    assert!(strand == b'+' || strand == b'-');
+    strand ^ 6
+}
+
+// from ffforf: https://github.com/jguhlin/ffforf/blob/master/src/lib.rs
+#[inline(always)]
+fn complement(nuc: u8) -> u8 {
+    if nuc != b'N' {
+        if nuc & 2 != 0 {
+            nuc ^ 4
+        } else {
+            nuc ^ 21
+        }
+    } else {
+        nuc
+    }
+}
+
+pub fn revcomp_inplace(seq: &mut [u8]) {
+    seq.reverse();
+    seq.iter_mut().for_each(|nuc| { *nuc = complement(*nuc) });
+}
+
+
+pub fn revcomp(seq: &[u8]) -> Vec<u8> {
+    let mut rev_seq = seq.to_vec();
+    revcomp_inplace(&mut rev_seq);
+    rev_seq
+}
 
 
 pub struct SeqDatabase {
@@ -245,7 +278,6 @@ impl SuccinctSeq {
 }
 
 
-
 pub fn build_succinct_sequences(bam_path: &Path, ref_db: &SeqDatabase, read_db: &SeqDatabase, variants: &VarDict, opts: &Options) -> Vec<SuccinctSeq> {
 
     let index_to_tid = crate::bam::build_target_index(bam_path, ref_db);
@@ -291,33 +323,3 @@ pub fn build_succinct_sequences(bam_path: &Path, ref_db: &SeqDatabase, read_db: 
         .flat_map(|_| rx.recv().unwrap().into_iter())
         .collect()
 }
-
-
-// # TODO: improve it, considering a sorted list of positions in input
-// def get_sread_from_pafalignment(a:ReadAlignment, query_sequence:str, variant_positions:set):
-//     shtig = SuccinctRead(a.uid(),a.reference)
-//     ref_pos = a.reference_start
-//     query_pos = a.query_start if a.strand == '+' else a.query_length-a.query_end
-//     for cigop, oplen in a.cigar:
-//         assert(oplen > 0)
-//         if cigop in [CigarOp.MATCH,CigarOp.MATCH_EQ,CigarOp.MISMATCH]:
-//             while oplen > 0:
-//                 if ref_pos in variant_positions:
-//                     shtig.positions.append(ref_pos)
-//                     nuc = query_sequence[query_pos] if a.strand == '+' else query_sequence[a.query_length-query_pos-1].translate(RC_TABLE)
-//                     shtig.nucleotides.append(nuc)
-//                 ref_pos += 1
-//                 query_pos += 1
-//                 oplen -= 1
-//         elif cigop in [CigarOp.DELETION,CigarOp.REF_SKIP]:
-//             while oplen > 0:
-//                 if ref_pos in variant_positions:
-//                     shtig.positions.append(ref_pos)
-//                     shtig.nucleotides.append('-')
-//                 ref_pos += 1
-//                 oplen -= 1
-//         elif cigop == CigarOp.INSERTION:
-//             query_pos += oplen
-//         else:
-//             assert(False)
-//     return shtig

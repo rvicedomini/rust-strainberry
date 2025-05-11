@@ -11,8 +11,7 @@ use crate::cli::Options;
 use crate::graph::asmgraph::{AsmGraph, Link};
 use crate::polish::PolishMode;
 use crate::seq::{SeqDatabase, SeqInterval};
-use crate::seq::bitseq::BitSeq;
-use crate::utils::flip_strand;
+use crate::bitseq::BitSeq;
 
 use super::biedge::{self, BiEdge, EdgeKey, Node};
 use super::junction::Junction;
@@ -391,7 +390,7 @@ impl AwareGraph {
                 let mut in_dir = node_dir;
                 let mut node = &self.nodes[&node_id];
                 loop {
-                    let out_dir = flip_strand(in_dir);
+                    let out_dir = crate::seq::flip_strand(in_dir);
                     let out_edges = node.edges.iter()
                         .filter(|key| key.strand_from == out_dir)
                         .cloned().collect_vec();
@@ -664,7 +663,7 @@ impl AwareGraph {
                 if visited.contains(&outkey.id_to) || self.nodes[&outkey.id_to].edges.iter().filter(|key| key.strand_from == outkey.strand_to).count() > 1 {
                     break
                 }
-                (node_id, node_dir) = (outkey.id_to, flip_strand(outkey.strand_to));
+                (node_id, node_dir) = (outkey.id_to, crate::seq::flip_strand(outkey.strand_to));
                 path_edges.push(outkey);
                 visited.insert(node_id);
             }
@@ -695,7 +694,7 @@ impl AwareGraph {
                 let mut is_phased = false;
 
                 let node_id = unsafe { aware_path.nodes.first().unwrap_unchecked() };
-                let node_dir = if aware_path.edges.is_empty() { b'+' } else { flip_strand(aware_path.edges[0].strand_from) };
+                let node_dir = if aware_path.edges.is_empty() { b'+' } else { crate::seq::flip_strand(aware_path.edges[0].strand_from) };
                 let node_iter = std::iter::once((*node_id, node_dir))
                     .chain(aware_path.edges.iter().map(|key| (key.id_to, key.strand_to)));
 
@@ -709,7 +708,7 @@ impl AwareGraph {
                         // SeqType::Haplotype(_) | SeqType::Unphased => { ref_db.sequences[tid].subseq(beg, end) },
                         // SeqType::Read => { read_db.sequences[tid].subseq(beg, end) },
                     };
-                    if node_dir != aware_contig.strand() { crate::seq::read::revcomp_inplace(&mut sequence); }
+                    if node_dir != aware_contig.strand() { crate::seq::revcomp_inplace(&mut sequence); }
                     is_phased = is_phased || aware_contig.is_phased();
                     backbone_sequence.append(&mut sequence);
                 }
@@ -806,7 +805,7 @@ impl AwareGraph {
         
         for (utg_id, ap) in aware_paths.iter().enumerate() {
             let node_id = unsafe { ap.nodes.first().unwrap_unchecked() };
-            let node_dir = if ap.edges.is_empty() { b'+' } else { flip_strand(ap.edges[0].strand_from) };
+            let node_dir = if ap.edges.is_empty() { b'+' } else { crate::seq::flip_strand(ap.edges[0].strand_from) };
             let node_iter = std::iter::once((*node_id, node_dir))
                 .chain(ap.edges.iter().map(|key| (key.id_to, key.strand_to)));
 
@@ -931,7 +930,7 @@ impl AwareGraph {
                 SeqType::Unphased => format!("{}_{}-{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), id_to),
                 SeqType::Read => format!("read{}_{}-{}_id{}", node_ctg.tid(), node_ctg.beg(), node_ctg.end(), id_to),
             };
-            let edge_line = format!("L\t{}\t{}\t{}\t{}\t0M\tRC:i:{}\n", name_from, crate::utils::flip_strand(strand_from) as char, name_to, strand_to as char, edge.nb_reads );
+            let edge_line = format!("L\t{}\t{}\t{}\t{}\t0M\tRC:i:{}\n", name_from, crate::seq::flip_strand(strand_from) as char, name_to, strand_to as char, edge.nb_reads );
             gfa.write_all(edge_line.as_bytes())?;
         }
         Ok(())

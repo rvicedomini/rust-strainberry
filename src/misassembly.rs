@@ -8,7 +8,7 @@ use rust_htslib::bam::record::Aux;
 
 use crate::cli::Options;
 use crate::seq::{SeqDatabase, SeqInterval};
-use crate::seq::alignment::SeqAlignment;
+use crate::alignment::SeqAlignment;
 
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]

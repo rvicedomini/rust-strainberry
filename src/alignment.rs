@@ -454,7 +454,7 @@ impl PafAlignment {
             (self.query_length-self.query_end, self.query_length-self.query_beg, self.query_length)
         };
         let target_range = (self.target_beg, self.target_end, self.target_length);
-        crate::seq::alignment::classify_mapping(query_range, target_range, overhang, r)
+        crate::alignment::classify_mapping(query_range, target_range, overhang, r)
     }
 }
 

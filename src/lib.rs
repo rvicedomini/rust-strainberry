@@ -1,5 +1,7 @@
 #![allow(dead_code)]
+pub mod alignment;
 pub mod awarecontig;
+pub mod bitseq;
 pub mod bam;
 pub mod cli;
 pub mod derep;

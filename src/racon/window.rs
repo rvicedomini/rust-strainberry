@@ -72,7 +72,7 @@ impl<'a> Window<'a> {
             let seq = if layer.strand == b'+' {
                 Cow::Borrowed(layer.sequence)
             } else {
-                Cow::Owned(crate::racon::sequence::revcomp(layer.sequence))
+                Cow::Owned(crate::seq::revcomp(layer.sequence))
             };
             
             let seq = unsafe { std::str::from_utf8_unchecked(&seq) };

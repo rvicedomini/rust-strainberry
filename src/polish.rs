@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use ahash::AHashMap as HashMap;
 
 use crate::cli::Options;
-use crate::seq::alignment::{MappingType, PafAlignment};
+use crate::alignment::{MappingType, PafAlignment};
 
 #[derive(Debug, PartialEq)]
 pub enum PolishMode {

@@ -10,8 +10,8 @@ use anyhow::{bail, Result};
 use itertools::Itertools;
 use tinyvec::{tiny_vec, TinyVec};
 
-use crate::seq::bitseq::BitSeq;
-use crate::utils::flip_strand;
+use crate::bitseq::BitSeq;
+use crate::seq::flip_strand;
 
 
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
