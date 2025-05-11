@@ -49,8 +49,22 @@ namespace spoa_rs {
                                              score_gap_open2, score_gap_extend2);
     }
 
-    unique_ptr<spoa::Alignment> align(unique_ptr<spoa::AlignmentEngine>& engine, rust::Str sequence, unique_ptr<spoa::Graph> const& graph, std::int32_t& score) {
-        return std::make_unique<spoa::Alignment>(engine->Align(sequence.data(), sequence.length(), *graph, &score));
+    unique_ptr<spoa::Alignment> align(unique_ptr<spoa::AlignmentEngine>& engine, unique_ptr<spoa::Graph> const& graph, rust::Str sequence, std::int32_t& score) {
+        auto alignment = engine->Align(sequence.data(), sequence.length(), *graph, &score);
+        return std::make_unique<spoa::Alignment>(alignment);
+    }
+
+    unique_ptr<spoa::Alignment> align_subgraph(
+        unique_ptr<spoa::AlignmentEngine>& engine,
+        unique_ptr<spoa::Graph> const& graph,
+        rust::Str sequence, std::uint32_t begin, std::uint32_t end,
+        std::int32_t& score)
+    {
+        std::vector<const spoa::Graph::Node*> mapping;
+        auto subgraph = graph->Subgraph(begin, end, &mapping);
+        auto alignment = engine->Align(sequence.data(), sequence.length(), subgraph, &score);
+        subgraph.UpdateAlignment(mapping, &alignment);
+        return std::make_unique<spoa::Alignment>(alignment);
     }
 
     void add_alignment(unique_ptr<spoa::Graph>& graph, unique_ptr<spoa::Alignment> const& alignment, rust::Str sequence) {

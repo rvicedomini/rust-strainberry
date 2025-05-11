@@ -9,7 +9,7 @@ use std::thread;
 
 use ahash::AHashMap as HashMap;
 use anyhow::{bail,Result};
-use bitseq::BitSeq;
+// use bitseq::BitSeq;
 use itertools::Itertools;
 use needletail::Sequence;
 use rust_htslib::bam::{Read,IndexedReader};
@@ -23,7 +23,7 @@ use crate::variant::{Var,VarDict};
 
 pub struct SeqDatabase {
     pub index: HashMap<String,usize>,
-    pub sequences: Vec<BitSeq>,
+    pub sequences: Vec<Vec<u8>>,
     pub names: Vec<String>,
     pub nb_bases: usize,
 }
@@ -45,7 +45,7 @@ impl SeqDatabase {
             if index.insert(name.to_string(), index.len()).is_some() {
                 bail!("duplicate reference identifier: {name}");
             }
-            let sequence = BitSeq::from_utf8(record.normalize(false).as_ref());
+            let sequence = record.normalize(false).to_vec(); // let sequence = BitSeq::from_utf8(record.normalize(false).as_ref());
             nb_bases += sequence.len();
             sequences.push(sequence);
             if index_names {

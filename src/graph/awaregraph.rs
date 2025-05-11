@@ -704,8 +704,10 @@ impl AwareGraph {
                     let aware_contig = &self.nodes[&node_id].ctg;
                     let SeqInterval { tid, beg, end } = aware_contig.interval();
                     let mut sequence = match aware_contig.contig_type() {
-                        SeqType::Haplotype(_) | SeqType::Unphased => { ref_db.sequences[tid].subseq(beg, end) },
-                        SeqType::Read => { read_db.sequences[tid].subseq(beg, end) },
+                        SeqType::Haplotype(_) | SeqType::Unphased => { ref_db.sequences[tid][beg..end].to_vec() },
+                        SeqType::Read => { read_db.sequences[tid][beg..end].to_vec() },
+                        // SeqType::Haplotype(_) | SeqType::Unphased => { ref_db.sequences[tid].subseq(beg, end) },
+                        // SeqType::Read => { read_db.sequences[tid].subseq(beg, end) },
                     };
                     if node_dir != aware_contig.strand() { crate::seq::read::revcomp_inplace(&mut sequence); }
                     is_phased = is_phased || aware_contig.is_phased();

@@ -46,7 +46,9 @@ mod ffi {
         fn create_alignment_engine_convex(aln_type: AlignmentType, score_match: i8, score_mismatch: i8, score_gap_open: i8, score_gap_extend: i8,
                                           score_gap_open2: i8, score_gap_extend2: i8) -> UniquePtr<AlignmentEngine>;
 
-        fn align(alignment_engine: &mut UniquePtr<AlignmentEngine>, seq: &str, graph: &UniquePtr<Graph>, score: &mut i32) -> UniquePtr<Alignment>;
+        fn align(alignment_engine: &mut UniquePtr<AlignmentEngine>, graph: &UniquePtr<Graph>, seq: &str, score: &mut i32) -> UniquePtr<Alignment>;
+        fn align_subgraph(alignment_engine: &mut UniquePtr<AlignmentEngine>, graph: &UniquePtr<Graph>, seq: &str, begin: u32, end: u32, score: &mut i32) -> UniquePtr<Alignment>;
+
         fn add_alignment(graph: &mut UniquePtr<Graph>, aln: &UniquePtr<Alignment>, seq: &str);
         fn add_alignment_with_weights(graph: &mut UniquePtr<Graph>, aln: &UniquePtr<Alignment>, seq: &str, weights: &[u32]);
 
@@ -63,15 +65,13 @@ pub struct Alignment {
 
 /// Thin wrapper around SPOA's partial order graph object
 pub struct Graph {
-    graph_impl: UniquePtr<ffi::Graph>,
-    summary: UniquePtr<cxx::CxxVector<u32>>
+    graph_impl: UniquePtr<ffi::Graph>
 }
 
 impl Graph {
     pub fn new() -> Self {
         Self {
-            graph_impl: ffi::new_graph(),
-            summary: cxx::CxxVector::new()
+            graph_impl: ffi::new_graph()
         }
     }
 
@@ -95,10 +95,11 @@ impl Graph {
         ffi::generate_consensus(&self.graph_impl).to_string_lossy().to_string()
     }
 
-    pub fn generate_consensus_with_coverage(&self) -> (Vec<u8>, &[u32]) {
-        let consensus = ffi::generate_consensus_with_coverage(&self.graph_impl, &self.summary)
-            .as_bytes().to_vec();
-        (consensus, self.summary.as_slice())
+    pub fn generate_consensus_with_coverage(&self) -> (Vec<u8>, Vec<u32>) {
+        let summary = cxx::CxxVector::new();
+        let consensus = ffi::generate_consensus_with_coverage(&self.graph_impl, &summary).as_bytes().to_vec();
+        let summary = summary.iter().cloned().collect();
+        (consensus, summary)
     }
 
     pub fn generate_msa(&self) -> Vec<String> {
@@ -137,13 +138,20 @@ impl AlignmentEngine {
         }
     }
 
-    pub fn align(&mut self, seq: &str, graph: &Graph) -> (i32, Alignment) {
+    pub fn align(&mut self, graph: &Graph, seq: &str) -> Alignment {
         let mut score: i32 = 0;
         let alignment = Alignment {
-            alignment_ptr: ffi::align(&mut self.engine_impl, seq, &graph.graph_impl, &mut score)
+            alignment_ptr: ffi::align(&mut self.engine_impl, &graph.graph_impl, seq, &mut score)
         };
+        alignment
+    }
 
-        (score, alignment)
+    pub fn align_subgraph(&mut self, graph: &Graph, seq: &str, begin: u32, end: u32) -> Alignment {
+        let mut score: i32 = 0;
+        let alignment = Alignment {
+            alignment_ptr: ffi::align_subgraph(&mut self.engine_impl, &graph.graph_impl, seq, begin, end, &mut score)
+        };
+        alignment
     }
 }
 

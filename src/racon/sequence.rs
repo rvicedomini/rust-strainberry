@@ -23,9 +23,10 @@ pub fn revcomp_inplace(seq: &mut [u8]) {
     seq.iter_mut().for_each(|nuc| { *nuc = complement(*nuc) });
 }
 
-pub fn revcomp(mut seq: Vec<u8>) -> Vec<u8> {
-    revcomp_inplace(&mut seq);
-    seq
+pub fn revcomp(seq: &[u8]) -> Vec<u8> {
+    let mut rev = seq.to_vec();
+    revcomp_inplace(&mut rev);
+    rev
 }
 
 

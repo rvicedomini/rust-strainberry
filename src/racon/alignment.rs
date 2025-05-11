@@ -31,9 +31,10 @@ pub struct Alignment {
 }
 
 impl Alignment {
-    
+
     fn parse_paf_line(line: &str, ref_index: &HashMap<String,usize>, read_index: &HashMap<String,usize>) -> Result<Self> {
         
+        // let cols: [&str; 13] = line.splitn(13, '\t').collect_array().context("cannot parse PAF line")?;
         let cols = line.split('\t').collect_vec();
         if cols.len() < 12 { bail!("cannot parse PAF line (mission fields)") }
         
@@ -98,7 +99,7 @@ impl Alignment {
                 &[]
             );
 
-            let align_res = edlibrs::edlibAlignRs(&qseq, tseq, &ed_cfg);
+            let align_res = edlibrs::edlibAlignRs(&qseq, &tseq, &ed_cfg);
             if align_res.status != edlibrs::EDLIB_STATUS_OK {
                 bail!("edlib: unable to align query {} against target {}", self.query_idx, self.target_idx);
             }
@@ -106,7 +107,6 @@ impl Alignment {
             let alignment = align_res.alignment.as_ref().unwrap();
             let cigar = edlibrs::edlibAlignmentToCigarRs(alignment, &edlibrs::EdlibCigarFormatRs::EDLIB_CIGAR_STANDARD);
             self.cigar = parse_cigar_bytes(cigar.as_bytes());
-                   
         }
     
         self.find_breaking_points_from_cigar(window_len);

@@ -6,6 +6,11 @@ use std::fs::canonicalize;
 
 fn main() {
 
+    println!("cargo:rerun-if-changed=src/lib.rs");
+    println!("cargo:rerun-if-changed=cxx/spoa_rs.hpp");
+    println!("cargo:rerun-if-changed=cxx/spoa_rs.cpp");
+    println!("cargo:rerun-if-changed=spoa/include/spoa/spoa.hpp");
+
     let out_dir = cmake::Config::new("spoa")
         .define("spoa_install", "OFF")
         .define("spoa_build_exe", "OFF")
@@ -24,9 +29,4 @@ fn main() {
         .file("cxx/spoa_rs.cpp")
         .flag_if_supported("-std=c++14")
         .compile("spoa_rs");
-
-    // println!("cargo:rerun-if-changed=src/lib.rs");
-    // println!("cargo:rerun-if-changed=cxx/spoa_rs.hpp");
-    // println!("cargo:rerun-if-changed=cxx/spoa_rs.cpp");
-    // println!("cargo:rerun-if-changed=spoa/spoa.hpp");
 }

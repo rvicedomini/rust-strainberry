@@ -138,7 +138,6 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     spdlog::info!("Splitting reference at putative misjoins");
     let ref_intervals = misassembly::partition_reference(&bam_path, &ref_db, &read_db, &opts);
     spdlog::debug!("{} sequences after split", ref_intervals.len());
-    // let ref_intervals = ref_db.sequences.iter().enumerate().map(|(tid,seq)| SeqInterval{tid, beg:0, end:seq.len()}).collect_vec();
 
     spdlog::info!("Loading read alignments");
     let read_alignments = seq::alignment::load_bam_alignments(&bam_path, &ref_db, &read_db, &opts);
@@ -165,6 +164,10 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
         return Ok(());
     }
 
+    // ------------------
+    // HAPLOTYPE PHASING
+    // ------------------
+
     let ref_intervals = {
         spdlog::info!("Filtering low-coverage sequences");
         let mut ref_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &HashMap::new(), 0);
@@ -173,33 +176,55 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
         ref_contigs.into_iter().map(|ctg| ctg.interval()).collect_vec()
     };
 
-    // ------------------
-    // HAPLOTYPE PHASING
-    // ------------------
-
     let phased_dir = output_dir.join("20-phased");
     spdlog::info!("Phasing strain haplotypes");
     let phaser = phase::Phaser::new(&bam_path, &ref_db, &read_db, &ref_intervals, phased_dir, &opts).unwrap();
     let phaser_result = phaser.phase(&variants);
     spdlog::info!("{} haplotypes phased", phaser_result.haplotypes.len());
 
-    // -------------------
-    // STRAIN-AWARE GRAPH
-    // -------------------
+    // ---------------------
+    // STRAIN-AWARE CONTIGS
+    // ---------------------
 
     spdlog::info!("Building strain-aware contigs");
     let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &phaser_result.haplotypes, opts.min_aware_ctg_len);
-    // let mut aware_contigs = strainberry::awarecontig::build_phased_contigs(&phaser_result.haplotypes);
 
     spdlog::info!("Building succinct reads");
     let succinct_reads = seq::build_succinct_sequences(&bam_path, &ref_db, &read_db, &variants, &opts);
 
     spdlog::info!("Read realignment to haplotypes");
     let seq2haplo = strainberry::phase::separate_reads(&succinct_reads, &phaser_result.haplotypes, opts.min_shared_snv);
-    drop(phaser_result);
 
     spdlog::info!("Mapping reads to strain-aware contigs");
     let read2aware = strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut aware_contigs, &seq2haplo);
+
+    spdlog::info!("Building haplotigs");
+    let _hap_sequences = {
+        let hap_sequences = strainberry::racon::build_haplotigs(&ref_db, &read_db, &phaser_result.haplotypes, &aware_contigs, &read2aware, &opts);
+
+        let hap_fasta = output_dir.join("20-phased/haplotigs.fasta");
+        let mut fasta_writer = crate::utils::get_file_writer(&hap_fasta);
+        for hid in hap_sequences.keys().sorted_unstable() {
+            let seq = &hap_sequences[hid];
+            if !seq.is_empty() {
+                let header = format!(">{}_{}-{}_h{}\n", ref_db.names[hid.tid], hid.beg, hid.end, hid.hid);
+                fasta_writer.write_all(header.as_bytes())?;
+                let sequence = crate::utils::insert_newlines(
+                    std::str::from_utf8(&seq).unwrap(),
+                    120
+                );
+                fasta_writer.write_all(sequence.as_bytes())?;
+                fasta_writer.write_all(b"\n")?;
+            }
+        }
+        hap_sequences
+    };
+
+    drop(phaser_result);
+
+    // -------------------
+    // STRAIN-AWARE GRAPH
+    // -------------------
 
     let graphs_dir = output_dir.join("40-graphs");
     fs::create_dir_all(graphs_dir.as_path()).with_context(|| format!("Cannot create graphs directory: \"{}\"", graphs_dir.display()))?;

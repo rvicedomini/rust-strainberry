@@ -38,8 +38,15 @@ namespace spoa_rs {
                                                                     int8_t score_gap, int8_t score_gap_extend,
                                                                     int8_t score_gap2, int8_t score_gap_extend2);
 
-    std::unique_ptr<spoa::Alignment> align(std::unique_ptr<spoa::AlignmentEngine>& engine, rust::Str sequence, std::unique_ptr<spoa::Graph> const& graph,
+    std::unique_ptr<spoa::Alignment> align(std::unique_ptr<spoa::AlignmentEngine>& engine,
+                                           std::unique_ptr<spoa::Graph> const& graph,
+                                           rust::Str sequence,
                                            std::int32_t& score);
+
+    std::unique_ptr<spoa::Alignment> align_subgraph(std::unique_ptr<spoa::AlignmentEngine>& engine,
+                                                    std::unique_ptr<spoa::Graph> const& graph,
+                                                    rust::Str sequence, std::uint32_t begin, std::uint32_t end,
+                                                    std::int32_t& score);
 
     void add_alignment(std::unique_ptr<spoa::Graph>& graph, std::unique_ptr<spoa::Alignment> const& alignment, rust::Str seq);
     void add_alignment_with_weights(std::unique_ptr<spoa::Graph>& graph, std::unique_ptr<spoa::Alignment> const& alignment, rust::Str seq, rust::Slice<const uint32_t> weights);

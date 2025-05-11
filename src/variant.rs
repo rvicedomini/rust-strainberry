@@ -40,7 +40,7 @@ pub fn filter_variants_by_density(mut variants:VarDict, ref_db: &SeqDatabase, de
 pub fn filter_variants_hp(mut variants:VarDict, ref_db: &SeqDatabase, hp_len:usize) -> VarDict {
 
     for (tid, positions) in variants.iter_mut() {
-        let ref_seq = ref_db.sequences[*tid].as_bytes();
+        let ref_seq = ref_db.sequences[*tid].as_slice();
         let mut filtered = HashSet::from_iter(positions.iter().map(|var| var.pos));
         ref_seq.chunk_by(|a,b| a == b).fold(0_usize, |i,chunk| {
             let beg = i.saturating_sub(1);

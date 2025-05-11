@@ -3,57 +3,73 @@ mod polish;
 mod sequence;
 mod window;
 
-// use std::path::Path;
-// use std::time::Instant;
+use ahash::AHashMap as HashMap;
+use itertools::Itertools;
+use rust_htslib::bam::record::CigarString;
 
+use crate::awarecontig::{AwareAlignment, AwareContig};
+use crate::cli::Options;
+use crate::phase::haplotype::{HaplotypeId, Haplotype};
+use crate::seq::SeqDatabase;
 
-// fn main() -> anyhow::Result<(), anyhow::Error> {
+pub fn build_haplotigs(ref_db: &SeqDatabase, read_db: &SeqDatabase, haplotypes: &HashMap<HaplotypeId,Haplotype>, aware_contigs: &[AwareContig], read2aware: &HashMap<usize,Vec<AwareAlignment>>, opts: &Options) -> HashMap<HaplotypeId,Vec<u8>> {
 
-//     spdlog::default_logger().set_level_filter(spdlog::LevelFilter::All);
-    
-//     let t_start = Instant::now();
+    rayon::ThreadPoolBuilder::new().num_threads(opts.nb_threads).build_global().unwrap();
 
-//     let opts = cli::Options::parse();
+    let haplotypes = haplotypes.keys().cloned().sorted().collect_vec();
+    let mut hap_index = HashMap::new();
+    let hap_sequences = haplotypes.iter().enumerate().map(|(idx, hid)| {
+        hap_index.insert(*hid, idx);
+        ref_db.sequences[hid.tid][hid.beg..hid.end].to_vec()
+    }).collect_vec();
 
-//     let reference_path = Path::new(&opts.reference);
-//     let reads_path = Path::new(&opts.reads);
-//     let paf_path = Path::new(&opts.paf);
+    let mut alignments = Vec::new();
+    for read_alignments in read2aware.values() {
+        for a in read_alignments {
+            let ctg = &aware_contigs[a.aware_id];
+            if a.is_ambiguous || !ctg.is_phased() {
+                continue
+            }
 
-//     rayon::ThreadPoolBuilder::new().num_threads(opts.nb_threads).build_global().unwrap();
+            let hid = aware_contigs[a.aware_id].haplotype_id().unwrap();
+            let hid_idx = hap_index[&hid];
+            let hid_sequence = &hap_sequences[hid_idx];
 
-//     let (ref_sequences, ref_index) = sequence::load_sequences(reference_path);
-//     info!("loaded reference sequences: {}", ref_sequences.len());
+            assert!(a.target_beg <= a.target_end);
+            assert!(hid.beg <= a.target_beg && a.target_end <= hid.end);
 
-//     let (read_sequences, read_index) = sequence::load_sequences(reads_path);
-//     info!("loaded read sequences: {}", read_sequences.len());
+            let length = std::cmp::max(a.query_end - a.query_beg, a.target_end-a.target_beg);
 
-//     let alignments = alignment::load_paf_alignments(paf_path, &ref_index, &read_index)?;
-//     let alignments = alignment::filter_alignments(alignments, &opts);
-//     if alignments.is_empty() {
-//         warn!("empty overlap set, no output file generated");
-//         return Ok(())
-//     }
-//     info!("loaded alignments: {}", alignments.len());
+            alignments.push( alignment::Alignment {
+                query_idx: a.query_idx,
+                query_len: a.query_len,
+                query_beg: a.query_beg,
+                query_end: a.query_end,
+                strand: a.strand,
+                target_idx: hid_idx,
+                target_len: hid_sequence.len(),
+                target_beg: a.target_beg - ctg.beg(),
+                target_end: a.target_end - ctg.beg(),
+                matches: 0,         // dummy, not supposed to be used
+                mapping_length: 0,  // dummy, not supposed to be used
+                mapq: 60,           // dummy, not supposed to be used
+                length,
+                identity: 0.0,      // dummy, not supposed to be used
+                cigar: CigarString(Vec::new()),
+                breaking_points: Vec::new()
+            });
+        }
+    }
 
-//     let mut polisher = polish::Polisher::new(&ref_sequences, &read_sequences, alignments, &opts);
+    let mut polisher = polish::Polisher::new(&hap_sequences, &read_db.sequences, alignments);
 
-//     info!("initializing polisher");
-//     polisher.initialize();
+    spdlog::debug!("initializing polisher");
+    polisher.initialize();
 
-//     info!("polishing windows");
-//     let polished_sequences = polisher.polish();
+    spdlog::debug!("polishing windows");
+    let mut polished_sequences = polisher.polish();
 
-//     let out_path = Path::new(&opts.output);
-//     let mut writer = crate::utils::get_file_writer(out_path);
-//     for (i, seq) in polished_sequences.into_iter().enumerate() {
-//         let header = format!(">{i}\n");
-//         writer.write_all(header.as_bytes())?;
-//         let sequence = utils::insert_newlines(std::str::from_utf8(&seq).unwrap(),120);
-//         writer.write_all(sequence.as_bytes())?;
-//         writer.write_all(b"\n")?;
-//     }
-    
-//     info!("Time: {:.2}s | MaxRSS: {:.2}GB", t_start.elapsed().as_secs_f64(), utils::get_maxrss());
-
-//     Ok(())
-// }
+    hap_index.drain()
+        .map(|(hid, hap_idx)| (hid, std::mem::take(&mut polished_sequences[hap_idx])))
+        .collect()
+}
