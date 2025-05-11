@@ -6,59 +6,8 @@ use ahash::AHashMap as HashMap;
 use itertools::Itertools;
 use rust_htslib::bam::record::{Cigar,CigarString};
 
-use crate::racon::alignment;
-use crate::racon::sequence;
-
 
 const ERROR_THRESHOLD: f64 = 0.3;
-
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MappingType {
-    DovetailSuffix,
-    QueryPrefix,
-    QuerySuffix,
-    ReferencePrefix,
-    ReferenceSuffix,
-    Internal,
-    QueryContained,
-    ReferenceContained,
-    DovetailPrefix
-}
-
-pub fn classify_mapping(query_range:(usize,usize,usize), target_range:(usize,usize,usize), overhang:usize, r:f64) -> MappingType {
-    use MappingType::*;
-
-    let (b1,e1,l1) = query_range;
-    let (b2,e2,l2) = target_range;
-    assert!(b1<e1 && e1<=l1 && b2<e2 && e2<=l2);
-    let left_overhang = std::cmp::min(b1,b2);
-    let right_overhang = std::cmp::min(l1-e1,l2-e2);
-    let maplen = std::cmp::max(e1-b1,e2-b2);
-    let oh_threshold = std::cmp::min(overhang, ((maplen as f64)*r) as usize);
-
-    if b2 <= b1 && b2 <= oh_threshold && right_overhang > oh_threshold {
-        ReferencePrefix
-    } else if b1 <= b2 && b1 <= oh_threshold && right_overhang > oh_threshold {
-        QueryPrefix
-    } else if left_overhang > oh_threshold && l2-e2 <= oh_threshold && l2-e2 <= l1-e1 {
-        ReferenceSuffix
-    } else if left_overhang > oh_threshold && l1-e1 <= oh_threshold && l1-e1 <= l2-e2 {
-        QuerySuffix
-    } else if left_overhang > oh_threshold || right_overhang > oh_threshold {
-        Internal
-    } else if b1 >= b2 && l1-e1 >= l2-e2 {
-        ReferenceContained
-    } else if b2 >= b1 && l2-e2 >= l1-e1 {
-        QueryContained
-    } else if b1 <= b2 {
-        assert!(l2-e2 <= l1-e1);
-        DovetailPrefix
-    } else {
-        assert!(b2<=b1 && l1-e1 <= l2-e2);
-        DovetailSuffix
-    }
-}
 
 
 #[derive(Debug, Clone)]
@@ -82,30 +31,9 @@ pub struct Alignment {
 }
 
 impl Alignment {
-
-    pub fn map_type(&self, overhang: usize, r: f64) -> MappingType {
-        let query_range = if self.strand == b'+' {
-            (self.query_beg, self.query_end, self.query_len)
-        } else {
-            (self.query_len-self.query_end, self.query_len-self.query_beg, self.query_len)
-        };
-        let target_range = (self.target_beg, self.target_end, self.target_len);
-        alignment::classify_mapping(query_range, target_range, overhang, r)
-    }
-
-    pub fn is_complete(&self) -> bool {
-        matches!(
-            self.map_type(10, 0.01),
-            MappingType::DovetailPrefix
-            | MappingType::DovetailSuffix
-            | MappingType::QueryContained
-            | MappingType::ReferenceContained
-        )
-    }
     
     fn parse_paf_line(line: &str, ref_index: &HashMap<String,usize>, read_index: &HashMap<String,usize>) -> Result<Self> {
         
-        // let cols: [&str; 13] = line.splitn(13, '\t').collect_array().context("cannot parse PAF line")?;
         let cols = line.split('\t').collect_vec();
         if cols.len() < 12 { bail!("cannot parse PAF line (mission fields)") }
         
@@ -161,7 +89,7 @@ impl Alignment {
 
             let tseq = &ref_sequences[self.target_idx][self.target_beg..self.target_end];
             let mut qseq = read_sequences[self.query_idx][self.query_beg..self.query_end].to_vec();
-            if self.strand == b'-' { sequence::revcomp_inplace(&mut qseq); }
+            if self.strand == b'-' { crate::racon::sequence::revcomp_inplace(&mut qseq); }
 
             let ed_cfg = edlibrs::EdlibAlignConfigRs::new(
                 -1,
