@@ -269,8 +269,10 @@ impl AwareGraph {
                 let edge_len = self.get_biedge(edge_key).unwrap().gaps.first().unwrap_or(&0).abs();
                 let transitive_len = self.get_transitive(edge_key).unwrap().gaps.first().unwrap_or(&0).abs();
                 let diff = 1.0 - (edge_len.min(transitive_len) as f64 / edge_len.max(transitive_len) as f64);
-                spdlog::trace!("found weak edge {edge_key}: edge_len={edge_len}, trans_len={transitive_len}, diff={diff:.3} weak={:?}", diff < 0.3);
-                diff < 0.3
+                spdlog::trace!("possible weak edge {edge_key}: edge_len={edge_len}, trans_len={transitive_len}, diff={diff:.3} weak={:?}", diff < 0.3);
+                let a_degree = self.node_degree(edge_key.id_from, edge_key.strand_from);
+                let b_degree = self.node_degree(edge_key.id_to, edge_key.strand_to);
+                diff < 0.3 && a_degree != 1 && b_degree != 1
             })
             .cloned()
             .collect_vec();
