@@ -69,14 +69,14 @@ pub fn compute_alignments(target_path: &Path, read_path: &Path, opts: &crate::cl
 }
 
 
-pub fn racon_polish(ref_sequences: &[BitSeq], read_sequences: &[BitSeq], alignments: &mut[Alignment]) -> Vec<BitSeq> {
+pub fn racon_polish(ref_sequences: &[BitSeq], read_sequences: &[BitSeq], mut alignments: Vec<Alignment>) -> Vec<BitSeq> {
 
-    let mut polisher = polish::Polisher::new(ref_sequences, read_sequences, alignments);
+    let mut polisher = polish::Polisher::new(ref_sequences, read_sequences, &mut alignments);
 
-    spdlog::debug!("initializing polisher");
+    // spdlog::debug!("initializing polisher");
     polisher.initialize();
 
-    spdlog::debug!("polishing windows");
+    // spdlog::debug!("polishing windows");
     let polished_sequences = polisher.polish();
 
     polished_sequences.into_iter()

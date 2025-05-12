@@ -495,7 +495,7 @@ impl AwareGraph {
             //         spdlog::debug!("  * {key} (reads: {}, SNVs:{})", bridge.nb_reads, bridge.min_shared_snvs);
             //     }
             // }
-            self.remove_transitives_from(&bridges);
+            // self.remove_transitives_from(&bridges);
             return false
         }
 
@@ -561,11 +561,12 @@ impl AwareGraph {
             let first = unsafe { path.first().unwrap_unchecked() };
             let last = unsafe { path.last().unwrap_unchecked() };
             let edge_key = EdgeKey::new(first.src_id(), first.src_dir(), last.dst_id(), last.dst_dir());
-            if self.contains_edge(&edge_key) {
-                // eprintln!("edge {edge_key} already exists for {junc}");
+            // do not resolve if path does not exist (maybe due to resolving other junctions)
+            if path.iter().any(|edge_key| !self.contains_edge(edge_key)) {
                 return false
             }
-            if path.iter().any(|edge_key| !self.contains_edge(edge_key)) { // path does not exist
+            if self.contains_edge(&edge_key) { // TODO: try to delete edge and resolve anyway
+                // eprintln!("edge {edge_key} already exists for {junc}");
                 return false
             }
         }
@@ -679,8 +680,7 @@ impl AwareGraph {
 
     pub fn build_haplotigs(&self, aware_paths: &[AwarePath], ref_db: &SeqDatabase, read_db: &SeqDatabase, fragment_dir: &Path, work_dir: &Path, opts: &Options) -> Result<Vec<BitSeq>> {
 
-        let mut backbone_sequences = Vec::with_capacity(aware_paths.len());
-        let mut alignments = Vec::new();
+        let mut haplotigs = Vec::with_capacity(aware_paths.len());
 
         for (idx, aware_path) in aware_paths.iter().enumerate() {
 
@@ -696,13 +696,11 @@ impl AwareGraph {
                 let node_iter = std::iter::once((*node_id, node_dir))
                     .chain(aware_path.edges.iter().map(|key| key.dst()));
 
-                // TODO: handle negative gaps between sequences?
+                // TODO: handle negative gaps between sequences
                 for (node_id, node_dir) in node_iter {
                     let aware_contig = &self.nodes[&node_id].ctg;
                     let SeqInterval { tid, beg, end } = aware_contig.interval();
                     let mut sequence = match aware_contig.contig_type() {
-                        // SeqType::Haplotype(_) | SeqType::Unphased => { ref_db.sequences[tid][beg..end].to_vec() },
-                        // SeqType::Read => { read_db.sequences[tid][beg..end].to_vec() },
                         SeqType::Haplotype(_) | SeqType::Unphased => { ref_db.sequences[tid].subseq(beg, end) },
                         SeqType::Read => { read_db.sequences[tid].subseq(beg, end) },
                     };
@@ -714,7 +712,7 @@ impl AwareGraph {
                 BitSeq::from_utf8(&backbone_seq)
             };
 
-            backbone_sequences.push(backbone_seq);
+            haplotigs.push(backbone_seq);
 
             if aware_path.nodes.iter().all(|id| ! matches!(self.nodes[id].ctg.contig_type(), SeqType::Haplotype(_)) ) {
                 // polish only sequences containing phased haplotypes
@@ -732,8 +730,8 @@ impl AwareGraph {
             let target_path = {
                 let out_path = tmp_dir.join(format!("{}.unpolished.fa.gz", idx));
                 let mut writer = crate::utils::get_file_writer(&out_path);
-                writer.write_all(format!(">{idx}\n").as_bytes())?;
-                writer.write_all(&backbone_sequences.last().unwrap().as_bytes())?;
+                writer.write_all(b">0\n")?; // writer.write_all(format!(">{idx}\n").as_bytes())?;
+                writer.write_all(&haplotigs.last().unwrap().as_bytes())?;
                 writer.write_all(b"\n")?;
                 out_path
             };
@@ -766,19 +764,17 @@ impl AwareGraph {
                 out_path
             };
 
-            // compute read-target alignments
-            let mut backbone_alignments = crate::racon::compute_alignments(&target_path, &read_path, opts)?;
-            alignments.append(&mut backbone_alignments);
+            let alignments = crate::racon::compute_alignments(&target_path, &read_path, opts)?;
+            let mut polished_seq = crate::racon::racon_polish(&haplotigs[haplotigs.len()-1..], &read_db.sequences, alignments).pop().unwrap();
+            std::mem::swap(haplotigs.last_mut().unwrap(), &mut polished_seq);
 
             if !opts.keep_temp {
                 std::fs::remove_file(&target_path)?;
                 std::fs::remove_file(&read_path)?;
             }
         }
-
-        let hap_sequences = crate::racon::racon_polish(&backbone_sequences, &read_db.sequences, &mut alignments);
         
-        Ok(hap_sequences)
+        Ok(haplotigs)
     }
 
 

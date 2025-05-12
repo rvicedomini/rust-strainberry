@@ -111,7 +111,7 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     let ref_db = seq::SeqDatabase::build(&reference_path, true)?;
     spdlog::info!("{} sequences processed", ref_db.size());
 
-    spdlog::info!("Building read index");
+    spdlog::info!("Loading reads");
     let read_db = seq::SeqDatabase::build(reads_path, true)?;
     let read_n75 = read_db.compute_nx(75).unwrap();
     // opts.lookback = (9 * read_n75) / 10;
@@ -167,10 +167,6 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
         return Ok(());
     }
 
-    // ------------------
-    // HAPLOTYPE PHASING
-    // ------------------
-
     let ref_intervals = {
         spdlog::info!("Filtering low-coverage sequences");
         let mut ref_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &HashMap::new(), 0);
@@ -178,6 +174,10 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
         ref_contigs.retain(|ctg| ctg.depth() >= opts.min_alt_count as f64);
         ref_contigs.into_iter().map(|ctg| ctg.interval()).collect_vec()
     };
+
+    // ------------------
+    // HAPLOTYPE PHASING
+    // ------------------
 
     let phased_dir = output_dir.join("20-phased");
     spdlog::info!("Phasing strain haplotypes");
