@@ -98,11 +98,10 @@ impl AwareGraph {
         edge.nb_reads += 1;
         edge.min_shared_snvs = edge.min_shared_snvs.max(a.nb_shared_snvs.min(b.nb_shared_snvs));
         edge.gaps.push((b.query_beg as i32) - (a.query_end as i32));
-        if edge.seq_desc.is_empty() && b.query_beg > a.query_end {
+        if b.query_beg > a.query_end {
             let interval = SeqInterval{ tid: a.query_idx, beg: a.query_end, end: b.query_beg };
             let strand = if was_canonical { b'+' } else { b'-' };
-            let aware_contig = AwareContig::new(SeqType::Read, interval, strand, 0);
-            edge.seq_desc.push(aware_contig);
+            edge.seq_desc.push(AwareContig::new(SeqType::Read, interval, strand, 0));
         }
     }
 
@@ -129,9 +128,9 @@ impl AwareGraph {
     fn get_biedge_or_create(&mut self, edge_key:&EdgeKey) -> &mut BiEdge {
         let edge_key= biedge::canonical_edgekey(edge_key).into_owned();
         let edge_id = *self.edges.entry(edge_key).or_insert_with_key(|edge_key| {
-            let node_from = self.nodes.get_mut(&edge_key.id_from).unwrap();
+            let node_from = self.nodes.get_mut(&edge_key.src_id()).unwrap();
             node_from.edges.push(*edge_key);
-            let node_to = self.nodes.get_mut(&edge_key.id_to).unwrap();
+            let node_to = self.nodes.get_mut(&edge_key.dst_id()).unwrap();
             node_to.edges.push(biedge::flip_edgekey(edge_key));
             let new_edge_id = self.edge_data.len();
             self.edge_data.push(BiEdge::new(*edge_key));
@@ -155,9 +154,9 @@ impl AwareGraph {
     fn get_transitive_or_create(&mut self, edge_key:&EdgeKey) -> &mut BiEdge {
         let edge_key= biedge::canonical_edgekey(edge_key).into_owned();
         let edge_id = *self.transitives.entry(edge_key).or_insert_with_key(|edge_key| {
-            let node_from = self.nodes.get_mut(&edge_key.id_from).unwrap();
+            let node_from = self.nodes.get_mut(&edge_key.src_id()).unwrap();
             node_from.transitives.push(*edge_key);
-            let node_to = self.nodes.get_mut(&edge_key.id_to).unwrap();
+            let node_to = self.nodes.get_mut(&edge_key.dst_id()).unwrap();
             node_to.transitives.push(biedge::flip_edgekey(edge_key));
             let new_edge_id = self.edge_data.len();
             self.edge_data.push(BiEdge::new(*edge_key));
@@ -198,11 +197,11 @@ impl AwareGraph {
     fn remove_biedges_from(&mut self, edge_keys: impl IntoIterator<Item = impl Borrow<EdgeKey>>) {
         for ekey in edge_keys {
             let ekey = ekey.borrow();
-            if let Some(node) = self.nodes.get_mut(&ekey.id_from) {
+            if let Some(node) = self.nodes.get_mut(&ekey.src_id()) {
                 node.edges.retain(|key| key != ekey);
             }
             let ekey = biedge::flip_edgekey(ekey);
-            if let Some(node) = self.nodes.get_mut(&ekey.id_from) {
+            if let Some(node) = self.nodes.get_mut(&ekey.src_id()) {
                 node.edges.retain(|key| key != &ekey);
             }
             self.remove_biedge(&ekey);
@@ -217,11 +216,11 @@ impl AwareGraph {
     fn remove_transitives_from(&mut self, edge_keys: impl IntoIterator<Item = impl Borrow<EdgeKey>>) {
         for ekey in edge_keys {
             let ekey = ekey.borrow();
-            if let Some(node) = self.nodes.get_mut(&ekey.id_from) {
+            if let Some(node) = self.nodes.get_mut(&ekey.src_id()) {
                 node.transitives.retain(|key| key != ekey);
             }
             let ekey = biedge::flip_edgekey(ekey);
-            if let Some(node) = self.nodes.get_mut(&ekey.id_from) {
+            if let Some(node) = self.nodes.get_mut(&ekey.src_id()) {
                 node.transitives.retain(|key| key != &ekey);
             }
             self.remove_transitive(&ekey);
@@ -230,18 +229,18 @@ impl AwareGraph {
 
     fn node_degree(&self, node_id:usize, dir:u8) -> usize {
         self.nodes[&node_id].edges.iter()
-            .filter(|&key| key.strand_from == dir)
+            .filter(|&key| key.src_dir() == dir)
             .count()
     }
 
     fn edges_from(&self, node_id:usize, dir:u8) -> impl Iterator<Item = &EdgeKey> {
         self.nodes[&node_id].edges.iter()
-            .filter(move |&key| key.strand_from == dir)
+            .filter(move |&key| key.src_dir() == dir)
     }
 
     fn successors(&self, node_id:usize, dir:u8) -> impl Iterator<Item = (usize,u8)> {
         self.edges_from(node_id, dir)
-            .map(|edge_key| (edge_key.id_to, edge_key.strand_to))
+            .map(|edge_key| edge_key.dst())
     }
 
     pub fn remove_weak_edges(&mut self, min_reads:usize) {
@@ -252,8 +251,8 @@ impl AwareGraph {
                 if edge.nb_reads < min_reads {
                     // return Some(&edge.key)
                     // delete only edges that would not disconnect another node
-                    let a_degree = self.node_degree(edge.key.id_from, edge.key.strand_from);
-                    let b_degree = self.node_degree(edge.key.id_to, edge.key.strand_to);
+                    let a_degree = self.node_degree(edge.key.src_id(), edge.key.src_dir());
+                    let b_degree = self.node_degree(edge.key.dst_id(), edge.key.dst_dir());
                     if a_degree != 1 && b_degree != 1  {
                         return Some(&edge.key)
                     }
@@ -269,8 +268,8 @@ impl AwareGraph {
                 let transitive_len = self.get_transitive(edge_key).unwrap().gaps.first().unwrap_or(&0).abs();
                 let diff = 1.0 - (edge_len.min(transitive_len) as f64 / edge_len.max(transitive_len) as f64);
                 spdlog::trace!("possible weak edge {edge_key}: edge_len={edge_len}, trans_len={transitive_len}, diff={diff:.3} weak={:?}", diff < 0.3);
-                let a_degree = self.node_degree(edge_key.id_from, edge_key.strand_from);
-                let b_degree = self.node_degree(edge_key.id_to, edge_key.strand_to);
+                let a_degree = self.node_degree(edge_key.src_id(), edge_key.src_dir());
+                let b_degree = self.node_degree(edge_key.dst_id(), edge_key.dst_dir());
                 diff < 0.3 && a_degree != 1 && b_degree != 1
             })
             .cloned()
@@ -299,12 +298,12 @@ impl AwareGraph {
             let mut last_indices: Vec<usize> = vec![];
             // find bifurcation nodes
             for (idx,(a,b)) in alignments.iter().tuple_windows().enumerate() {
-                let EdgeKey { id_from, strand_from, id_to, strand_to } = EdgeKey::from_alignments(a,b);
-                if a.aware_id == b.aware_id || !self.nodes.contains_key(&id_from) || !self.nodes.contains_key(&id_to) {
+                let (src_id, src_dir, dst_id, dst_dir) = EdgeKey::from_alignments(a,b).unpack();
+                if a.aware_id == b.aware_id || !self.nodes.contains_key(&src_id) || !self.nodes.contains_key(&dst_id) {
                     continue
                 }
-                let a_degree = self.node_degree(id_from, strand_from);
-                let b_degree = self.node_degree(id_to, strand_to);
+                let a_degree = self.node_degree(src_id, src_dir);
+                let b_degree = self.node_degree(dst_id, dst_dir);
                 if b_degree > 1 { first_indices.push(idx); }
                 if a_degree > 1 { last_indices.push(idx+1); }
             }
@@ -323,11 +322,10 @@ impl AwareGraph {
                         tedge.nb_reads += 1;
                         tedge.min_shared_snvs = tedge.min_shared_snvs.max(a.nb_shared_snvs.min(b.nb_shared_snvs));
                         tedge.gaps.push((b.query_beg as i32) - (a.query_end as i32));
-                        if tedge.seq_desc.is_empty() && b.query_beg > a.query_end {
+                        if b.query_beg > a.query_end {
                             let interval = SeqInterval{ tid: a.query_idx, beg: a.query_end, end: b.query_beg };
                             let strand = if was_canonical { b'+' } else { b'-' };
-                            let aware_contig = AwareContig::new(SeqType::Read, interval, strand, 0);
-                            tedge.seq_desc.push(aware_contig);
+                            tedge.seq_desc.push(AwareContig::new(SeqType::Read, interval, strand, 0));
                         }
                     }
                 }
@@ -338,32 +336,32 @@ impl AwareGraph {
         spdlog::debug!("{nb_bridges} read bridges added");
     }
 
-    // TODO: the current implementation add all possible (non-ambiguous) transitive edges
-    // The idea is to add only those that span nodes with outdegree > 1
-    // so that I could possibly improve contiguity later
-    pub fn add_bridges_2(&mut self, aware_alignments:&HashMap<usize,Vec<AwareAlignment>>) -> usize {
-        self.clear_transitive_edges();
+    // // TODO: the current implementation add all possible (non-ambiguous) transitive edges
+    // // The idea is to add only those that span nodes with outdegree > 1
+    // // so that I could possibly improve contiguity later
+    // pub fn add_bridges_2(&mut self, aware_alignments:&HashMap<usize,Vec<AwareAlignment>>) -> usize {
+    //     self.clear_transitive_edges();
 
-        for alignments in aware_alignments.values() {
-            for (a_idx, a) in alignments.iter().enumerate().filter(|(_,a)| !a.is_ambiguous) {
-                for b in alignments[a_idx+1..].iter().skip(1).filter(|b| !b.is_ambiguous) {
-                    let mut tedge_key = EdgeKey::from_alignments(a, b);
-                    let was_canonical = tedge_key.canonicalize();
-                    let tedge = self.get_transitive_or_create(&tedge_key);
-                    tedge.nb_reads += 1;
-                    tedge.gaps.push((b.query_beg as i32) - (a.query_end as i32));
-                    if tedge.seq_desc.is_empty() && b.query_beg > a.query_end {
-                        let interval = SeqInterval{ tid: a.query_idx, beg: a.query_end, end: b.query_beg };
-                        let strand = if was_canonical { b'+' } else { b'-' };
-                        let aware_contig = AwareContig::new(SeqType::Read, interval, strand, 0);
-                        tedge.seq_desc.push(aware_contig);
-                    }
-                }
-            }
-        }
+    //     for alignments in aware_alignments.values() {
+    //         for (a_idx, a) in alignments.iter().enumerate().filter(|(_,a)| !a.is_ambiguous) {
+    //             for b in alignments[a_idx+1..].iter().skip(1).filter(|b| !b.is_ambiguous) {
+    //                 let mut tedge_key = EdgeKey::from_alignments(a, b);
+    //                 let was_canonical = tedge_key.canonicalize();
+    //                 let tedge = self.get_transitive_or_create(&tedge_key);
+    //                 tedge.nb_reads += 1;
+    //                 tedge.gaps.push((b.query_beg as i32) - (a.query_end as i32));
+    //                 if tedge.seq_desc.is_empty() && b.query_beg > a.query_end {
+    //                     let interval = SeqInterval{ tid: a.query_idx, beg: a.query_end, end: b.query_beg };
+    //                     let strand = if was_canonical { b'+' } else { b'-' };
+    //                     let aware_contig = AwareContig::new(SeqType::Read, interval, strand, 0);
+    //                     tedge.seq_desc.push(aware_contig);
+    //                 }
+    //             }
+    //         }
+    //     }
 
-        self.transitives.len()
-    }
+    //     self.transitives.len()
+    // }
 
     fn find_junctions(&self) -> Vec<Junction> {
         let mut visited: HashSet<(usize,u8)> = HashSet::new();
@@ -374,7 +372,7 @@ impl AwareGraph {
                     continue
                 }
                 let in_edges = self.nodes[&node_id].edges.iter()
-                    .filter(|key| key.strand_from == node_dir)
+                    .filter(|key| key.src_dir() == node_dir)
                     .cloned().collect_vec();
                 if in_edges.len() <= 1 {
                     continue
@@ -392,16 +390,16 @@ impl AwareGraph {
                 loop {
                     let out_dir = crate::seq::flip_strand(in_dir);
                     let out_edges = node.edges.iter()
-                        .filter(|key| key.strand_from == out_dir)
+                        .filter(|key| key.src_dir() == out_dir)
                         .cloned().collect_vec();
                     if out_edges.is_empty() {
                         break;
                     }
-                    let EdgeKey { id_from:src, strand_from:src_dir, id_to:succ, strand_to:succ_dir } = unsafe {
-                        *out_edges.first().unwrap_unchecked()
+                    let (src_id, src_dir, succ_id, succ_dir) = unsafe {
+                        out_edges.first().unwrap_unchecked().unpack()
                     };
                     if out_edges.len() > 1 { // found the "end" of the junction
-                        visited.insert((src,src_dir));
+                        visited.insert((src_id,src_dir));
                         junc.out_edges.extend(out_edges);
 
                         // if !junc.outputs().all(|(node_id,dir)| self.node_degree(node_id, dir) == 1) {
@@ -414,8 +412,8 @@ impl AwareGraph {
 
                         break;
                     }
-                    node = &self.nodes[&succ];
-                    if node.edges.iter().filter(|key| key.strand_from == succ_dir).count() > 1 {
+                    node = &self.nodes[&succ_id];
+                    if node.edges.iter().filter(|key| key.src_dir() == succ_dir).count() > 1 {
                         break;
                     }
                     junc.mid_edges.push(out_edges[0]);
@@ -468,7 +466,7 @@ impl AwareGraph {
         let mut bridges = vec![];
         for (node_id, node_dir) in junc.inputs() {
             for t_key in &self.nodes[&node_id].transitives {
-                if (t_key.strand_from == node_dir) && junc.outputs().any(|out| out == (t_key.id_to,t_key.strand_to)) {
+                if (t_key.src_dir() == node_dir) && junc.outputs().any(|out| out == t_key.dst()) {
                     bridges.push(*t_key);
                 }
             }
@@ -482,7 +480,7 @@ impl AwareGraph {
             }
         }
 
-        let ndeg: HashMap<usize, usize> = crate::utils::counter_from_iter(bridges.iter().flat_map(|key| [key.id_from,key.id_to]));
+        let ndeg: HashMap<usize, usize> = crate::utils::counter_from_iter(bridges.iter().flat_map(|key| [key.src_id(), key.dst_id()]));
 
         let is_fully_covered = junc.inout_nodes().all(|n| ndeg.get(&n).is_some_and(|c| *c > 0));
         // let is_strictly_covered = is_fully_covered && bridges.iter().all(|key| {
@@ -517,7 +515,7 @@ impl AwareGraph {
             if self.get_transitive(bridges.last().unwrap()).unwrap().nb_reads >= min_reads {
                 break
             }
-            let ndeg: HashMap<usize, usize> = crate::utils::counter_from_iter(bridges[..bridges.len()-1].iter().flat_map(|key| [key.id_from,key.id_to]));
+            let ndeg: HashMap<usize, usize> = crate::utils::counter_from_iter(bridges[..bridges.len()-1].iter().flat_map(|key| [key.src_id(), key.dst_id()]));
             let is_fully_covered = junc.inout_nodes().all(|n| ndeg.get(&n).is_some_and(|c| *c > 0));
             if is_fully_covered {
                 bridges.pop();
@@ -547,12 +545,13 @@ impl AwareGraph {
         // }
 
         let mut bridge_paths = vec![];
-        for EdgeKey { id_from, strand_from, id_to, strand_to } in &bridges {
-            let in_edge = biedge::flip_edgekey(junc.in_edges.iter().find(|key| (&key.id_to,&key.strand_to) == (id_from,strand_from)).unwrap());
+        for bridge in &bridges {
+            let (src_id, src_dir, dst_id, dst_dir) = bridge.unpack();
+            let in_edge = biedge::flip_edgekey(junc.in_edges.iter().find(|key| key.dst() == (src_id,src_dir)).unwrap());
             let mut path = Vec::with_capacity(junc.mid_edges.len()+2);
             path.push(in_edge);
             path.extend(junc.mid_edges.iter());
-            let out_edge = *junc.out_edges.iter().find(|key| (&key.id_to,&key.strand_to) == (id_to,strand_to)).unwrap();
+            let out_edge = *junc.out_edges.iter().find(|key| key.dst() == (dst_id,dst_dir)).unwrap();
             path.push(out_edge);
             bridge_paths.push(path);
         }
@@ -561,7 +560,7 @@ impl AwareGraph {
             assert!(!path.is_empty());
             let first = unsafe { path.first().unwrap_unchecked() };
             let last = unsafe { path.last().unwrap_unchecked() };
-            let edge_key = EdgeKey::new(first.id_from, first.strand_from, last.id_to, last.strand_to);
+            let edge_key = EdgeKey::new(first.src_id(), first.src_dir(), last.dst_id(), last.dst_dir());
             if self.contains_edge(&edge_key) {
                 // eprintln!("edge {edge_key} already exists for {junc}");
                 return false
@@ -581,7 +580,7 @@ impl AwareGraph {
         
         let deleted_nodes: HashSet<usize> = bridge_paths.iter()
             .flat_map(|path| path.iter().skip(1))
-            .map(|key| key.id_from)
+            .map(|key| key.src_id())
             .collect();
         let deleted_edges: HashSet<EdgeKey> = bridge_paths.iter().flatten().cloned().collect();
 
@@ -589,7 +588,7 @@ impl AwareGraph {
             assert!(path.len() >= 2);
             let first = unsafe { path.first().unwrap_unchecked() };
             let last = unsafe { path.last().unwrap_unchecked() };
-            let tkey = EdgeKey::new(first.id_from, first.strand_from, last.id_to, last.strand_to);
+            let tkey = EdgeKey::new(first.src_id(), first.src_dir(), last.dst_id(), last.dst_dir());
             let tedge = self.get_transitive(&tkey).unwrap();
             let tedge_nb_reads = tedge.nb_reads;
             let tedge_min_shared_snvs = tedge.min_shared_snvs;
@@ -618,9 +617,9 @@ impl AwareGraph {
             let edge = self.get_biedge(edge_key).unwrap();
             assert!(edge_key.is_canonical());
             let node_id = self.add_node(edge.seq_desc[0]);
-            let new_edge_key = EdgeKey::new(edge_key.id_from, edge_key.strand_from, node_id, b'+');
+            let new_edge_key = EdgeKey::new(edge_key.src_id(), edge_key.src_dir(), node_id, b'+');
             self.get_biedge_or_create(&new_edge_key);
-            let new_edge_key = EdgeKey::new( node_id, b'-', edge_key.id_to, edge_key.strand_to);
+            let new_edge_key = EdgeKey::new( node_id, b'-', edge_key.dst_id(), edge_key.dst_dir());
             self.get_biedge_or_create(&new_edge_key);
         }
 
@@ -638,8 +637,8 @@ impl AwareGraph {
                 let nodes = if edges.is_empty() {
                     vec![*node_id]
                 } else {
-                    let first = unsafe { edges.first().unwrap_unchecked().id_from };
-                    std::iter::once(first).chain(edges.iter().map(|key| key.id_to)).collect_vec()
+                    let first = unsafe { edges.first().unwrap_unchecked().src_id() };
+                    std::iter::once(first).chain(edges.iter().map(|key| key.dst_id())).collect_vec()
                 };
                 let id = aware_paths.len();
                 nodes.iter().for_each(|n| { node_to_path.insert(*n, id); });
@@ -655,15 +654,15 @@ impl AwareGraph {
             let mut path_edges = vec![];
             loop {
                 let node = &self.nodes[&node_id];
-                let mut outedges = node.edges.iter().cloned().filter(|key| key.strand_from == node_dir).take(2).collect::<ArrayVec<[EdgeKey;2]>>();
+                let mut outedges = node.edges.iter().cloned().filter(|key| key.src_dir() == node_dir).take(2).collect::<ArrayVec<[EdgeKey;2]>>();
                 if outedges.len() != 1 {
                     break
                 }
                 let outkey = unsafe { outedges.pop().unwrap_unchecked() };
-                if visited.contains(&outkey.id_to) || self.nodes[&outkey.id_to].edges.iter().filter(|key| key.strand_from == outkey.strand_to).count() > 1 {
+                if visited.contains(&outkey.dst_id()) || self.nodes[&outkey.dst_id()].edges.iter().filter(|key| key.src_dir() == outkey.dst_dir()).count() > 1 {
                     break
                 }
-                (node_id, node_dir) = (outkey.id_to, crate::seq::flip_strand(outkey.strand_to));
+                (node_id, node_dir) = (outkey.dst_id(), crate::seq::flip_strand(outkey.dst_dir()));
                 path_edges.push(outkey);
                 visited.insert(node_id);
             }
@@ -694,9 +693,9 @@ impl AwareGraph {
                 let mut is_phased = false;
 
                 let node_id = unsafe { aware_path.nodes.first().unwrap_unchecked() };
-                let node_dir = if aware_path.edges.is_empty() { b'+' } else { crate::seq::flip_strand(aware_path.edges[0].strand_from) };
+                let node_dir = if aware_path.edges.is_empty() { b'+' } else { crate::seq::flip_strand(aware_path.edges[0].src_dir()) };
                 let node_iter = std::iter::once((*node_id, node_dir))
-                    .chain(aware_path.edges.iter().map(|key| (key.id_to, key.strand_to)));
+                    .chain(aware_path.edges.iter().map(|key| key.dst()));
 
                 // TODO: handle negative gaps between sequences?
                 for (node_id, node_dir) in node_iter {
@@ -805,9 +804,9 @@ impl AwareGraph {
         
         for (utg_id, ap) in aware_paths.iter().enumerate() {
             let node_id = unsafe { ap.nodes.first().unwrap_unchecked() };
-            let node_dir = if ap.edges.is_empty() { b'+' } else { crate::seq::flip_strand(ap.edges[0].strand_from) };
+            let node_dir = if ap.edges.is_empty() { b'+' } else { crate::seq::flip_strand(ap.edges[0].src_dir()) };
             let node_iter = std::iter::once((*node_id, node_dir))
-                .chain(ap.edges.iter().map(|key| (key.id_to, key.strand_to)));
+                .chain(ap.edges.iter().map(|key| key.dst()));
 
             let mut utg_pos = 0;
             for (node_id, node_dir) in node_iter {
@@ -851,6 +850,8 @@ impl AwareGraph {
         std::fs::create_dir_all(work_dir)
             .with_context(|| format!("Cannot create output directory: \"{}\"", work_dir.display()))?;
 
+        // self.polish_edges();
+
         self.expand_edges();
 
         let (aware_paths, node_index) = self.extract_aware_paths();
@@ -875,21 +876,21 @@ impl AwareGraph {
             //     continue
             // }
             
-            let id_from = node_index[&edge_key.id_from];
-            let id_to = node_index[&edge_key.id_to];
+            let id_from = node_index[&edge_key.src_id()];
+            let id_to = node_index[&edge_key.dst_id()];
 
-            if id_from != id_to || edge_key.id_from == edge_key.id_to {
+            if id_from != id_to || edge_key.src_id() == edge_key.dst_id() {
                 let path_from = &aware_paths[id_from];
                 let strand_from = if path_from.nodes.len() == 1 {
-                    edge_key.strand_from
+                    edge_key.src_dir()
                 } else {
-                    b"-+"[(edge_key.id_from == path_from.nodes[0]) as usize]
+                    b"-+"[(edge_key.src_id() == path_from.nodes[0]) as usize]
                 };
                 let path_to = &aware_paths[id_to];
                 let strand_to = if path_to.nodes.len() == 1 {
-                    edge_key.strand_to
+                    edge_key.dst_dir()
                 } else {
-                    b"-+"[(edge_key.id_to == path_to.nodes[0]) as usize]
+                    b"-+"[(edge_key.dst_id() == path_to.nodes[0]) as usize]
                 };
                 asm_graph.add_link(Link::new(id_from, strand_from, id_to, strand_to));
             }
@@ -917,20 +918,20 @@ impl AwareGraph {
 
         for edge_id in self.edges.values() {
             let edge = self.get_biedge_idx(*edge_id);
-            let EdgeKey { id_from, strand_from, id_to, strand_to } = edge.key;
-            let node_ctg = self.nodes[&id_from].ctg;
+            let (src_id, src_dir, dst_id, dst_dir) = edge.key.unpack();
+            let node_ctg = self.nodes[&src_id].ctg;
             let name_from = match node_ctg.contig_type() {
-                SeqType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, id_from),
-                SeqType::Unphased => format!("{}_{}-{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), id_from),
-                SeqType::Read => format!("read{}_{}-{}_id{}", node_ctg.tid(), node_ctg.beg(), node_ctg.end(), id_from),
+                SeqType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, src_id),
+                SeqType::Unphased => format!("{}_{}-{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), src_id),
+                SeqType::Read => format!("read{}_{}-{}_id{}", node_ctg.tid(), node_ctg.beg(), node_ctg.end(), src_id),
             };
-            let node_ctg = self.nodes[&id_to].ctg;
+            let node_ctg = self.nodes[&dst_id].ctg;
             let name_to = match node_ctg.contig_type() {
-                SeqType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, id_to),
-                SeqType::Unphased => format!("{}_{}-{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), id_to),
-                SeqType::Read => format!("read{}_{}-{}_id{}", node_ctg.tid(), node_ctg.beg(), node_ctg.end(), id_to),
+                SeqType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, dst_id),
+                SeqType::Unphased => format!("{}_{}-{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), dst_id),
+                SeqType::Read => format!("read{}_{}-{}_id{}", node_ctg.tid(), node_ctg.beg(), node_ctg.end(), dst_id),
             };
-            let edge_line = format!("L\t{}\t{}\t{}\t{}\t0M\tRC:i:{}\n", name_from, crate::seq::flip_strand(strand_from) as char, name_to, strand_to as char, edge.nb_reads );
+            let edge_line = format!("L\t{}\t{}\t{}\t{}\t0M\tRC:i:{}\n", name_from, crate::seq::flip_strand(src_dir) as char, name_to, dst_dir as char, edge.nb_reads );
             gfa.write_all(edge_line.as_bytes())?;
         }
         Ok(())
@@ -948,22 +949,22 @@ impl AwareGraph {
         }
         for edge_id in self.edges.values() {
             let edge = self.get_biedge_idx(*edge_id);
-            let EdgeKey { id_from, strand_from, id_to, strand_to } = edge.key;
-            let arrow_tail = if strand_from == b'+' { "normal" } else { "inv" };
-            let arrow_head = if strand_to == b'+' { "normal" } else { "inv" };
+            let (src_id, src_dir, dst_id, dst_dir) = edge.key.unpack();
+            let arrow_tail = if src_dir == b'+' { "normal" } else { "inv" };
+            let arrow_head = if dst_dir == b'+' { "normal" } else { "inv" };
             let edge_gap = if edge.gaps.is_empty() { 0 } else { *edge.gaps.iter().sorted_unstable().nth(edge.gaps.len()/2).unwrap() };
             let edge_label = format!("{}/{}bp", edge.nb_reads, edge_gap);
-            let edge_line = format!("\t{id_from} -> {id_to}\t[arrowtail={arrow_tail}, arrowhead={arrow_head}, dir=both, label=\"{edge_label}\"];\n");
+            let edge_line = format!("\t{src_id} -> {dst_id}\t[arrowtail={arrow_tail}, arrowhead={arrow_head}, dir=both, label=\"{edge_label}\"];\n");
             dot.write_all(edge_line.as_bytes())?;
         }
         for edge_id in self.transitives.values() {
             let edge = self.get_biedge_idx(*edge_id);
-            let EdgeKey { id_from, strand_from, id_to, strand_to } = edge.key;
-            let arrow_tail = if strand_from == b'+' { "normal" } else { "inv" };
-            let arrow_head = if strand_to == b'+' { "normal" } else { "inv" };
+            let (src_id, src_dir, dst_id, dst_dir) = edge.key.unpack();
+            let arrow_tail = if src_dir == b'+' { "normal" } else { "inv" };
+            let arrow_head = if dst_dir == b'+' { "normal" } else { "inv" };
             let edge_gap = if edge.gaps.is_empty() { 0 } else { *edge.gaps.iter().sorted_unstable().nth(edge.gaps.len()/2).unwrap() };
             let edge_label = format!("{}/{}bp", edge.nb_reads, edge_gap);
-            let edge_line = format!("\t{id_from} -> {id_to}\t[arrowtail={arrow_tail}, arrowhead={arrow_head}, dir=both, color=\"red\", label=\"{edge_label}\"];\n");
+            let edge_line = format!("\t{src_id} -> {dst_id}\t[arrowtail={arrow_tail}, arrowhead={arrow_head}, dir=both, color=\"red\", label=\"{edge_label}\"];\n");
             dot.write_all(edge_line.as_bytes())?;
         }
         dot.write_all(b"}\n")

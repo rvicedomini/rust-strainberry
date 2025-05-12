@@ -5,16 +5,16 @@ use crate::awarecontig::{AwareContig, AwareAlignment};
 
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EdgeKey {
-    pub id_from: usize,
-    pub strand_from: u8,
-    pub id_to: usize,
-    pub strand_to: u8,
+    src: usize,
+    dst: usize,
 }
 
 impl EdgeKey {
 
-    pub fn new(id_from:usize, strand_from:u8, id_to:usize, strand_to:u8) -> Self {
-        Self { id_from, strand_from, id_to, strand_to }
+    pub fn new(src_id:usize, src_dir:u8, dst_id:usize, dst_dir:u8) -> Self {
+        let src = (src_id << 1) | (src_dir != b'+') as usize;
+        let dst = (dst_id << 1) | (dst_dir != b'+') as usize;
+        Self { src, dst }
     }
 
     pub fn from_alignments(a:&AwareAlignment, b:&AwareAlignment) -> EdgeKey {
@@ -26,13 +26,49 @@ impl EdgeKey {
         )
     }
 
-    pub fn flip(&mut self) {
-        std::mem::swap(&mut self.id_from, &mut self.id_to);
-        std::mem::swap(&mut self.strand_from, &mut self.strand_to);
+    #[inline(always)]
+    pub fn src_id(&self) -> usize {
+        self.src >> 1
     }
 
+    #[inline(always)]
+    pub fn src_dir(&self) -> u8 {
+        if (self.src & 1) == 0 { b'+' } else { b'-' }
+    }
+
+    #[inline(always)]
+    pub fn src(&self) -> (usize,u8) {
+        (self.src_id(), self.src_dir())
+    }
+
+    #[inline(always)]
+    pub fn dst_id(&self) -> usize {
+        self.dst >> 1
+    }
+
+    #[inline(always)]
+    pub fn dst_dir(&self) -> u8 {
+        if (self.dst & 1) == 0 { b'+' } else { b'-' }
+    }
+
+    #[inline(always)]
+    pub fn dst(&self) -> (usize,u8) {
+        (self.dst_id(), self.dst_dir())
+    }
+
+    #[inline(always)]
+    pub fn unpack(&self) -> (usize,u8,usize,u8) {
+        (self.src_id(), self.src_dir(), self.dst_id(), self.dst_dir())
+    }
+
+    #[inline(always)]
+    pub fn flip(&mut self) {
+        std::mem::swap(&mut self.src, &mut self.dst);
+    }
+
+    #[inline(always)]
     pub fn is_canonical(&self) -> bool {
-        self.id_from < self.id_to || (self.id_from == self.id_to && self.strand_from <= self.strand_to)
+        self.src <= self.dst
     }
 
     // returns whether the key was already canonical
@@ -48,7 +84,7 @@ impl EdgeKey {
 
 impl std::fmt::Display for EdgeKey {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "EdgeKey({},{},{},{})", self.id_from, self.strand_from as char, self.id_to, self.strand_to as char)
+        write!(f, "EdgeKey({},{},{},{})", self.src_id(), self.src_dir() as char, self.dst_id(), self.dst_dir() as char)
     }
 }
 
