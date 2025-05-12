@@ -277,21 +277,11 @@ pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contig
 
 
 pub fn filter_aware_alignments(mut aware_alignments: Vec<AwareAlignment>, aware_contigs: &mut [AwareContig]) -> Vec<AwareAlignment> {
-    let nb_aware_alignments = aware_alignments.len();
-    let mut filtered_alignments = Vec::with_capacity(nb_aware_alignments);
-    
     aware_alignments.sort_unstable_by_key(|a| (a.query_aln_beg,a.query_beg));
-    for (_i,a) in aware_alignments.into_iter().enumerate() {
-        if a.query_end - a.query_beg < 1 {
-            continue
-        }
-        // if matches!(a.mapping_type, MappingType::DovetailPrefix|MappingType::DovetailSuffix) && 0 < i && i < nb_aware_alignments-1 {
-        //     continue
-        // }
-        let aware_contig = &mut aware_contigs[a.aware_id];
-        aware_contig.aligned_bases += a.target_end - a.target_beg;
-        filtered_alignments.push(a);
-    }
-
-    filtered_alignments
+    aware_alignments.into_iter()
+        .filter(|a| a.query_end - a.query_beg >= 1)
+        .inspect(|a| {
+            let ctg = &mut aware_contigs[a.aware_id];
+            ctg.aligned_bases += a.target_end - a.target_beg;
+        }).collect()
 }

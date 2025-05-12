@@ -206,12 +206,12 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
         let hap_fasta = output_dir.join("20-phased/haplotigs.fasta");
         let mut fasta_writer = crate::utils::get_file_writer(&hap_fasta);
         for hid in hap_sequences.keys().sorted_unstable() {
-            let seq = &hap_sequences[hid];
+            let seq = hap_sequences[hid].as_slice();
             if !seq.is_empty() {
                 let header = format!(">{}_{}-{}_h{}\n", ref_db.names[hid.tid], hid.beg, hid.end, hid.hid);
                 fasta_writer.write_all(header.as_bytes())?;
                 let sequence = crate::utils::insert_newlines(
-                    std::str::from_utf8(&seq).unwrap(),
+                    std::str::from_utf8(seq).unwrap(),
                     120
                 );
                 fasta_writer.write_all(sequence.as_bytes())?;

@@ -99,7 +99,7 @@ impl Alignment {
                 &[]
             );
 
-            let align_res = edlibrs::edlibAlignRs(&qseq, &tseq, &ed_cfg);
+            let align_res = edlibrs::edlibAlignRs(&qseq, tseq, &ed_cfg);
             if align_res.status != edlibrs::EDLIB_STATUS_OK {
                 bail!("edlib: unable to align query {} against target {}", self.query_idx, self.target_idx);
             }

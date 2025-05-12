@@ -28,17 +28,11 @@ pub enum MappingType {
 impl MappingType {
 
     pub fn is_containment(&self) -> bool {
-        match self {
-            Self::QueryContained | Self::ReferenceContained => true,
-            _ => false
-        }
+        matches!(self, Self::QueryContained | Self::ReferenceContained)
     }
 
     pub fn is_dovetail(&self) -> bool {
-        match self {
-            Self::DovetailPrefix | Self::DovetailSuffix => true,
-            _ => false
-        }
+        matches!(self, Self::DovetailPrefix | Self::DovetailSuffix)
     }
 }
 
