@@ -7,16 +7,16 @@ use super::window::Window;
 const WINDOW_LEN: usize = 500;
 
 pub struct Polisher<'a> {
-    ref_sequences: &'a[Vec<u8>],
-    read_sequences: &'a[Vec<u8>],
-    alignments: Vec<Alignment>,
+    ref_sequences: &'a [Vec<u8>],
+    read_sequences: &'a [Vec<u8>],
+    alignments: &'a mut [Alignment],
     windows: Vec<Window<'a>>,
     id_to_first_window_id: Vec<usize>,
 }
 
 impl<'a> Polisher<'a> {
 
-    pub fn new(ref_sequences: &'a [Vec<u8>], read_sequences: &'a [Vec<u8>], alignments: Vec<Alignment>) -> Self {
+    pub fn new(ref_sequences: &'a [Vec<u8>], read_sequences: &'a [Vec<u8>], alignments: &'a mut [Alignment]) -> Self {
         Self {
             ref_sequences,
             read_sequences,

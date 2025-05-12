@@ -77,27 +77,27 @@ fn run_minimap2(target_path: &Path, read_path: &Path, work_dir: &Path, mode: Pol
     Ok(paf_path)
 }
 
-pub fn racon_polish(target_path: &Path, read_path: &Path, out_path: &Path, mode: PolishMode, work_dir: &Path, opts: &Options) -> Result<()> {
+// pub fn racon_polish(target_path: &Path, read_path: &Path, out_path: &Path, mode: PolishMode, work_dir: &Path, opts: &Options) -> Result<()> {
 
-    std::fs::create_dir_all(work_dir)
-        .with_context(|| format!("cannot create output directory: \"{}\"", work_dir.display()))?;
+//     std::fs::create_dir_all(work_dir)
+//         .with_context(|| format!("cannot create output directory: \"{}\"", work_dir.display()))?;
 
-    let paf_path = run_minimap2(target_path, read_path, work_dir, mode, opts)?;
+//     let paf_path = run_minimap2(target_path, read_path, work_dir, mode, opts)?;
 
-    // Run racon
+//     // Run racon
 
-    let out_file = std::fs::File::create(out_path).unwrap();
-    let racon_log_path = work_dir.join("racon.log");
-    let racon_log_file = std::fs::File::create(&racon_log_path).unwrap();
+//     let out_file = std::fs::File::create(out_path).unwrap();
+//     let racon_log_path = work_dir.join("racon.log");
+//     let racon_log_file = std::fs::File::create(&racon_log_path).unwrap();
 
-    let args = ["-t", &opts.nb_threads.to_string(), "-u", read_path.to_str().unwrap(), paf_path.to_str().unwrap(), target_path.to_str().unwrap()];
-    // println!("running cmd: racon {}", args.join(" "));
-    let mut racon = Command::new("racon").args(args)
-        .stdout(Stdio::from(out_file))
-        .stderr(Stdio::from(racon_log_file))
-        .spawn().context("cannot run racon")?;
+//     let args = ["-t", &opts.nb_threads.to_string(), "-u", read_path.to_str().unwrap(), paf_path.to_str().unwrap(), target_path.to_str().unwrap()];
+//     // println!("running cmd: racon {}", args.join(" "));
+//     let mut racon = Command::new("racon").args(args)
+//         .stdout(Stdio::from(out_file))
+//         .stderr(Stdio::from(racon_log_file))
+//         .spawn().context("cannot run racon")?;
     
-    racon.wait().unwrap();
+//     racon.wait().unwrap();
 
-    Ok(())
-}
+//     Ok(())
+// }

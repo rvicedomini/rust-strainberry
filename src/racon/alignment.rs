@@ -1,13 +1,6 @@
-use std::io::BufRead;
-use std::path::Path;
-
 use anyhow::{bail, Context, Result};
-use ahash::AHashMap as HashMap;
 use itertools::Itertools;
 use rust_htslib::bam::record::{Cigar,CigarString};
-
-
-const ERROR_THRESHOLD: f64 = 0.3;
 
 
 #[derive(Debug, Clone)]
@@ -32,13 +25,12 @@ pub struct Alignment {
 
 impl Alignment {
 
-    fn parse_paf_line(line: &str, ref_index: &HashMap<String,usize>, read_index: &HashMap<String,usize>) -> Result<Self> {
+    pub fn from_paf_line(line: &str) -> Result<Self> {
         
-        // let cols: [&str; 13] = line.splitn(13, '\t').collect_array().context("cannot parse PAF line")?;
         let cols = line.split('\t').collect_vec();
         if cols.len() < 12 { bail!("cannot parse PAF line (mission fields)") }
         
-        let query_idx = *read_index.get(cols[0]).with_context(|| format!("missing read with id: {}", cols[0]))?;
+        let query_idx = cols[0].parse::<usize>().with_context(|| format!("read id expected to be an unsigned integer: {}", cols[0]))?;
         let [query_len, query_beg, query_end] = cols[1..4].iter().map(|s|s.parse::<usize>().unwrap()).collect_array().unwrap();
         
         let strand = match cols[4] {
@@ -47,7 +39,7 @@ impl Alignment {
             _ => bail!("unrecognised strand field: {}", cols[4])
         };
         
-        let target_idx = ref_index[cols[5]];
+        let target_idx = cols[5].parse::<usize>().with_context(|| format!("target id expected to be an unsigned integer: {}", cols[0]))?;
         let [target_len, target_beg, target_end] = cols[6..9].iter().map(|s|s.parse::<usize>().unwrap()).collect_array().unwrap();
         
         let matches = cols[9].parse().unwrap();
@@ -106,7 +98,7 @@ impl Alignment {
 
             let alignment = align_res.alignment.as_ref().unwrap();
             let cigar = edlibrs::edlibAlignmentToCigarRs(alignment, &edlibrs::EdlibCigarFormatRs::EDLIB_CIGAR_STANDARD);
-            self.cigar = parse_cigar_bytes(cigar.as_bytes());
+            self.cigar = CigarString::try_from(cigar.as_bytes()).context("Unable to parse cigar string.")?;
         }
     
         self.find_breaking_points_from_cigar(window_len);
@@ -175,45 +167,3 @@ impl Alignment {
         }
     }
 }
-
-
-pub fn load_paf_alignments(paf_path: &Path, ref_index: &HashMap<String,usize>, read_index: &HashMap<String,usize>) -> Result<Vec<Alignment>> {
-
-    let mut alignments = Vec::new();
-    let reader = crate::utils::get_file_reader(paf_path);
-    for line in reader.lines().map_while(Result::ok) {
-        let line = line.trim();
-        if line.is_empty() { continue }
-        let paf = Alignment::parse_paf_line(line, ref_index, read_index)?;
-        alignments.push(paf);
-    }
-
-    Ok(alignments)
-}
-
-
-pub fn filter_alignments(alignments: Vec<Alignment>) -> Vec<Alignment> {
-
-    let mut retained: HashMap<usize, Alignment> = HashMap::new();
-
-    for a in alignments {
-        let a_err = 1.0 - std::cmp::min(a.query_end-a.query_beg, a.target_end-a.target_beg) as f64 / a.length  as f64;
-        if a_err > ERROR_THRESHOLD {
-            continue;
-        }
-        
-        retained.entry(a.query_idx)
-            .and_modify(|e| {
-                if a.length > e.length { *e = a.clone(); }
-            }).or_insert(a);
-    }
-
-    retained.into_values().collect()
-}
-
-
-pub fn parse_cigar_bytes(cigar: &[u8]) -> CigarString {
-    CigarString::try_from(cigar)
-        .expect("Unable to parse cigar string.")
-}
-

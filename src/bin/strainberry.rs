@@ -201,28 +201,6 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     spdlog::info!("Mapping reads to strain-aware contigs");
     let read2aware = strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut aware_contigs, &seq2haplo);
 
-    spdlog::info!("Building haplotigs");
-    let hap_sequences = {
-        let hap_sequences = strainberry::racon::build_haplotigs(&ref_db, &read_db, &phaser_result.haplotypes, &aware_contigs, &read2aware);
-
-        let hap_fasta = output_dir.join("20-phased/haplotigs.fasta");
-        let mut fasta_writer = crate::utils::get_file_writer(&hap_fasta);
-        for hid in hap_sequences.keys().sorted_unstable() {
-            let seq = hap_sequences[hid].as_slice();
-            if !seq.is_empty() {
-                let header = format!(">{}_{}-{}_h{}\n", ref_db.names[hid.tid], hid.beg, hid.end, hid.hid);
-                fasta_writer.write_all(header.as_bytes())?;
-                let sequence = crate::utils::insert_newlines(
-                    std::str::from_utf8(seq).unwrap(),
-                    120
-                );
-                fasta_writer.write_all(sequence.as_bytes())?;
-                fasta_writer.write_all(b"\n")?;
-            }
-        }
-        hap_sequences
-    };
-
     drop(phaser_result);
 
     // -------------------
@@ -255,7 +233,7 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
 
     spdlog::info!("Building assembly graph");
     let unitig_dir = output_dir.join("50-unitigs");
-    let unitig_graph = aware_graph.build_assembly_graph(&ref_db, &read_db, &hap_sequences, &unitig_dir)?;
+    let unitig_graph = aware_graph.build_assembly_graph(&ref_db, &read_db, phaser.fragments_dir(), &unitig_dir, &opts)?;
     unitig_graph.write_gfa(&output_dir.join("assembly.gfa"))?;
     let assembly_fasta_path = output_dir.join("assembly.fasta");
     unitig_graph.write_fasta(&assembly_fasta_path, 100)?;
