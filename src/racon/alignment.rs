@@ -2,6 +2,8 @@ use anyhow::{bail, Context, Result};
 use itertools::Itertools;
 use rust_htslib::bam::record::{Cigar,CigarString};
 
+use crate::bitseq::BitSeq;
+
 
 #[derive(Debug, Clone)]
 pub struct Alignment {
@@ -70,7 +72,7 @@ impl Alignment {
     }
 
 
-    pub fn find_breaking_points(&mut self, ref_sequences: &[Vec<u8>], read_sequences: &[Vec<u8>], window_len: usize) -> Result<()> {
+    pub fn find_breaking_points(&mut self, ref_sequences: &[BitSeq], read_sequences: &[BitSeq], window_len: usize) -> Result<()> {
 
         if !self.breaking_points.is_empty() {
             return Ok(())
@@ -80,8 +82,8 @@ impl Alignment {
 
             use edlib_rs::edlibrs;
 
-            let tseq = &ref_sequences[self.target_idx][self.target_beg..self.target_end];
-            let mut qseq = read_sequences[self.query_idx][self.query_beg..self.query_end].to_vec();
+            let tseq = ref_sequences[self.target_idx].subseq(self.target_beg, self.target_end);
+            let mut qseq = read_sequences[self.query_idx].subseq(self.query_beg, self.query_end);
             if self.strand == b'-' { crate::seq::revcomp_inplace(&mut qseq); }
 
             let ed_cfg = edlibrs::EdlibAlignConfigRs::new(
@@ -91,7 +93,7 @@ impl Alignment {
                 &[]
             );
 
-            let align_res = edlibrs::edlibAlignRs(&qseq, tseq, &ed_cfg);
+            let align_res = edlibrs::edlibAlignRs(&qseq, &tseq, &ed_cfg);
             if align_res.status != edlibrs::EDLIB_STATUS_OK {
                 bail!("edlib: unable to align query {} against target {}", self.query_idx, self.target_idx);
             }

@@ -1,15 +1,18 @@
-use std::borrow::Cow;
+// use std::borrow::Cow;
 
-#[derive(Debug, Default)]
+use crate::bitseq::BitSeq;
+
+
+#[derive(Debug)]
 pub struct Layer<'a> {
-    pub sequence: &'a [u8],
+    pub sequence: (&'a BitSeq, usize, usize),
     pub strand: u8,
     pub begin: usize,
     pub end: usize,
 }
 
 impl Layer<'_> {
-    pub fn len(&self) -> usize { self.sequence.len() }
+    pub fn len(&self) -> usize { self.sequence.2 - self.sequence.1 }
     pub fn is_empty(&self) -> bool { self.len() == 0 }
 }
 
@@ -24,7 +27,7 @@ pub struct Window <'a> {
 
 impl<'a> Window<'a> {
     
-    pub fn build(id:usize, rank:usize, backbone: &'a[u8]) -> Self {
+    pub fn build(id:usize, rank:usize, backbone: (&'a BitSeq, usize, usize)) -> Self {
         Self {
             id,
             rank,
@@ -33,9 +36,9 @@ impl<'a> Window<'a> {
         }
     }
 
-    pub fn add_layer(&mut self, sequence: &'a[u8], strand: u8, begin: usize, end: usize) {
+    pub fn add_layer(&mut self, sequence: (&'a BitSeq, usize, usize), strand: u8, begin: usize, end: usize) {
         
-        if sequence.is_empty() || begin == end {
+        if sequence.1 == sequence.2 || begin == end {
             return
         }
 
@@ -47,9 +50,11 @@ impl<'a> Window<'a> {
     }
 
     pub fn generate_consensus(&mut self) {
+
+        let (sequence, beg, end) = self.layers[0].sequence;
         
         if self.layers.len() < 3 {
-            self.consensus = Some(self.layers[0].sequence.to_vec());
+            self.consensus = Some(sequence.subseq(beg, end));
             return
         }
 
@@ -58,7 +63,8 @@ impl<'a> Window<'a> {
         );
         
         let mut graph = spoa_rs::Graph::new();
-        let seq = std::str::from_utf8(self.layers[0].sequence).unwrap();
+        let seq = sequence.subseq(beg, end);
+        let seq = std::str::from_utf8(&seq).unwrap();
         let alignment = spoa_engine.align(&graph, seq);
         graph.add_alignment(alignment, seq);
 
@@ -69,14 +75,17 @@ impl<'a> Window<'a> {
         let offset = self.layers[0].len() / 100;
         for layer in self.layers.drain(..).skip(1) {
 
-            let seq = if layer.strand == b'+' {
-                Cow::Borrowed(layer.sequence)
-            } else {
-                Cow::Owned(crate::seq::revcomp(layer.sequence))
-            };
+            let (sequence, beg, end) = layer.sequence;
+            let mut seq = sequence.subseq(beg, end);
+            if layer.strand == b'-' { crate::seq::revcomp_inplace(&mut seq); }
+
+            // let seq = if layer.strand == b'+' {
+            //     Cow::Borrowed(layer.sequence)
+            // } else {
+            //     Cow::Owned(crate::seq::revcomp(layer.sequence))
+            // };
             
             let seq = unsafe { std::str::from_utf8_unchecked(&seq) };
-            
             let alignment = if layer.begin < offset && layer.end > backbone_len - offset {
                 spoa_engine.align(&graph, seq)
             } else {

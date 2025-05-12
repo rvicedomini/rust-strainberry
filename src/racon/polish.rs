@@ -1,14 +1,16 @@
 use itertools::Itertools;
 use rayon::prelude::*;
 
+use crate::bitseq::BitSeq;
+
 use super::alignment::Alignment;
 use super::window::Window;
 
 const WINDOW_LEN: usize = 500;
 
 pub struct Polisher<'a> {
-    ref_sequences: &'a [Vec<u8>],
-    read_sequences: &'a [Vec<u8>],
+    ref_sequences: &'a [BitSeq],
+    read_sequences: &'a [BitSeq],
     alignments: &'a mut [Alignment],
     windows: Vec<Window<'a>>,
     id_to_first_window_id: Vec<usize>,
@@ -16,7 +18,7 @@ pub struct Polisher<'a> {
 
 impl<'a> Polisher<'a> {
 
-    pub fn new(ref_sequences: &'a [Vec<u8>], read_sequences: &'a [Vec<u8>], alignments: &'a mut [Alignment]) -> Self {
+    pub fn new(ref_sequences: &'a [BitSeq], read_sequences: &'a [BitSeq], alignments: &'a mut [Alignment]) -> Self {
         Self {
             ref_sequences,
             read_sequences,
@@ -49,7 +51,7 @@ impl<'a> Polisher<'a> {
             let mut rank = 0;
             for j in (0..seq.len()).step_by(WINDOW_LEN) {
                 let length = std::cmp::min(j + WINDOW_LEN, seq.len()) - j;
-                self.windows.push(Window::build(id, rank, &seq[j..j+length]));
+                self.windows.push(Window::build(id, rank, (&seq, j, j+length)));
                 rank += 1;
             }
             self.id_to_first_window_id[id+1] = self.id_to_first_window_id[id] + rank;
@@ -60,7 +62,7 @@ impl<'a> Polisher<'a> {
 
         for a in std::mem::take(&mut self.alignments) {
 
-            let sequence = self.read_sequences[a.query_idx].as_slice();
+            let sequence = &self.read_sequences[a.query_idx];
             let breaking_points = &a.breaking_points;
 
             for (first, last) in breaking_points.iter().tuples() {
@@ -71,10 +73,10 @@ impl<'a> Polisher<'a> {
                 let window_id = self.id_to_first_window_id[a.target_idx] + first.0 / WINDOW_LEN;
                 let window_start = (first.0 / WINDOW_LEN) * WINDOW_LEN;
                 let window_seq = if a.strand == b'+' {
-                    &sequence[first.1..last.1]
+                    (sequence, first.1, last.1)
                 } else {
                     let (qry_beg, qry_end) = (a.query_len-last.1, a.query_len-first.1);
-                    &sequence[qry_beg..qry_end]
+                    (sequence, qry_beg, qry_end)
                 };
 
                 self.windows[window_id].add_layer(window_seq, a.strand, first.0 - window_start, last.0 - window_start - 1);

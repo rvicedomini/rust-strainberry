@@ -12,6 +12,7 @@ use rust_htslib::bam::{Read,IndexedReader};
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Cigar, Record};
 
+use crate::bitseq::BitSeq;
 use crate::cli::Options;
 use crate::bam::BamRecordId;
 use crate::variant::{Var,VarDict};
@@ -57,7 +58,7 @@ pub fn revcomp(seq: &[u8]) -> Vec<u8> {
 #[derive(Default)]
 pub struct SeqDatabase {
     pub index: HashMap<String,usize>,
-    pub sequences: Vec<Vec<u8>>,
+    pub sequences: Vec<BitSeq>,
     pub names: Vec<String>,
     pub nb_bases: usize,
 }
@@ -79,7 +80,7 @@ impl SeqDatabase {
             if index.insert(name.to_string(), index.len()).is_some() {
                 bail!("duplicate reference identifier: {name}");
             }
-            let sequence = record.normalize(false).to_vec(); // let sequence = BitSeq::from_utf8(record.normalize(false).as_ref());
+            let sequence = BitSeq::from_utf8(record.normalize(false).as_ref());
             nb_bases += sequence.len();
             sequences.push(sequence);
             if index_names {

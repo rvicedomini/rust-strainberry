@@ -194,7 +194,7 @@ impl<'a> Phaser<'a> {
             if let Some(read_indices) = hap_to_reads.get(ht_id) {
                 for read_idx in read_indices {
                     writer.write_all(format!(">{read_idx}\n").as_bytes())?;
-                    writer.write_all(&self.read_db.sequences[*read_idx])?;
+                    writer.write_all(&self.read_db.sequences[*read_idx].as_bytes())?;
                     writer.write_all(b"\n")?;
                 }
             }

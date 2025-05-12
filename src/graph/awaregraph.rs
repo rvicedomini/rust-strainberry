@@ -701,17 +701,17 @@ impl AwareGraph {
                     let aware_contig = &self.nodes[&node_id].ctg;
                     let SeqInterval { tid, beg, end } = aware_contig.interval();
                     let mut sequence = match aware_contig.contig_type() {
-                        SeqType::Haplotype(_) | SeqType::Unphased => { ref_db.sequences[tid][beg..end].to_vec() },
-                        SeqType::Read => { read_db.sequences[tid][beg..end].to_vec() },
-                        // SeqType::Haplotype(_) | SeqType::Unphased => { ref_db.sequences[tid].subseq(beg, end) },
-                        // SeqType::Read => { read_db.sequences[tid].subseq(beg, end) },
+                        // SeqType::Haplotype(_) | SeqType::Unphased => { ref_db.sequences[tid][beg..end].to_vec() },
+                        // SeqType::Read => { read_db.sequences[tid][beg..end].to_vec() },
+                        SeqType::Haplotype(_) | SeqType::Unphased => { ref_db.sequences[tid].subseq(beg, end) },
+                        SeqType::Read => { read_db.sequences[tid].subseq(beg, end) },
                     };
                     if node_dir != aware_contig.strand() { crate::seq::revcomp_inplace(&mut sequence); }
                     is_phased = is_phased || aware_contig.is_phased();
                     backbone_seq.append(&mut sequence);
                 }
 
-                backbone_seq
+                BitSeq::from_utf8(&backbone_seq)
             };
 
             backbone_sequences.push(backbone_seq);
@@ -733,7 +733,7 @@ impl AwareGraph {
                 let out_path = tmp_dir.join(format!("{}.unpolished.fa.gz", idx));
                 let mut writer = crate::utils::get_file_writer(&out_path);
                 writer.write_all(format!(">{idx}\n").as_bytes())?;
-                writer.write_all(backbone_sequences.last().unwrap())?;
+                writer.write_all(&backbone_sequences.last().unwrap().as_bytes())?;
                 writer.write_all(b"\n")?;
                 out_path
             };
@@ -777,10 +777,7 @@ impl AwareGraph {
         }
 
         let hap_sequences = crate::racon::racon_polish(&backbone_sequences, &read_db.sequences, &mut alignments);
-        let hap_sequences = hap_sequences.into_iter()
-            .map(|seq| BitSeq::from_utf8(&seq))
-            .collect_vec();
-
+        
         Ok(hap_sequences)
     }
 

@@ -10,6 +10,8 @@ use itertools::Itertools;
 
 use alignment::Alignment;
 
+use crate::bitseq::BitSeq;
+
 const ERROR_THRESHOLD: f64 = 0.3;
 
 
@@ -67,7 +69,7 @@ pub fn compute_alignments(target_path: &Path, read_path: &Path, opts: &crate::cl
 }
 
 
-pub fn racon_polish(ref_sequences: &[Vec<u8>], read_sequences: &[Vec<u8>], alignments: &mut[Alignment]) -> Vec<Vec<u8>> {
+pub fn racon_polish(ref_sequences: &[BitSeq], read_sequences: &[BitSeq], alignments: &mut[Alignment]) -> Vec<BitSeq> {
 
     let mut polisher = polish::Polisher::new(ref_sequences, read_sequences, alignments);
 
@@ -77,7 +79,9 @@ pub fn racon_polish(ref_sequences: &[Vec<u8>], read_sequences: &[Vec<u8>], align
     spdlog::debug!("polishing windows");
     let polished_sequences = polisher.polish();
 
-    polished_sequences
+    polished_sequences.into_iter()
+        .map(|seq| BitSeq::from_utf8(&seq))
+        .collect_vec()
 }
 
 
