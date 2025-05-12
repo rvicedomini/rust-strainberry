@@ -54,6 +54,7 @@ pub fn revcomp(seq: &[u8]) -> Vec<u8> {
 }
 
 
+#[derive(Default)]
 pub struct SeqDatabase {
     pub index: HashMap<String,usize>,
     pub sequences: Vec<Vec<u8>>,

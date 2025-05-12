@@ -9,7 +9,7 @@ use crate::alignment::{MappingType, SeqAlignment};
 use crate::bam::BamRecordId;
 
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum SeqType {
     Haplotype(usize),
     #[default] Unphased,
@@ -19,9 +19,9 @@ pub enum SeqType {
 impl fmt::Display for SeqType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            SeqType::Haplotype(hid) => {  write!(f, "Haplotype({hid})") }
-            SeqType::Unphased => {  write!(f, "Unphased") }
-            SeqType::Read => {  write!(f, "Read") }
+            SeqType::Haplotype(hid) => { write!(f, "Haplotype({hid})") }
+            SeqType::Unphased => { write!(f, "Unphased") }
+            SeqType::Read => { write!(f, "Read") }
         }
     }
 }
@@ -51,7 +51,7 @@ impl AwareContig {
     pub fn length(&self) -> usize { self.interval.length() }
     pub fn strand(&self) -> u8 { self.strand }
 
-    pub fn contig_type(&self) -> &SeqType { &self.contig_type }
+    pub fn contig_type(&self) -> SeqType { self.contig_type }
     pub fn is_phased(&self) -> bool { matches!(self.contig_type, SeqType::Haplotype(_)) }
     
     pub fn hid(&self) -> Option<usize> {

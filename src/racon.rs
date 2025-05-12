@@ -1,19 +1,16 @@
-mod alignment;
-mod polish;
-mod window;
+pub mod alignment;
+pub mod polish;
+pub mod window;
 
 use ahash::AHashMap as HashMap;
 use itertools::Itertools;
 use rust_htslib::bam::record::CigarString;
 
 use crate::awarecontig::{AwareAlignment, AwareContig};
-use crate::cli::Options;
 use crate::phase::haplotype::{HaplotypeId, Haplotype};
 use crate::seq::SeqDatabase;
 
-pub fn build_haplotigs(ref_db: &SeqDatabase, read_db: &SeqDatabase, haplotypes: &HashMap<HaplotypeId,Haplotype>, aware_contigs: &[AwareContig], read2aware: &HashMap<usize,Vec<AwareAlignment>>, opts: &Options) -> HashMap<HaplotypeId,Vec<u8>> {
-
-    rayon::ThreadPoolBuilder::new().num_threads(opts.nb_threads).build_global().unwrap();
+pub fn build_haplotigs(ref_db: &SeqDatabase, read_db: &SeqDatabase, haplotypes: &HashMap<HaplotypeId,Haplotype>, aware_contigs: &[AwareContig], read2aware: &HashMap<usize,Vec<AwareAlignment>>) -> HashMap<HaplotypeId,Vec<u8>> {
 
     let haplotypes = haplotypes.keys().cloned().sorted().collect_vec();
     let mut hap_index = HashMap::new();

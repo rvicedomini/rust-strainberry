@@ -7,9 +7,8 @@ use itertools::Itertools;
 use tinyvec::{TinyVec, ArrayVec};
 
 use crate::awarecontig::{AwareAlignment, AwareContig, SeqType};
-use crate::cli::Options;
 use crate::graph::asmgraph::{AsmGraph, Link};
-use crate::polish::PolishMode;
+use crate::phase::haplotype::HaplotypeId;
 use crate::seq::{SeqDatabase, SeqInterval};
 use crate::bitseq::BitSeq;
 
@@ -28,7 +27,7 @@ pub struct AwareGraph {
     nodes: HashMap<usize,Node>,
     edges: HashMap<EdgeKey,usize>,
     transitives: HashMap<EdgeKey,usize>,
-    edge_data: Vec<BiEdge>,
+    edge_data: Vec<BiEdge>, // both normal edges and transitive edges
     next_node_id: usize,
 }
 
@@ -798,6 +797,52 @@ impl AwareGraph {
         Ok(haplotigs)
     }
 
+
+    pub fn build_contigs(&self, aware_paths: &[AwarePath], ref_db: &SeqDatabase, read_db: &SeqDatabase, polished_db: &SeqDatabase, hap_sequences: &HashMap<HaplotypeId,Vec<u8>>) -> Vec<BitSeq> {
+
+        let mut contigs = Vec::with_capacity(aware_paths.len());
+        for aware_path in aware_paths.iter() {
+
+            assert!(!aware_path.nodes.is_empty());
+
+            let contig_sequence = {
+
+                let mut contig_sequence = Vec::new();
+                let mut is_phased = false;
+
+                let node_id = unsafe { aware_path.nodes.first().unwrap_unchecked() };
+                let node_dir = if aware_path.edges.is_empty() { b'+' } else { crate::seq::flip_strand(aware_path.edges[0].src_dir()) };
+                let node_iter = std::iter::once((*node_id, node_dir))
+                    .chain(aware_path.edges.iter().map(|key| key.dst()));
+
+                // TODO: handle negative gaps between sequences
+                for (node_id, node_dir) in node_iter {
+                    let aware_contig = &self.nodes[&node_id].ctg;
+                    let SeqInterval { tid, beg, end } = aware_contig.interval();
+                    let mut sequence = match aware_contig.contig_type() {
+                        SeqType::Unphased => { ref_db.sequences[tid][beg..end].to_vec() },
+                        SeqType::Read => { read_db.sequences[tid][beg..end].to_vec() },
+                        SeqType::Polished => { polished_db.sequences[tid][beg..end].to_vec() },
+                        SeqType::Haplotype(hid) => {
+                            let hid = HaplotypeId { tid, beg, end, hid };
+                            hap_sequences[&hid].clone()
+                        },
+                    };
+                    if node_dir != aware_contig.strand() { crate::seq::revcomp_inplace(&mut sequence); }
+                    is_phased = is_phased || aware_contig.is_phased();
+                    contig_sequence.append(&mut sequence);
+                }
+
+                BitSeq::from_utf8(contig_sequence.as_slice())
+            };
+
+            contigs.push(contig_sequence);
+        }
+
+        contigs
+    }
+
+
     fn write_info(&self, ref_db: &SeqDatabase, read_db: &SeqDatabase, aware_paths:&[AwarePath], info_path:&Path) -> Result<()> {
         
         let mut info_writer = crate::utils::get_file_writer(info_path);
@@ -834,6 +879,10 @@ impl AwareGraph {
                         let line = format!("{utg_id}\t{utg_pos}\t{utg_end}\t{ctg_len}\tREAD\t{read_name}\t{beg}\t{end}\t{strand}\n");
                         info_writer.write_all(line.as_bytes())?;
                     },
+                    SeqType::Polished => {
+                        let line = format!("{utg_id}\t{utg_pos}\t{utg_end}\t{ctg_len}\tREAD\t*\t{beg}\t{end}\t{strand}\n");
+                        info_writer.write_all(line.as_bytes())?;
+                    }
                 };
 
                 utg_pos = utg_end;
@@ -843,15 +892,88 @@ impl AwareGraph {
         Ok(())
     }
 
+    fn polish_edges(&mut self, ref_db: &SeqDatabase, read_db: &SeqDatabase) -> SeqDatabase {
+
+        use rust_htslib::bam::record::CigarString;
+        use crate::racon::{alignment, polish};
+
+        let edges = self.edges.keys().cloned().sorted().collect_vec();
+        let mut edge_index = HashMap::new();
+        let mut alignments = Vec::new();
+        let edge_sequences = edges.into_iter().filter_map(|key| {
+            let edge = self.get_biedge_mut(&key).unwrap();
+            let m = edge.gaps.len()/2;
+            let (_, gap, _) = edge.gaps.select_nth_unstable(m);
+            
+            if *gap <= 0 {
+                return None
+            }
+            
+            let idx = edge_index.len();
+            edge_index.insert(key, idx);
+            let ctg = edge.seq_desc.first().unwrap();
+            let mut seq = match ctg.contig_type() {
+                SeqType::Unphased => { ref_db.sequences[ctg.tid()][ctg.beg()..ctg.end()].to_vec() },
+                SeqType::Read => { read_db.sequences[ctg.tid()][ctg.beg()..ctg.end()].to_vec() },
+                _ => { unreachable!() }
+            };
+            if ctg.strand() == b'-' { crate::seq::revcomp_inplace(&mut seq); }
+
+            for ctg in edge.seq_desc.iter().skip(1) {
+                assert!(ctg.contig_type() == SeqType::Read);
+                alignments.push( alignment::Alignment {
+                    query_idx: ctg.tid(),
+                    query_len: read_db.sequences[ctg.tid()].len(),
+                    query_beg: ctg.beg(),
+                    query_end: ctg.end(),
+                    strand: ctg.strand(),
+                    target_idx: idx,
+                    target_len: seq.len(),
+                    target_beg: 0,
+                    target_end: seq.len(),
+                    matches: 0,         // dummy, not supposed to be used
+                    mapping_length: 0,  // dummy, not supposed to be used
+                    mapq: 60,           // dummy, not supposed to be used
+                    length: std::cmp::max(ctg.end() - ctg.beg(), seq.len()),
+                    identity: 0.0,      // dummy, not supposed to be used
+                    cigar: CigarString(Vec::new()),
+                    breaking_points: Vec::new()
+                });
+            }
+
+            Some(seq)
+        }).collect_vec();
+
+        let mut polisher = polish::Polisher::new(&edge_sequences, &read_db.sequences, alignments);
+
+        spdlog::debug!("initializing polisher");
+        polisher.initialize();
+
+        spdlog::debug!("polishing windows");
+        let polished_sequences = polisher.polish();
+        
+        spdlog::debug!("patching edge sequences");
+        let mut polished_db = SeqDatabase::default();
+        for (edge_key, edge_idx) in edge_index {
+            let interval = SeqInterval { tid: edge_idx, beg: 0, end: polished_sequences[edge_idx].len() };
+            let edge_ctg = AwareContig::new(SeqType::Polished, interval, b'+', 0);
+            let edge = self.get_biedge_mut(&edge_key).unwrap();
+            edge.seq_desc.clear();
+            edge.seq_desc.push(edge_ctg);
+        }
+
+        polished_db.sequences = polished_sequences;
+        polished_db
+    }
+
     // TODO: handle self loops
     // TODO: handle negative gaps
-    pub fn build_assembly_graph(&mut self, ref_db: &SeqDatabase, read_db: &SeqDatabase, fragment_dir:&Path, work_dir:&Path, opts: &Options) -> Result<AsmGraph<usize>> {
+    pub fn build_assembly_graph(&mut self, ref_db: &SeqDatabase, read_db: &SeqDatabase, hap_sequences: &HashMap<HaplotypeId,Vec<u8>>, work_dir:&Path) -> Result<AsmGraph<usize>> {
 
         std::fs::create_dir_all(work_dir)
             .with_context(|| format!("Cannot create output directory: \"{}\"", work_dir.display()))?;
 
-        // self.polish_edges();
-
+        let polished_db = self.polish_edges(ref_db, read_db);
         self.expand_edges();
 
         let (aware_paths, node_index) = self.extract_aware_paths();
@@ -859,13 +981,13 @@ impl AwareGraph {
         let info_path = work_dir.join("paths.info.txt");
         self.write_info(ref_db, read_db, &aware_paths, &info_path)?;
         
-        let haplotigs = self.build_haplotigs(&aware_paths, ref_db, read_db, fragment_dir, work_dir, opts)?;
-        assert!(haplotigs.len() == aware_paths.len());
+        let contigs = self.build_contigs(&aware_paths, ref_db, read_db, &polished_db, hap_sequences);
+        assert!(contigs.len() == aware_paths.len());
 
         // build assembly graph 
 
         let mut asm_graph = super::asmgraph::AsmGraph::new();
-        for (id, sequence) in haplotigs.into_iter().enumerate() {
+        for (id, sequence) in contigs.into_iter().enumerate() {
             asm_graph.add_node(id, sequence);
         }
 
@@ -911,6 +1033,7 @@ impl AwareGraph {
                 SeqType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, node_id),
                 SeqType::Unphased => format!("{}_{}-{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), node_id),
                 SeqType::Read => format!("read{}_{}-{}_id{}", node_ctg.tid(), node_ctg.beg(), node_ctg.end(), node_id),
+                SeqType::Polished => unimplemented!()
             };
             let node_line = format!("S\t{}\t*\tLN:i:{}\tdp:f:{:.1}\n", node_name, node_ctg.length(), node_ctg.depth());
             gfa.write_all(node_line.as_bytes())?;
@@ -924,12 +1047,14 @@ impl AwareGraph {
                 SeqType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, src_id),
                 SeqType::Unphased => format!("{}_{}-{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), src_id),
                 SeqType::Read => format!("read{}_{}-{}_id{}", node_ctg.tid(), node_ctg.beg(), node_ctg.end(), src_id),
+                SeqType::Polished => unimplemented!()
             };
             let node_ctg = self.nodes[&dst_id].ctg;
             let name_to = match node_ctg.contig_type() {
                 SeqType::Haplotype(hid) => format!("{}_{}-{}_h{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), hid, dst_id),
                 SeqType::Unphased => format!("{}_{}-{}_id{}", ref_db.names[node_ctg.tid()], node_ctg.beg(), node_ctg.end(), dst_id),
                 SeqType::Read => format!("read{}_{}-{}_id{}", node_ctg.tid(), node_ctg.beg(), node_ctg.end(), dst_id),
+                SeqType::Polished => unimplemented!()
             };
             let edge_line = format!("L\t{}\t{}\t{}\t{}\t0M\tRC:i:{}\n", name_from, crate::seq::flip_strand(src_dir) as char, name_to, dst_dir as char, edge.nb_reads );
             gfa.write_all(edge_line.as_bytes())?;
