@@ -32,14 +32,7 @@ fn main() -> anyhow::Result<(), anyhow::Error> {
         spdlog::default_logger().set_level_filter(spdlog::LevelFilter::MoreSevereEqual(spdlog::Level::Debug));
     }
 
-    utils::check_dependencies(&["minimap2", "samtools", "racon"])?;
-    // if opts.caller == cli::VarCaller::Longcalld {
-    //     utils::check_dependencies(&["longcallD"])?;
-    // }
-
-    if opts.in_hifi.is_none() && opts.in_ont.is_none() {
-        bail!("Either --in-hifi or --in-ont is required. For more information, try '--help'.")
-    }
+    utils::check_dependencies(&["minimap2", "samtools"])?;
 
     rayon::ThreadPoolBuilder::new().num_threads(opts.nb_threads).build_global().unwrap();
 

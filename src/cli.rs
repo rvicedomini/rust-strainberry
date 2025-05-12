@@ -109,10 +109,6 @@ pub struct Options {
     #[arg(value_enum, long="mode", value_name="STR", default_value_t = Mode::Hifi, hide = true)]
     pub mode: Mode,
 
-    // /// Variant-call method
-    // #[arg(value_enum, long="call", value_name="STR", default_value_t = VarCaller::Pileup, hide = true)]
-    // pub caller: VarCaller,
-
     /// Print debug information
     #[arg(long = "debug")]
     pub debug:bool,
@@ -128,12 +124,6 @@ pub enum Mode {
     Hifi,
     Nano,
 }
-
-// #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
-// pub enum VarCaller {
-//     Pileup,
-//     Longcalld,
-// }
 
 
 // TODO: validate parsed options and possibly estimate other parameters
