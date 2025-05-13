@@ -102,6 +102,7 @@ pub struct AwareAlignment {
     pub query_aln_beg: usize,
     pub query_aln_end: usize,
     pub mapping_type: MappingType,
+    pub dist: usize,
     pub nb_shared_snvs: usize,
     pub is_ambiguous: bool,
 }
@@ -241,11 +242,13 @@ pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contig
 
             let mut is_ambiguous = false;
             let mut nb_shared_snvs = 0;
+            let mut dist = 0;
 
             if ctg.is_phased() && seq2haplo.contains_key(&sa_id) {
                 if let Some(hit) = seq2haplo[&sa_id].iter().find(|hit| hit.hid == ctg.haplotype_id().unwrap()) {
                     is_ambiguous = hit.is_ambiguous();
                     nb_shared_snvs = hit.nb_pos;
+                    dist = hit.dist;
                 }
             }
 
@@ -265,6 +268,7 @@ pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contig
                     query_aln_beg: sa.query_beg(),
                     query_aln_end: sa.query_end(),
                     mapping_type: maptype,
+                    dist,
                     nb_shared_snvs,
                     is_ambiguous,
                 });
