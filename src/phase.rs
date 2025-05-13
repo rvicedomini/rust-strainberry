@@ -293,7 +293,7 @@ impl<'a> Phaser<'a> {
                 continue
             }
 
-            // if self.ref_db.names[ref_interval.tid].as_str() == "edge_482" && [269889].contains(&phasedblock.begin()) {
+            // if self.ref_db.names[ref_interval.tid].as_str() == "83" && [2947102].contains(&phasedblock.begin()) {
             //     spdlog::trace!("Current haplotypes @ {}:{target_pos}", self.ref_db.names[ref_interval.tid].as_str());
             //     for ht in phasedblock.haplotypes().values() {
             //         spdlog::trace!("  * {ht}");
@@ -311,6 +311,13 @@ impl<'a> Phaser<'a> {
                 lookback_positions.push_back(var_position);
                 continue
             }
+
+            // if self.ref_db.names[ref_interval.tid].as_str() == "83" && [2947102].contains(&phasedblock.begin()) {
+            //     spdlog::trace!("Edges @ {}:{target_pos}", self.ref_db.names[ref_interval.tid].as_str());
+            //     for e in &edges {
+            //         spdlog::trace!("  * {} -> {}", e.0 as char, e.1 as char);
+            //     }
+            // }
 
             // identify haplotypes that cannot be extended with current edges
             let unsupported_haplotypes = phasedblock.haplotypes().iter()
@@ -356,7 +363,7 @@ impl<'a> Phaser<'a> {
             //     spdlog::trace!("  * {}", phasedblock.haplotypes().get(hid).unwrap());
             // }
 
-            // if self.ref_db.names[ref_interval.tid].as_str() == "edge_482" && [269889].contains(&phasedblock.begin()) {
+            // if self.ref_db.names[ref_interval.tid].as_str() == "83" && [2947102].contains(&phasedblock.begin()) {
             //     spdlog::trace!("Extended haplotypes @ {}:{target_pos}", self.ref_db.names[ref_interval.tid].as_str());
             //     for ht in phasedblock.haplotypes().values() {
             //         spdlog::trace!("  * {ht}");
@@ -375,7 +382,7 @@ impl<'a> Phaser<'a> {
                 continue;
             }
             if !unsupported_haplotypes.is_empty() {
-                // if self.ref_db.names[ref_interval.tid].as_str() == "edge_482" && [269889].contains(&phasedblock.begin()) {
+                // if self.ref_db.names[ref_interval.tid].as_str() == "83" && [2947102].contains(&phasedblock.begin()) {
                 //     spdlog::trace!("Unsupported haplotypes");
                 //     for hid in &unsupported_haplotypes {
                 //         spdlog::trace!("  * {}", phasedblock.haplotypes().get(hid).unwrap());
@@ -390,7 +397,7 @@ impl<'a> Phaser<'a> {
 
             // if ambiguous extension, create a new phaseset (should a minimum of 3 SNVs be requested here too?)
             if is_ambiguous && (var_position - phasedblock.begin() > self.opts.lookback) {
-                // if self.ref_db.names[ref_interval.tid].as_str() == "edge_482" && [269889].contains(&phasedblock.begin()) {
+                // if self.ref_db.names[ref_interval.tid].as_str() == "83" && [2947102].contains(&phasedblock.begin()) {
                 //     spdlog::trace!("Ambiguous extension; split and init new phasedblock");
                 //     for hid in &ambiguous_haplotypes {
                 //         spdlog::trace!("  * {}", phasedblock.haplotypes().get(hid).unwrap());
@@ -411,7 +418,7 @@ impl<'a> Phaser<'a> {
                 // std::mem::swap(&mut phasedblock, &mut new_phasedblock);
                 // continue;
             }
-            // if self.ref_db.names[ref_interval.tid].as_str() == "edge_482" && [269889].contains(&phasedblock.begin()) {
+            // if self.ref_db.names[ref_interval.tid].as_str() == "83" && [2947102].contains(&phasedblock.begin()) {
             //     spdlog::trace!("Deleted ambiguous haplotypes");
             //     for hid in &ambiguous_haplotypes {
             //         spdlog::trace!("  * {}", phasedblock.haplotypes().get(hid).unwrap());
@@ -423,7 +430,7 @@ impl<'a> Phaser<'a> {
             }
         }
 
-        // if self.ref_db.names[ref_interval.tid].as_str() == "ctg2192" && [1383429].contains(&phasedblock.begin()) {
+        // if self.ref_db.names[ref_interval.tid].as_str() == "83" && [2947102].contains(&phasedblock.begin()) {
         //     spdlog::trace!("Saving remaining haplotypes:");
         //     for ht in phasedblock.haplotypes().values() {
         //         spdlog::trace!("  * {ht}");
@@ -514,7 +521,7 @@ impl<'a> Phaser<'a> {
 
         let position = pileup.pos() as usize;
 
-        let mut edge_total_obs: usize = 0;
+        // let mut edge_total_obs: usize = 0;
         let mut edge_counter: HashMap<(u8,u8),usize> = HashMap::new();
 
         for alignment in pileup.alignments() {
@@ -559,7 +566,7 @@ impl<'a> Phaser<'a> {
                 let srec_nucleotides = srec.nucleotides();
                 let edge = (srec_nucleotides[srec_len-2], srec_nucleotides[srec_len-1]);
                 if var_nucleotides.contains(&edge.1) {
-                    edge_total_obs += 1;
+                    // edge_total_obs += 1;
                     edge_counter.entry(edge)
                         .and_modify(|cnt| *cnt += 1)
                         .or_insert(1);
@@ -568,7 +575,7 @@ impl<'a> Phaser<'a> {
         }
 
         let edges = edge_counter.iter()
-            .filter(|&(_edge,&cnt)| cnt >= self.opts.min_alt_count && (cnt as f64) >= self.opts.min_alt_frac * (edge_total_obs as f64))
+            .filter(|&(_edge,&cnt)| cnt >= self.opts.min_alt_count) // && (cnt as f64) >= self.opts.min_alt_frac * (edge_total_obs as f64))
             .map(|(&edge,_cnt)| edge)
             .collect_vec();
 
