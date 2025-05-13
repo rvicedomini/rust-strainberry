@@ -194,6 +194,42 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     spdlog::info!("Mapping reads to strain-aware contigs");
     let read2aware = strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut aware_contigs, &seq2haplo);
 
+    if opts.debug {
+
+        let haplotypes_path = output_dir.join("haplotypes.txt");
+        let mut writer = crate::utils::get_file_writer(&haplotypes_path);
+        for ht_id in phaser_result.haplotypes.keys().sorted_unstable() {
+            let ht = phaser_result.haplotypes.get(ht_id).unwrap();
+            let ref_name = ref_db.names[ht_id.tid].as_str();
+            let ref_beg = ht_id.beg;
+            let ref_end = ht_id.end;
+            let hid = ht_id.hid;
+            writer.write_all(format!("{ref_name}_{ref_beg}-{ref_end}_h{hid}\t{}\n", ht.seq_string()).as_bytes())?;
+        }
+
+        let read2aware_path = output_dir.join("read2aware.txt");
+        let mut writer = crate::utils::get_file_writer(&read2aware_path);
+        for (read_idx, read_alignments) in read2aware.iter() {
+            writer.write_all(format!("{}/{read_idx}", read_db.names[*read_idx]).as_bytes())?;
+            for a in read_alignments {
+                let ctg = &aware_contigs[a.aware_id];
+                let ref_name = ref_db.names[ctg.tid()].as_str();
+                let ctg_beg = ctg.beg();
+                let ctg_end = ctg.end();
+                let ctg_suf = if let Some(hid) = ctg.hid() { format!("_h{hid}") } else { String::new() };
+                let ctg_name = format!("{ref_name}_{ctg_beg}-{ctg_end}{ctg_suf}");
+                let qbeg = a.query_beg;
+                let qend = a.query_end;
+                let qlen = a.query_len;
+                let dist = a.dist;
+                let nb_shared_snvs = a.nb_shared_snvs;
+                let is_ambiguous = a.is_ambiguous;
+                writer.write_all(format!("\t({ctg_name},{qbeg},{qend},{qlen},{dist}/{nb_shared_snvs},{is_ambiguous})").as_bytes())?;
+            }
+            writer.write_all(b"\n")?;
+        }
+    }
+
     drop(phaser_result);
 
     // -------------------
