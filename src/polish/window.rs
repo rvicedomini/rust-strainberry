@@ -1,5 +1,3 @@
-// use std::borrow::Cow;
-
 use crate::bitseq::BitSeq;
 
 
@@ -78,12 +76,6 @@ impl<'a> Window<'a> {
             let (sequence, beg, end) = layer.sequence;
             let mut seq = sequence.subseq(beg, end);
             if layer.strand == b'-' { crate::seq::revcomp_inplace(&mut seq); }
-
-            // let seq = if layer.strand == b'+' {
-            //     Cow::Borrowed(layer.sequence)
-            // } else {
-            //     Cow::Owned(crate::seq::revcomp(layer.sequence))
-            // };
             
             let seq = unsafe { std::str::from_utf8_unchecked(&seq) };
             let alignment = if layer.begin < offset && layer.end > backbone_len - offset {

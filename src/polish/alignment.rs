@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Context, Error, Result};
 use itertools::Itertools;
 use rust_htslib::bam::record::{Cigar,CigarString};
 
@@ -25,12 +25,14 @@ pub struct Alignment {
     pub breaking_points: Vec<(usize,usize)>
 }
 
-impl Alignment {
+impl std::str::FromStr for Alignment {
 
-    pub fn from_paf_line(line: &str) -> Result<Self> {
+    type Err = Error;
+
+    fn from_str(line: &str) -> Result<Self,Self::Err> {
         
         let cols = line.split('\t').collect_vec();
-        if cols.len() < 12 { bail!("cannot parse PAF line (mission fields)") }
+        if cols.len() < 12 { bail!("cannot parse PAF line (missing fields)") }
         
         let query_idx = cols[0].parse::<usize>().with_context(|| format!("read id expected to be an unsigned integer: {}", cols[0]))?;
         let [query_len, query_beg, query_end] = cols[1..4].iter().map(|s|s.parse::<usize>().unwrap()).collect_array().unwrap();
@@ -71,6 +73,9 @@ impl Alignment {
         })
     }
 
+}
+
+impl Alignment {
 
     pub fn find_breaking_points(&mut self, ref_sequences: &[BitSeq], read_sequences: &[BitSeq], window_len: usize) -> Result<()> {
 

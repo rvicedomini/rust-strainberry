@@ -73,13 +73,11 @@ pub fn classify_mapping(query_range:(usize,usize,usize), target_range:(usize,usi
 
 #[derive(Debug)]
 pub struct SeqAlignment {
-    // tid: usize,
     query_idx: usize,
     query_length: usize,
     query_beg: usize,
     query_end: usize,
     strand: u8,
-    // target_name: String,
     target_idx: usize,
     target_length: usize,
     target_beg: usize,
@@ -98,7 +96,7 @@ impl SeqAlignment {
         BamRecordId::new(self.query_idx, self.query_beg, self.query_end)
     }
 
-    // pub fn query_name(&self) -> &str { &self.query_name }
+    pub fn qid(&self) -> usize { self.query_idx }
     pub fn query_index(&self) -> usize { self.query_idx }
     pub fn query_length(&self) -> usize { self.query_length }
     pub fn query_beg(&self) -> usize { self.query_beg }
@@ -108,7 +106,6 @@ impl SeqAlignment {
     pub fn is_forward(&self) -> bool { self.strand() == b'+' }
     pub fn is_reverse(&self) -> bool { self.strand() == b'-' }
 
-    // pub fn target_name(&self) -> &str { &self.target_name }
     pub fn tid(&self) -> usize { self.target_idx }
     pub fn target_index(&self) -> usize { self.target_idx }
     pub fn target_length(&self) -> usize { self.target_length }
@@ -119,7 +116,7 @@ impl SeqAlignment {
     pub fn is_secondary(&self) -> bool { self.is_secondary }
     pub fn identity(&self) -> f64 { if self.mapping_length > 0 { (self.matches as f64)/(self.mapping_length as f64) } else { 0.0 } }
 
-    pub fn cigar(&self) -> &Vec<Cigar> { &self.cigar }
+    pub fn cigar(&self) -> &[Cigar] { self.cigar.as_slice() }
     pub fn cigar_string(&self) -> String { self.cigar.iter().map(|op| op.to_string()).join("") }
 
     pub fn from_bam_record(record: &Record, header: &HeaderView, ref_db: &SeqDatabase, read_db: &SeqDatabase) -> SeqAlignment {
@@ -284,7 +281,7 @@ pub struct IterAlignedBlocks<'a> {
     query_pos: usize,
     target_pos: usize,
     index: usize,
-    cigar: &'a Vec<Cigar>,
+    cigar: &'a [Cigar],
 }
 
 impl Iterator for IterAlignedBlocks<'_> {
@@ -457,7 +454,9 @@ impl std::str::FromStr for PafAlignment {
     type Err = Error;
     
     fn from_str(line: &str) -> Result<Self,Self::Err> {
-        let cols: [&str; 13] = line.splitn(13, '\t').collect_array().context("cannot parse PAF line")?;
+
+        let cols = line.split('\t').collect_vec();
+        if cols.len() < 12 { bail!("cannot parse PAF line (missing fields)") }
         
         let query_name = cols[0].to_string();
         let [query_length, query_beg, query_end] = cols[1..4].iter().map(|s|s.parse::<usize>().unwrap()).collect_array().unwrap();

@@ -764,8 +764,8 @@ impl AwareGraph {
                 out_path
             };
 
-            let alignments = crate::racon::compute_alignments(&target_path, &read_path, opts)?;
-            let mut polished_seq = crate::racon::racon_polish(&haplotigs[haplotigs.len()-1..], &read_db.sequences, alignments).pop().unwrap();
+            let alignments = crate::polish::compute_alignments(&target_path, &read_path, opts)?;
+            let mut polished_seq = crate::polish::polish(&haplotigs[haplotigs.len()-1..], &read_db.sequences, alignments).pop().unwrap();
             std::mem::swap(haplotigs.last_mut().unwrap(), &mut polished_seq);
 
             if !opts.keep_temp {

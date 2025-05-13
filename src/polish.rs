@@ -1,16 +1,15 @@
 pub mod alignment;
-pub mod polish;
+pub mod polisher;
 pub mod window;
 
-use std::path::Path;
+use std::{path::Path, str::FromStr};
 
 use ahash::AHashMap as HashMap;
 use anyhow::{Context, Result};
 use itertools::Itertools;
 
-use alignment::Alignment;
-
 use crate::bitseq::BitSeq;
+use crate::polish::alignment::Alignment;
 
 const ERROR_THRESHOLD: f64 = 0.3;
 
@@ -41,8 +40,8 @@ pub fn compute_alignments(target_path: &Path, read_path: &Path, opts: &crate::cl
             if !line.is_empty() { Some(line.to_string()) } else { None }
         })
         .map(|line| {
-            Alignment::from_paf_line(&line)
-                .with_context(||format!("error parsing line:\n{line}"))
+            Alignment::from_str(&line)
+                .with_context(||format!("error parsing paf record:\n{line}"))
                 .unwrap()
         })
         .collect_vec();
@@ -69,9 +68,9 @@ pub fn compute_alignments(target_path: &Path, read_path: &Path, opts: &crate::cl
 }
 
 
-pub fn racon_polish(ref_sequences: &[BitSeq], read_sequences: &[BitSeq], mut alignments: Vec<Alignment>) -> Vec<BitSeq> {
+pub fn polish(ref_sequences: &[BitSeq], read_sequences: &[BitSeq], mut alignments: Vec<Alignment>) -> Vec<BitSeq> {
 
-    let mut polisher = polish::Polisher::new(ref_sequences, read_sequences, &mut alignments);
+    let mut polisher = polisher::Polisher::new(ref_sequences, read_sequences, &mut alignments);
 
     // spdlog::debug!("initializing polisher");
     polisher.initialize();
