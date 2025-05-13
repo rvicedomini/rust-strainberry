@@ -51,7 +51,7 @@ impl<'a> Polisher<'a> {
             let mut rank = 0;
             for j in (0..seq.len()).step_by(WINDOW_LEN) {
                 let length = std::cmp::min(j + WINDOW_LEN, seq.len()) - j;
-                self.windows.push(Window::build(id, rank, (&seq, j, j+length)));
+                self.windows.push(Window::build(id, rank, (seq, j, j+length)));
                 rank += 1;
             }
             self.id_to_first_window_id[id+1] = self.id_to_first_window_id[id] + rank;
