@@ -475,7 +475,7 @@ impl std::str::FromStr for PafAlignment {
         let mapq = cols[11].parse().unwrap();
         let identity = 100.0 * (matches as f64) / (mapping_length as f64);
         
-        let tags: HashMap<&str,&str> = cols[12].split('\t').filter_map(|s| {
+        let tags: HashMap<&str,&str> = cols[12..].iter().filter_map(|s| {
                 let [key,_,val] = s.splitn(3,':').collect_array()?;
                 Some((key,val))
             }).collect();
