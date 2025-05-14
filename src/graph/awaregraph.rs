@@ -84,7 +84,7 @@ impl AwareGraph {
         for alignments in aware_alignments.values() {
             let alignments_iter = alignments.iter()
                 .tuple_windows()
-                .filter(|(a,b)| !a.is_ambiguous && !b.is_ambiguous);
+                .filter(|(a,b)| !a.is_ambiguous() && !b.is_ambiguous());
             for (a, b) in alignments_iter {
                 self.add_edge_from_consecutive_alignments(a,b);
             }
@@ -315,7 +315,7 @@ impl AwareGraph {
                     let last_ctg_id = alignments[last_idx].aware_id;
                     let a = &alignments[first_idx];
                     let b = &alignments[last_idx];
-                    if first_ctg_id != last_ctg_id && !a.is_ambiguous && !b.is_ambiguous {
+                    if first_ctg_id != last_ctg_id && !a.is_ambiguous() && !b.is_ambiguous() {
                         let mut tedge_key = EdgeKey::from_alignments(a, b);
                         let was_canonical = tedge_key.canonicalize();
                         let tedge = self.get_transitive_or_create(&tedge_key);
@@ -569,6 +569,12 @@ impl AwareGraph {
                 // eprintln!("edge {edge_key} already exists for {junc}");
                 return false
             }
+        }
+
+        spdlog::trace!("Solving junction {junc}");
+        for key in &bridges {
+            let bridge = self.get_transitive(key).unwrap();
+            spdlog::trace!("  * {key} (reads: {}, SNVs:{})", bridge.nb_reads, bridge.min_shared_snvs);
         }
 
         assert!(!bridge_paths.is_empty());
