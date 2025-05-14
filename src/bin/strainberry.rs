@@ -223,7 +223,7 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
                 let qlen = a.query_len;
                 let dist = a.dist;
                 let nb_shared_snvs = a.nb_shared_snvs;
-                let is_ambiguous = a.is_ambiguous;
+                let is_ambiguous = a.is_ambiguous();
                 writer.write_all(format!("\t({ctg_name},{qbeg},{qend},{qlen},{dist}/{nb_shared_snvs},{is_ambiguous})").as_bytes())?;
             }
             writer.write_all(b"\n")?;
