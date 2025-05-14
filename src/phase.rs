@@ -157,19 +157,19 @@ impl<'a> Phaser<'a> {
         let seq2haplo = self::separate_reads(&succinct_seqs, &haplotypes, 1);
         self.write_reads(&haplotypes, &seq2haplo).unwrap();
 
-        if self.opts.trace {
-            let mut haplo_bases: HashMap<HaplotypeId, usize> = HashMap::new();
-            for hits in seq2haplo.values() {
-                for h in hits.iter().filter(|h| !h.is_ambiguous()) {
-                    haplo_bases.entry(h.hid).and_modify(|e| *e += h.nb_pos).or_insert(h.nb_pos);
-                }
-            }
-            for (hid, bases) in haplo_bases {
-                if bases / haplotypes[&hid].raw_size() < self.opts.min_alt_count {
-                    spdlog::warn!("Haplotype {hid} has low coverage: {}", bases / haplotypes[&hid].raw_size());
-                }
-            }
-        }
+        // if self.opts.trace {
+        //     let mut haplo_bases: HashMap<HaplotypeId, usize> = HashMap::new();
+        //     for hits in seq2haplo.values() {
+        //         for h in hits.iter().filter(|h| !h.is_ambiguous()) {
+        //             haplo_bases.entry(h.hid).and_modify(|e| *e += h.nb_pos).or_insert(h.nb_pos);
+        //         }
+        //     }
+        //     for (hid, bases) in haplo_bases {
+        //         if bases / haplotypes[&hid].raw_size() < self.opts.min_alt_count {
+        //             spdlog::warn!("Haplotype {hid} has low coverage: {}", bases / haplotypes[&hid].raw_size());
+        //         }
+        //     }
+        // }
 
         PhaseResult {
             haplotypes,
@@ -182,7 +182,7 @@ impl<'a> Phaser<'a> {
         
         let mut hap_to_reads: HashMap<HaplotypeId, Vec<usize>> = HashMap::new();
         for (record_id,hits) in sread_haplotypes.iter() {
-            for hid in hits.iter().filter(|hit| !hit.is_ambiguous()).map(|hit| hit.hid) {
+            for hid in hits.iter().filter(|hit| hit.nb_alt == 0 && hit.dist != hit.nb_pos).map(|hit| hit.hid) {
                 hap_to_reads.entry(hid).or_default().push(record_id.index);
             }
         }
@@ -608,7 +608,7 @@ fn best_sread_haplotypes(sread: &SuccinctSeq, haplotypes: &[&Haplotype], min_sha
     let idx = haplotypes.partition_point(|ht| ht.tid() < sread.tid() || (ht.tid() == sread.tid() && ht.end() <= sread.beg()));
     for ht in haplotypes[idx..].iter().take_while(|ht| ht.beg() < sread.end()) {
         if let Some(hit) = sread_haplotype_distance(sread, ht) {
-            if hit.nb_pos > 0 && hit.nb_pos >= min_shared_pos {
+            if hit.nb_pos > 0 && hit.nb_pos >= min_shared_pos && hit.dist < hit.nb_pos {
                 let range = ht.beg()..ht.end();
                 candidates.entry(range)
                     .or_insert(vec![])
@@ -625,9 +625,9 @@ fn best_sread_haplotypes(sread: &SuccinctSeq, haplotypes: &[&Haplotype], min_sha
         let mut best_hit = hits_iter.next().unwrap();
         for hit in hits_iter {
             match hit.dist.cmp(&best_hit.dist) {
-                std::cmp::Ordering::Equal => { best_hit.nb_alt += 1 },
-                std::cmp::Ordering::Less  => { best_hit = hit },
-                _ => { }
+                std::cmp::Ordering::Equal => { best_hit.nb_alt += 1; },
+                std::cmp::Ordering::Less  => { best_hit = hit; },
+                _ => {}
             }
         }
         best_hits.push(best_hit);
@@ -671,49 +671,4 @@ fn sread_haplotype_distance(sread: &SuccinctSeq, ht: &Haplotype) -> Option<Haplo
 
     let ht_hit = HaplotypeHit::new(ht.uid(), dist, nb_pos, 0);
     Some(ht_hit)
-}
-
-
-// version including alternative same-distance matches
-pub fn separate_reads_2(succinct_records: &[SuccinctSeq], haplotypes: &HashMap<HaplotypeId,Haplotype>, min_shared_pos: usize)
-    ->  HashMap<BamRecordId,Vec<HaplotypeHit>> {
-
-    let haplotypes = haplotypes.values().sorted_unstable_by_key(|ht| ht.uid()).collect_vec();
-    let mut sread_haplotypes: HashMap<BamRecordId, Vec<HaplotypeHit>> = HashMap::new();
-    for sread in succinct_records {
-        let best_hits = best_sread_haplotypes_2(sread, &haplotypes, min_shared_pos);
-        sread_haplotypes.entry(sread.record_id()).or_default()
-            .extend(best_hits);
-    }
-    sread_haplotypes
-}
-
-// version including alternative same-distance matches
-// Prerequisite: haplotypes are sorted by target-id and start/end coordinate
-fn best_sread_haplotypes_2(sread: &SuccinctSeq, haplotypes: &[&Haplotype], min_shared_pos: usize)
-    -> Vec<HaplotypeHit> {
-    
-    let mut candidates = HashMap::new();
-    let idx = haplotypes.partition_point(|ht| ht.tid() < sread.tid() || (ht.tid() == sread.tid() && ht.end() <= sread.beg()));
-    for ht in haplotypes[idx..].iter().take_while(|ht| ht.beg() < sread.end()) {
-        if let Some(hit) = sread_haplotype_distance(sread, ht) {
-            if hit.nb_pos > 0 && hit.nb_pos >= min_shared_pos {
-                let range = ht.beg()..ht.end();
-                candidates.entry(range)
-                    .or_insert(vec![])
-                    .push(hit);
-            }
-        }
-    }
-
-    let mut best_hits = vec![];
-    for mut hits in candidates.into_values() {
-        assert!(!hits.is_empty());
-        hits.sort_unstable_by_key(|h| h.dist);
-        let best_dist = hits[0].dist;
-        best_hits.extend(hits.into_iter().take_while(|h| h.dist == best_dist));
-    }
-    best_hits.sort_unstable_by_key(|hit| hit.hid);
-
-    best_hits
 }
