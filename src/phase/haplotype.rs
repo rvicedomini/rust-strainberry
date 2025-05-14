@@ -47,10 +47,6 @@ impl HaplotypeHit {
             nb_alt
         }
     }
-
-    pub fn is_ambiguous(&self) -> bool {
-        self.nb_alt > 0 || self.dist == self.nb_pos
-    }
     
 }
 
