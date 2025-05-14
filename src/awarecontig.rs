@@ -104,7 +104,19 @@ pub struct AwareAlignment {
     pub mapping_type: MappingType,
     pub dist: usize,
     pub nb_shared_snvs: usize,
-    pub is_ambiguous: bool,
+    pub nb_alt_matches: usize,
+}
+
+impl AwareAlignment {
+
+    pub fn is_ambiguous(&self) -> bool {
+        self.nb_alt_matches > 0
+    }
+
+    pub fn target_interval(&self) -> SeqInterval {
+        SeqInterval { tid: self.target_idx, beg: self.target_beg, end: self.target_end }
+    }
+
 }
 
 
@@ -234,44 +246,46 @@ pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contig
                 continue
             }
 
-            let maptype = crate::alignment::classify_mapping(aware_query_range, aware_ctg_range, 100, 0.01);
+            let maptype = crate::alignment::classify_mapping(aware_query_range, aware_ctg_range, 100, 0.5);
 
             if sa.is_reverse() {
                 (aware_query_beg, aware_query_end) = (sa.query_length() - aware_query_end, sa.query_length() - aware_query_beg);
             }
 
-            let mut is_ambiguous = false;
+            let mut nb_alt_matches = 0;
             let mut nb_shared_snvs = 0;
             let mut dist = 0;
 
             if ctg.is_phased() && seq2haplo.contains_key(&sa_id) {
                 if let Some(hit) = seq2haplo[&sa_id].iter().find(|hit| hit.hid == ctg.haplotype_id().unwrap()) {
-                    is_ambiguous = hit.is_ambiguous();
+                    nb_alt_matches = hit.nb_alt;
                     nb_shared_snvs = hit.nb_pos;
                     dist = hit.dist;
                 }
             }
 
-            if matches!(maptype, MappingType::QueryContained|MappingType::ReferenceContained|MappingType::DovetailPrefix|MappingType::DovetailSuffix) {
-                aware_alignments.push(AwareAlignment{
-                    aware_id,
-                    query_idx: sa.query_index(),
-                    query_len: sa.query_length(),
-                    query_beg: aware_query_beg,
-                    query_end: aware_query_end,
-                    strand: sa.strand(),
-                    target_idx: sa.target_index(),
-                    target_beg: aware_target_beg,
-                    target_end: aware_target_end,
-                    mapq: sa.mapq(),
-                    identity: sa.identity(),
-                    query_aln_beg: sa.query_beg(),
-                    query_aln_end: sa.query_end(),
-                    mapping_type: maptype,
-                    dist,
-                    nb_shared_snvs,
-                    is_ambiguous,
-                });
+            let awa = AwareAlignment{
+                aware_id,
+                query_idx: sa.query_index(),
+                query_len: sa.query_length(),
+                query_beg: aware_query_beg,
+                query_end: aware_query_end,
+                strand: sa.strand(),
+                target_idx: sa.target_index(),
+                target_beg: aware_target_beg,
+                target_end: aware_target_end,
+                mapq: sa.mapq(),
+                identity: sa.identity(),
+                query_aln_beg: sa.query_beg(),
+                query_aln_end: sa.query_end(),
+                mapping_type: maptype,
+                dist,
+                nb_shared_snvs,
+                nb_alt_matches,
+            };
+
+            if (ctg.is_phased() && seq2haplo.contains_key(&sa_id)) || (!ctg.is_phased() && matches!(awa.mapping_type, MappingType::QueryContained|MappingType::ReferenceContained|MappingType::DovetailPrefix|MappingType::DovetailSuffix)) {
+                aware_alignments.push(awa);
             }
         }
     }
