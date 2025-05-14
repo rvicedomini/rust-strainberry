@@ -152,6 +152,7 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
 
         aware_graph.add_bridges(&read2aware);
         aware_graph.remove_weak_edges(opts.min_alt_count);
+        aware_graph.remove_weak_transitive_biedges();
         aware_graph.write_gfa(graphs_dir.join("backbone.gfa"), &ref_db)?;
 
         aware_graph.resolve_junctions(opts.min_alt_count);
@@ -245,11 +246,13 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     aware_graph.write_gfa(graphs_dir.join("aware_graph.raw.gfa"), &ref_db)?;
 
     spdlog::info!("Strain-aware graph resolution");
-    aware_graph.add_bridges(&read2aware);
+    aware_graph.add_bridges_2(&read2aware);
     aware_graph.remove_weak_edges(opts.min_alt_count);
+    aware_graph.remove_weak_transitive_biedges();
     aware_graph.write_gfa(graphs_dir.join("aware_graph.gfa"), &ref_db)?;
     
     aware_graph.resolve_junctions(opts.min_alt_count);
+    aware_graph.remove_weak_transitive_biedges();
     aware_graph.write_gfa(graphs_dir.join("aware_graph.resolved.gfa"), &ref_db)?;
 
     if opts.no_asm {

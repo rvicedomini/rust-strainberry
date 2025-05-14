@@ -98,7 +98,7 @@ impl AwareGraph {
         edge.nb_reads += 1;
         edge.min_shared_snvs = edge.min_shared_snvs.max(a.nb_shared_snvs.min(b.nb_shared_snvs));
         edge.gaps.push((b.query_beg as i32) - (a.query_end as i32));
-        if b.query_beg > a.query_end {
+        if edge.seq_desc.is_empty() && b.query_beg > a.query_end {
             let interval = SeqInterval{ tid: a.query_idx, beg: a.query_end, end: b.query_beg };
             let strand = if was_canonical { b'+' } else { b'-' };
             edge.seq_desc.push(AwareContig::new(SeqType::Read, interval, strand, 0));
@@ -243,6 +243,11 @@ impl AwareGraph {
             .map(|edge_key| edge_key.dst())
     }
 
+    fn has_loop(&self, node_id:usize) -> bool {
+        self.successors(node_id, b'+').any(|(succ_id,_)| succ_id == node_id)
+            || self.successors(node_id, b'-').any(|(succ_id,_)| succ_id == node_id)
+    }
+
     pub fn remove_weak_edges(&mut self, min_reads:usize) {
 
         let weak_edges = self.edges.values()
@@ -260,9 +265,15 @@ impl AwareGraph {
                 None
             }).cloned().collect_vec();
         self.remove_biedges_from(&weak_edges);
+    }
 
+    // removes "normal" biedges that "overlap" with a transitive one (if spanned length is consistent)
+    pub fn remove_weak_transitive_biedges(&mut self) {
         let weak_bridges = self.edges.keys()
-            .filter(|&edge_key| self.contains_transitive(edge_key))
+            .filter(|&edge_key| {
+                let has_loops = self.has_loop(edge_key.src_id()) || self.has_loop(edge_key.dst_id());
+                !has_loops && self.contains_transitive(edge_key)
+            })
             .filter(|&edge_key| {
                 let edge_len = self.get_biedge(edge_key).unwrap().gaps.first().unwrap_or(&0).abs();
                 let transitive_len = self.get_transitive(edge_key).unwrap().gaps.first().unwrap_or(&0).abs();
@@ -322,7 +333,7 @@ impl AwareGraph {
                         tedge.nb_reads += 1;
                         tedge.min_shared_snvs = tedge.min_shared_snvs.max(a.nb_shared_snvs.min(b.nb_shared_snvs));
                         tedge.gaps.push((b.query_beg as i32) - (a.query_end as i32));
-                        if b.query_beg > a.query_end {
+                        if tedge.seq_desc.is_empty() && b.query_beg > a.query_end {
                             let interval = SeqInterval{ tid: a.query_idx, beg: a.query_end, end: b.query_beg };
                             let strand = if was_canonical { b'+' } else { b'-' };
                             tedge.seq_desc.push(AwareContig::new(SeqType::Read, interval, strand, 0));
@@ -336,32 +347,32 @@ impl AwareGraph {
         spdlog::debug!("{nb_bridges} read bridges added");
     }
 
-    // // TODO: the current implementation add all possible (non-ambiguous) transitive edges
-    // // The idea is to add only those that span nodes with outdegree > 1
-    // // so that I could possibly improve contiguity later
-    // pub fn add_bridges_2(&mut self, aware_alignments:&HashMap<usize,Vec<AwareAlignment>>) -> usize {
-    //     self.clear_transitive_edges();
+    // TODO: the current implementation add all possible (non-ambiguous) transitive edges
+    // The idea is to add only those that span nodes with outdegree > 1
+    // so that I could possibly improve contiguity later
+    pub fn add_bridges_2(&mut self, aware_alignments:&HashMap<usize,Vec<AwareAlignment>>) -> usize {
+        self.clear_transitive_edges();
 
-    //     for alignments in aware_alignments.values() {
-    //         for (a_idx, a) in alignments.iter().enumerate().filter(|(_,a)| !a.is_ambiguous) {
-    //             for b in alignments[a_idx+1..].iter().skip(1).filter(|b| !b.is_ambiguous) {
-    //                 let mut tedge_key = EdgeKey::from_alignments(a, b);
-    //                 let was_canonical = tedge_key.canonicalize();
-    //                 let tedge = self.get_transitive_or_create(&tedge_key);
-    //                 tedge.nb_reads += 1;
-    //                 tedge.gaps.push((b.query_beg as i32) - (a.query_end as i32));
-    //                 if tedge.seq_desc.is_empty() && b.query_beg > a.query_end {
-    //                     let interval = SeqInterval{ tid: a.query_idx, beg: a.query_end, end: b.query_beg };
-    //                     let strand = if was_canonical { b'+' } else { b'-' };
-    //                     let aware_contig = AwareContig::new(SeqType::Read, interval, strand, 0);
-    //                     tedge.seq_desc.push(aware_contig);
-    //                 }
-    //             }
-    //         }
-    //     }
+        for alignments in aware_alignments.values() {
+            for (a_idx, a) in alignments.iter().enumerate().filter(|(_,a)| !a.is_ambiguous()) {
+                for b in alignments[a_idx+1..].iter().skip(1).filter(|b| !b.is_ambiguous()) {
+                    let mut tedge_key = EdgeKey::from_alignments(a, b);
+                    let was_canonical = tedge_key.canonicalize();
+                    let tedge = self.get_transitive_or_create(&tedge_key);
+                    tedge.nb_reads += 1;
+                    tedge.gaps.push((b.query_beg as i32) - (a.query_end as i32));
+                    if tedge.seq_desc.is_empty() && b.query_beg > a.query_end {
+                        let interval = SeqInterval{ tid: a.query_idx, beg: a.query_end, end: b.query_beg };
+                        let strand = if was_canonical { b'+' } else { b'-' };
+                        let aware_contig = AwareContig::new(SeqType::Read, interval, strand, 0);
+                        tedge.seq_desc.push(aware_contig);
+                    }
+                }
+            }
+        }
 
-    //     self.transitives.len()
-    // }
+        self.transitives.len()
+    }
 
     fn find_junctions(&self) -> Vec<Junction> {
         let mut visited: HashSet<(usize,u8)> = HashSet::new();
@@ -566,16 +577,15 @@ impl AwareGraph {
                 return false
             }
             if self.contains_edge(&edge_key) { // TODO: try to delete edge and resolve anyway
-                // eprintln!("edge {edge_key} already exists for {junc}");
-                return false
+                return false; // self.remove_biedge(&edge_key);
             }
         }
 
-        spdlog::trace!("Solving junction {junc}");
-        for key in &bridges {
-            let bridge = self.get_transitive(key).unwrap();
-            spdlog::trace!("  * {key} (reads: {}, SNVs:{})", bridge.nb_reads, bridge.min_shared_snvs);
-        }
+        // spdlog::trace!("Solving junction {junc}");
+        // for key in &bridges {
+        //     let bridge = self.get_transitive(key).unwrap();
+        //     spdlog::trace!("  * {key} (reads: {}, SNVs:{})", bridge.nb_reads, bridge.min_shared_snvs);
+        // }
 
         assert!(!bridge_paths.is_empty());
         self.resolve_bridge_paths(&bridge_paths);
