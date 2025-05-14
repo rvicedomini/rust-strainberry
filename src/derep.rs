@@ -57,7 +57,7 @@ fn compute_matching_intervals(fasta_path: &Path, opts: &Options) -> Result<HashM
 
         // let (query_beg, query_end) = if a.strand == b'+' { (a.query_beg,a.query_end) } else { (a.query_beg,a.query_length) };
         matching_intervals.entry(a.query_name.clone()).or_default().push((a.query_beg, a.query_end, a.target_name.clone()));
-        matching_intervals.entry(a.target_name).or_default().push((a.target_beg, a.target_length, a.query_name));
+        matching_intervals.entry(a.target_name).or_default().push((a.target_beg, a.target_end, a.query_name));
 
         // match map_type {
         //     MappingType::QueryContained => {
