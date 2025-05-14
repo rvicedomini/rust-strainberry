@@ -3,7 +3,7 @@ use std::thread;
 use std::path::Path;
 
 use itertools::Itertools;
-use rust_htslib::bam::{Reader, Read, IndexedReader, HeaderView};
+use rust_htslib::bam::{Read, IndexedReader};
 use rust_htslib::bam::record::Aux;
 
 use crate::cli::Options;
@@ -11,7 +11,7 @@ use crate::seq::{SeqDatabase, SeqInterval};
 use crate::alignment::SeqAlignment;
 
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct Misassembly(usize,usize); // target_index, target_position
 
 
@@ -54,9 +54,7 @@ pub fn partition_reference(bam_path: &Path, ref_db: &SeqDatabase, read_db: &SeqD
         .flat_map(|_| rx.recv().unwrap())
         .collect_vec();
 
-    let bam_reader = Reader::from_path(bam_path).unwrap();
-    let bam_header = bam_reader.header();
-    cluster_misassemblies(candidates, bam_header, opts)
+    cluster_misassemblies(candidates, ref_db, opts)
     
 }
 
@@ -180,7 +178,7 @@ fn misassemblies_from_alignments(alignments: &[AlignedBlock], read_length: usize
 }
 
 
-fn cluster_misassemblies(mut candidates: Vec<Misassembly>, bam_header: &HeaderView, opts: &Options) -> Vec<SeqInterval> {
+fn cluster_misassemblies(mut candidates: Vec<Misassembly>, ref_db: &SeqDatabase, opts: &Options) -> Vec<SeqInterval> {
 
     candidates.sort_unstable();
 
@@ -201,20 +199,23 @@ fn cluster_misassemblies(mut candidates: Vec<Misassembly>, bam_header: &HeaderVi
     }
 
     let mut intervals = vec![];
-    for (tid, target_clusters) in &clusters.into_iter().filter(|clust| clust.len() >= opts.min_alt_count).chunk_by(|clust| clust[0].0) {
-        let target_length = bam_header.target_len(tid as u32).unwrap() as usize;
+
+    for target_clusters in clusters.chunk_by_mut(|a,b| a[0].0 == b[0].0) {
+        let tid = target_clusters[0][0].0;
+        let tlen = ref_db.sequences[tid].len();
         let mut target_pos = 0;
-        for clust in target_clusters {
-            let Misassembly(_, me_beg) = clust.first().unwrap();
-            let Misassembly(_, me_end) = clust.last().unwrap();
-            let Misassembly(_, me_median_pos) = &clust[clust.len()/2];
-            // TODO: try splitting simply at median position, removing target[beg:end] could be too much?
-            if *me_median_pos >= opts.min_overhang && target_length-me_median_pos >= opts.min_overhang {
-                intervals.push(SeqInterval{ tid, beg: target_pos, end: *me_beg });
-                target_pos = *me_end;
+        for clu in target_clusters {
+            let Misassembly(_, pos_beg) = clu.first().unwrap();
+            let Misassembly(_, pos_end) = clu.last().unwrap();
+            let Misassembly(_, pos_med) = clu[clu.len()/2];
+            assert!(tlen >= pos_med);
+            if clu.len() >= opts.min_alt_count && pos_med > 100 && (tlen - pos_med) > 100 {
+                // TODO: try splitting simply at median position, removing target[beg:end] could be too much?
+                intervals.push(SeqInterval{ tid, beg: target_pos, end: *pos_beg });
+                target_pos = *pos_end;
             }
         }
-        intervals.push(SeqInterval { tid, beg: target_pos, end: target_length });
+        intervals.push(SeqInterval { tid, beg: target_pos, end: tlen });
     }
 
     intervals
