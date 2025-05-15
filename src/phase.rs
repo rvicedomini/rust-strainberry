@@ -574,12 +574,10 @@ impl<'a> Phaser<'a> {
             }
         }
 
-        let edges = edge_counter.iter()
+        edge_counter.iter()
             .filter(|&(_edge,&cnt)| cnt >= self.opts.min_alt_count) // && (cnt as f64) >= self.opts.min_alt_frac * (edge_total_obs as f64))
             .map(|(&edge,_cnt)| edge)
-            .collect_vec();
-
-        edges
+            .collect_vec()
     }
 
 }
