@@ -97,8 +97,6 @@ pub struct AwareAlignment {
     pub target_idx: usize,
     pub target_beg: usize,
     pub target_end: usize,
-    pub mapq: u8,
-    pub identity: f64,
     pub query_aln_beg: usize,
     pub query_aln_end: usize,
     pub mapping_type: MappingType,
@@ -204,7 +202,9 @@ pub fn map_sequences_to_aware_contigs(seq_alignments: &HashMap<usize,Vec<SeqAlig
 
     let mut read2aware = HashMap::new();
     for (read_idx, alignments) in seq_alignments {
-        let aware_alignments = map_alignments_to_aware_contigs(alignments, aware_contigs, seq2haplo);
+        let mut aware_alignments = map_alignments_to_aware_contigs(alignments, aware_contigs, seq2haplo);
+        aware_alignments.sort_unstable_by_key(|a| (a.query_aln_beg,a.query_beg));
+        let aware_alignments = merge_aware_alignments(aware_alignments, aware_contigs);
         let aware_alignments = filter_aware_alignments(aware_alignments, aware_contigs);
         read2aware.insert(*read_idx, aware_alignments);
     }
@@ -256,7 +256,8 @@ pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contig
             let mut nb_shared_snvs = 0;
             let mut dist = 0;
 
-            if ctg.is_phased() && seq2haplo.contains_key(&sa_id) {
+            if ctg.is_phased() {
+                debug_assert!(seq2haplo.contains_key(&sa_id));
                 if let Some(hit) = seq2haplo[&sa_id].iter().find(|hit| hit.hid == ctg.haplotype_id().unwrap()) {
                     nb_alt_matches = hit.nb_alt;
                     nb_shared_snvs = hit.nb_pos;
@@ -274,8 +275,6 @@ pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contig
                 target_idx: sa.target_index(),
                 target_beg: aware_target_beg,
                 target_end: aware_target_end,
-                mapq: sa.mapq(),
-                identity: sa.identity(),
                 query_aln_beg: sa.query_beg(),
                 query_aln_end: sa.query_end(),
                 mapping_type: maptype,
@@ -284,9 +283,7 @@ pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contig
                 nb_alt_matches,
             };
 
-            if (ctg.is_phased() && seq2haplo.contains_key(&sa_id)) || (!ctg.is_phased() && matches!(awa.mapping_type, MappingType::QueryContained|MappingType::ReferenceContained|MappingType::DovetailPrefix|MappingType::DovetailSuffix)) {
-                aware_alignments.push(awa);
-            }
+            aware_alignments.push(awa);
         }
     }
 
@@ -294,12 +291,43 @@ pub fn map_alignments_to_aware_contigs(alignments: &[SeqAlignment], aware_contig
 }
 
 
-pub fn filter_aware_alignments(mut aware_alignments: Vec<AwareAlignment>, aware_contigs: &mut [AwareContig]) -> Vec<AwareAlignment> {
-    aware_alignments.sort_unstable_by_key(|a| (a.query_aln_beg,a.query_beg));
+pub fn merge_aware_alignments(aware_alignments: Vec<AwareAlignment>, aware_contigs: &[AwareContig]) -> Vec<AwareAlignment> {
+
+    let mut merged_alignments: Vec<AwareAlignment> = Vec::with_capacity(aware_alignments.len());
+    for a in aware_alignments {
+        if let Some(last) = merged_alignments.last_mut() {
+            if a.aware_id == last.aware_id && a.strand == last.strand && ((a.strand == b'+' && last.target_beg < a.target_beg) || (a.strand != b'+' && a.target_beg < last.target_beg)) {
+                let ctg = aware_contigs[a.aware_id];
+                last.query_end = last.query_end.max(a.query_end);
+                last.target_beg = last.target_beg.min(a.target_beg);
+                last.target_end = last.target_end.max(a.target_end);
+                let query_range = if a.strand == b'+' { (a.query_beg, a.query_end, a.query_len) } else { (a.query_len-a.query_end, a.query_len-a.query_beg, a.query_len) };
+                let target_range = (last.target_beg-ctg.beg(), last.target_end-ctg.beg(), ctg.length());
+                // spdlog::trace!("ctg={}  qry={query_range:?} trg={target_range:?}", ctg.interval());
+                last.mapping_type = crate::alignment::classify_mapping(query_range, target_range, 100, 0.5);
+                last.dist += a.dist;
+                last.nb_shared_snvs += a.nb_shared_snvs;
+                last.nb_alt_matches = last.nb_alt_matches.max(a.nb_alt_matches);
+                continue
+            }
+        }
+        merged_alignments.push(a);
+    }
+
+    merged_alignments
+}
+
+
+pub fn filter_aware_alignments(aware_alignments: Vec<AwareAlignment>, aware_contigs: &mut [AwareContig]) -> Vec<AwareAlignment> {
+    let nb_alignments = aware_alignments.len();
     aware_alignments.into_iter()
-        .filter(|a| a.query_end - a.query_beg >= 1)
-        .inspect(|a| {
-            let ctg = &mut aware_contigs[a.aware_id];
-            ctg.aligned_bases += a.target_end - a.target_beg;
+        .enumerate()
+        .filter(|(_,awa)| awa.mapping_type.is_containment() || awa.mapping_type.is_dovetail())
+        .filter(|(_,awa)| awa.query_end - awa.query_beg >= 1)
+        .filter(|(i,awa)| (1..nb_alignments).contains(i) || 10 * awa.dist <= awa.nb_shared_snvs)
+        .map(|(_,awa)| {
+            let ctg = &mut aware_contigs[awa.aware_id];
+            ctg.aligned_bases += awa.target_end - awa.target_beg;
+            awa
         }).collect()
 }
