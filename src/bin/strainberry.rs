@@ -139,25 +139,6 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     let read_alignments = alignment::load_bam_alignments(&bam_path, &ref_db, &read_db, &opts);
 
     if opts.no_phase {
-
-        let mut aware_contigs = strainberry::awarecontig::build_aware_contigs(&ref_intervals, &HashMap::new(), opts.min_aware_ctg_len);
-        let read2aware = strainberry::awarecontig::map_sequences_to_aware_contigs(&read_alignments, &mut aware_contigs, &HashMap::new());
-
-        let graphs_dir = output_dir.join("40-graphs");
-        fs::create_dir_all(graphs_dir.as_path()).with_context(|| format!("Cannot create graphs directory: \"{}\"", graphs_dir.display()))?;
-        
-        let mut aware_graph = graph::AwareGraph::build(&aware_contigs);
-        aware_graph.add_edges_from_aware_alignments(&read2aware);
-        aware_graph.write_gfa(graphs_dir.join("backbone.raw.gfa"), &ref_db)?;
-
-        aware_graph.add_bridges(&read2aware);
-        aware_graph.remove_weak_edges(opts.min_alt_count);
-        aware_graph.remove_weak_transitive_biedges();
-        aware_graph.write_gfa(graphs_dir.join("backbone.gfa"), &ref_db)?;
-
-        aware_graph.resolve_junctions(opts.min_alt_count);
-        aware_graph.write_gfa(graphs_dir.join("backbone.resolved.gfa"), &ref_db)?;
-
         return Ok(());
     }
 
@@ -246,8 +227,9 @@ fn run_pipeline(mut opts: cli::Options) -> anyhow::Result<(), anyhow::Error> {
     aware_graph.write_gfa(graphs_dir.join("aware_graph.raw.gfa"), &ref_db)?;
 
     spdlog::info!("Strain-aware graph resolution");
-    aware_graph.add_bridges_2(&read2aware);
+    aware_graph.remove_self_loops();
     aware_graph.remove_weak_edges(opts.min_alt_count);
+    aware_graph.add_bridges_2(&read2aware);
     aware_graph.remove_weak_transitive_biedges();
     aware_graph.write_gfa(graphs_dir.join("aware_graph.gfa"), &ref_db)?;
     

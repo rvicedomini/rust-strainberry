@@ -248,6 +248,19 @@ impl AwareGraph {
             || self.successors(node_id, b'-').any(|(succ_id,_)| succ_id == node_id)
     }
 
+    pub fn remove_self_loops(&mut self) {
+        let loop_edges = self.edges.keys()
+            .filter(|key| {
+                let (src_id,src_dir,dst_id,dst_dir) = key.unpack();
+                let src_deg = self.node_degree(src_id, src_dir);
+                let dst_deg = self.node_degree(dst_id, dst_dir);
+                src_id == dst_id && src_dir != dst_dir && (src_deg != 1 || dst_deg != 1)
+            })
+            .cloned()
+            .collect_vec();
+        self.remove_biedges_from(&loop_edges);
+    }
+
     pub fn remove_weak_edges(&mut self, min_reads:usize) {
 
         let weak_edges = self.edges.values()
@@ -255,10 +268,11 @@ impl AwareGraph {
                 let edge = self.get_biedge_idx(edge_id);
                 if edge.nb_reads < min_reads {
                     // return Some(&edge.key)
-                    // delete only edges that would not disconnect another node
-                    let a_degree = self.node_degree(edge.key.src_id(), edge.key.src_dir());
-                    let b_degree = self.node_degree(edge.key.dst_id(), edge.key.dst_dir());
-                    if a_degree != 1 && b_degree != 1  {
+                    // delete only edges that would not disconnect the graph
+                    let (src_id,src_dir,dst_id,dst_dir) = edge.key.unpack();
+                    let do_delete = self.edges_from(src_id, src_dir).any(|key| self.get_biedge(key).unwrap().nb_reads >= min_reads)
+                        && self.edges_from(dst_id, dst_dir).any(|key| self.get_biedge(key).unwrap().nb_reads >= min_reads);
+                    if do_delete {
                         return Some(&edge.key)
                     }
                 }
@@ -347,15 +361,16 @@ impl AwareGraph {
         spdlog::debug!("{nb_bridges} read bridges added");
     }
 
-    // TODO: the current implementation add all possible (non-ambiguous) transitive edges
-    // The idea is to add only those that span nodes with outdegree > 1
-    // so that I could possibly improve contiguity later
     pub fn add_bridges_2(&mut self, aware_alignments:&HashMap<usize,Vec<AwareAlignment>>) -> usize {
         self.clear_transitive_edges();
-
         for alignments in aware_alignments.values() {
-            for (a_idx, a) in alignments.iter().enumerate().filter(|(_,a)| !a.is_ambiguous()) {
-                for b in alignments[a_idx+1..].iter().skip(1).filter(|b| !b.is_ambiguous()) {
+            let chunks = alignments.chunk_by(|a,b| a.aware_id == b.aware_id && a.strand == b.strand).collect_vec();
+            for (a_idx, a) in chunks.iter().enumerate() {
+                let a = a.last().unwrap();
+                if a.is_ambiguous() { continue }
+                for b in chunks[a_idx+1..].iter().skip(1) {
+                    let b = b.first().unwrap();
+                    if b.is_ambiguous() { continue }
                     let mut tedge_key = EdgeKey::from_alignments(a, b);
                     let was_canonical = tedge_key.canonicalize();
                     let tedge = self.get_transitive_or_create(&tedge_key);
@@ -464,11 +479,6 @@ impl AwareGraph {
 
     fn resolve_junction(&mut self, junc:&Junction, min_reads:usize, num_iter:usize) -> bool {
 
-        // resolve only junctions between phased sequences
-        // if junc.inout_nodes().any(|node_id| !self.nodes[&node_id].ctg.is_phased()) {
-        //     return false
-        // }
-
         // first check if it is still a valid junction
         if junc.inputs().any(|(node_id,_)| !self.nodes.contains_key(&node_id)) || junc.outputs().any(|(node_id,_)| !self.nodes.contains_key(&node_id)) {
             return false
@@ -494,31 +504,9 @@ impl AwareGraph {
         let ndeg: HashMap<usize, usize> = crate::utils::counter_from_iter(bridges.iter().flat_map(|key| [key.src_id(), key.dst_id()]));
 
         let is_fully_covered = junc.inout_nodes().all(|n| ndeg.get(&n).is_some_and(|c| *c > 0));
-        // let is_strictly_covered = is_fully_covered && bridges.iter().all(|key| {
-        //     ndeg.get(&key.id_from).is_some_and(|c| *c == 1) || ndeg.get(&key.id_to).is_some_and(|c| *c == 1)
-        // });
-
         if !is_fully_covered {
-            // if !bridges.is_empty() {
-            //     spdlog::debug!("Uncovered junction {junc}");
-            //     for key in &bridges {
-            //         let bridge = self.get_transitive(key).unwrap();
-            //         spdlog::debug!("  * {key} (reads: {}, SNVs:{})", bridge.nb_reads, bridge.min_shared_snvs);
-            //     }
-            // }
-            // self.remove_transitives_from(&bridges);
             return false
         }
-
-        // if is_fully_covered && !is_strictly_covered {
-        //     if !bridges.is_empty() {
-        //         spdlog::debug!("Junction not strictly covered: {junc}");
-        //         for key in &bridges {
-        //             let bridge = self.get_transitive(key).unwrap();
-        //             spdlog::debug!("  * {key} (reads: {}, SNVs:{})", bridge.nb_reads, bridge.min_shared_snvs);
-        //         }
-        //     }
-        // }
 
         // remove low-weight edges while keeping the junction fully covered
         bridges.sort_by_key(|key| -(self.get_transitive(key).unwrap().nb_reads as i32));
@@ -534,26 +522,6 @@ impl AwareGraph {
                 break
             }
         }
-
-        // if is_fully_covered && !is_strictly_covered {
-        //     if !bridges.is_empty() {
-        //         spdlog::debug!("Solving with:");
-        //         for key in &bridges {
-        //             let bridge = self.get_transitive(key).unwrap();
-        //             spdlog::debug!("  * {key} (reads: {}, SNVs:{})", bridge.nb_reads, bridge.min_shared_snvs);
-        //         }
-        //     }
-        // }
-
-        // if !is_strictly_covered {
-        //     // try remove low-weight edges and see if it becomes strictly covered.
-        //     bridges.retain(|key| self.get_transitive(key).is_some_and(|e| e.observations >= min_reads));
-        //     let ndeg: HashMap<usize, usize> = crate::utils::counter_from_iter(bridges.iter().flat_map(|key| [key.id_from,key.id_to]));
-        //     if junc.inout_nodes().any(|n| ndeg.get(&n).is_none_or(|c| *c == 0)) {
-        //         self.remove_transitives_from(&bridges);
-        //         return false
-        //     }
-        // }
 
         let mut bridge_paths = vec![];
         for bridge in &bridges {
@@ -576,8 +544,8 @@ impl AwareGraph {
             if path.iter().any(|edge_key| !self.contains_edge(edge_key)) {
                 return false
             }
-            if self.contains_edge(&edge_key) { // TODO: try to delete edge and resolve anyway
-                return false; // self.remove_biedge(&edge_key);
+            if self.contains_edge(&edge_key) {
+                self.remove_biedge(&edge_key); // return false;
             }
         }
 
