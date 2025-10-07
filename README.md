@@ -7,13 +7,13 @@ Strainberry2 is the new and improved version of Strainberry. It is conceived to 
 
 Strainberry has been developed and tested under a Linux environment.
 
-### Prerequisites
+### System prerequisites
 
-- Rust >= 1.82
+- Rust compiler >= 1.82
 
 ### Software dependencies
 
-Strainberry2 requires the following two bioinformatics tool to be available in the system:
+Strainberry2 requires the following bioinformatics tool to be available in the system:
 - samtools >= 1.15
 - minimap2 >= 2.27
 
@@ -25,20 +25,18 @@ Clone the repository:
 git clone https://github.com/rvicedomini/rust-strainberry.git
 ```
 
-To build the executable:
+To build and install the `strainberry2` executable in your system:
 
 ```
-cd rust-strainberry && RUSTFLAGS="-C target-cpu=native" cargo build --release
+cd rust-strainberry
+cargo install --path .
 ```
-
-The `strainberry2` executable will be available in the directory `./target/release/`
-
 
 ## Quick usage
 
 Strainberry2 requires two input files:
-- **A reference assembly**, which could be provided in either FASTA or GFA format.
-- **A set of long reads**, possibly in FASTQ format (FASTA is accepted but providing quality values might improve final assembly, especially with ONT data)
+- **A set of long reads**, possibly in FASTQ format (FASTA is accepted but providing quality values might improve final assembly, especially with ONT R10 data).
+- **A reference assembly**, which could be provided in either FASTA or GFA format. Consider using a strain-oblivious assembler such as metaMDBG or metaFlye to generate such input. 
 
 All input files could be provided either uncompressed or gzipped.
 
