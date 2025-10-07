@@ -2,7 +2,7 @@ use clap::{Parser, ValueEnum};
 
 #[derive(Parser)]
 #[command(version)]
-#[command(about = "HiFi-Strainberry: Strain-aware assembly with high-quality long reads", long_about = None)]
+#[command(about = "Strainberry2: Strain-aware metagenome assembly with accurate long reads", long_about = None)]
 pub struct Options {
 
     /// Input HiFi reads

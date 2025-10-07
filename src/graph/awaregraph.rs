@@ -238,7 +238,7 @@ impl AwareGraph {
             .filter(move |&key| key.src_dir() == dir)
     }
 
-    fn successors(&self, node_id:usize, dir:u8) -> impl Iterator<Item = (usize,u8)> {
+    fn successors(&self, node_id:usize, dir:u8) -> impl Iterator<Item = (usize,u8)> + use<'_> {
         self.edges_from(node_id, dir)
             .map(|edge_key| edge_key.dst())
     }

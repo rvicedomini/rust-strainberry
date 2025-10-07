@@ -265,7 +265,7 @@ impl SeqAlignment {
         alignments
     }
 
-    pub fn aligned_blocks(&self) -> IterAlignedBlocks {
+    pub fn aligned_blocks(&self) -> IterAlignedBlocks<'_> {
         IterAlignedBlocks {
             query_pos: self.query_beg(),
             target_pos: self.target_beg(),

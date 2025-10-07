@@ -30,20 +30,20 @@ impl Junction {
         self.out_edges.len()
     }
 
-    pub fn input_nodes(&self) -> impl Iterator<Item = usize> {
+    pub fn input_nodes(&self) -> impl Iterator<Item = usize> + use<'_> {
         self.in_edges.iter().map(|key| key.dst_id())
     }
 
-    pub fn inner_nodes(&self) -> impl Iterator<Item = usize> {
+    pub fn inner_nodes(&self) -> impl Iterator<Item = usize> + use<'_> {
         std::iter::once(self.in_edges[0].src_id())
             .chain(self.mid_edges.iter().map(|key| key.dst_id()))
     }
 
-    pub fn output_nodes(&self) -> impl Iterator<Item = usize> {
+    pub fn output_nodes(&self) -> impl Iterator<Item = usize> + use<'_> {
         self.out_edges.iter().map(|key| key.dst_id())
     }
 
-    pub fn inout_nodes(&self) -> impl Iterator<Item = usize> {
+    pub fn inout_nodes(&self) -> impl Iterator<Item = usize> + use<'_> {
         self.input_nodes().chain(self.output_nodes())
     }
 
@@ -55,11 +55,11 @@ impl Junction {
         self.out_edges[0].src_dir()
     }
 
-    pub fn inputs(&self) -> impl Iterator<Item = (usize,u8)> {
+    pub fn inputs(&self) -> impl Iterator<Item = (usize,u8)> + use<'_> {
         self.in_edges.iter().map(|key| key.dst())
     }
 
-    pub fn outputs(&self) -> impl Iterator<Item = (usize,u8)> {
+    pub fn outputs(&self) -> impl Iterator<Item = (usize,u8)> + use<'_> {
         self.out_edges.iter().map(|key| key.dst())
     }
 

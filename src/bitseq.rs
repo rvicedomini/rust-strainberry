@@ -13,7 +13,7 @@ impl BitSeq {
     #[inline(always)]
     pub fn from_utf8(seq: &[u8]) -> Self {
         let len = seq.len();
-        let nb_bytes = (len/4) + (len%4 != 0) as usize;
+        let nb_bytes = (len/4) + (!len.is_multiple_of(4)) as usize;
         let mut data = vec![0u8;nb_bytes];
 
         for (i,bp) in seq.iter().enumerate() {
