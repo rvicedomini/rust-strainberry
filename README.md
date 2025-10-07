@@ -5,15 +5,17 @@ Strainberry2 is the new and improved version of Strainberry. It is conceived to 
 
 ## Installation
 
+Strainberry has been developed and tested under a Linux environment.
+
 ### Prerequisites
 
 - Rust >= 1.82
 
 ### Software dependencies
 
-Strainberry2 needs the following two bioinformatics tool to be available:
-- samtools (tested with version 1.15)
-- minimap2 (tested with version 2.28)
+Strainberry2 requires the following two bioinformatics tool to be available in the system:
+- samtools >= 1.15
+- minimap2 >= 2.27
 
 ### Build from source
 
@@ -34,9 +36,9 @@ The `strainberry2` executable will be available in the directory `./target/relea
 
 ## Quick usage
 
-Strainberry2 requires only two input files:
-- A reference assembly, which could be provided in either FASTA or GFA format.
-- A set of long reads in FASTQ or FASTA format.
+Strainberry2 requires two input files:
+- **A reference assembly**, which could be provided in either FASTA or GFA format.
+- **A set of long reads**, possibly in FASTQ format (FASTA is accepted but providing quality values might improve final assembly, especially with ONT data)
 
 All input files could be provided either uncompressed or gzipped.
 
@@ -57,10 +59,20 @@ Coming soon...
 
 ## Output files
 
-The strain-aware output assembly is written in the `assembly.fasta` file in inside the output directory provided with the `--out-dir` parameter. Moreover, an assembly graph (in GFA format) is written in the `assembly.gfa` file.
+The strain-aware output assembly is written in the `assembly.fasta` file in inside the output directory provided with the `--out-dir` parameter. A corresponding assembly graph in GFA format is also available in the `assembly.gfa` file.
 
 ## Example
 
-Coming soon...
+In order to verify that Strainberry2 has been correctly installed, it is possible to test it on a tiny dataset in the `example` sub-directory.
+
+Given a strain-oblivious assembly (e.g., file `assembly.fa.gz`) and a collection of accurate ONT reads (e.g., file `reads.fa.gz`), it is possible to run Strainberry2 using 4 threads as follows:
+
+```
+cd example
+strainberry2 --in-ont reads.fa.gz -r assembly.fa.gz -o output -t 4
+```
+
+If everything worked as expected, you will find the strain-aware assembly `assembly.fasta` and the corresponding strain-aware assembly graph `assembly.gfa` in the `output` directory. Both files should contain 5 contigs, one for each of the 5 *Escherichia coli* strain sequences present in the input data. 
+
 
 
