@@ -17,6 +17,13 @@ Strainberry2 requires the following bioinformatics tool to be available in the s
 - samtools >= 1.15
 - minimap2 >= 2.27
 
+A simple way to install these dependencies would be to create a conda environment `strainberry2` as follows:
+```
+conda create -n strainberry2 -c bioconda 'samtools>=1.15' 'minimap2>=2.27'
+```
+
+Then to run  
+
 ### Build from source
 
 Clone the repository:
@@ -35,8 +42,8 @@ cargo install --path .
 ## Quick usage
 
 Strainberry2 requires two input files:
-- **A set of long reads**, possibly in FASTQ format (FASTA is accepted but providing quality values might improve final assembly, especially with ONT R10 data).
-- **A reference assembly**, which could be provided in either FASTA or GFA format. Consider using a strain-oblivious assembler such as metaMDBG or metaFlye to generate such input. 
+- **A set of long reads**, preferably in FASTQ format as base qualities are used.
+- **A reference assembly**, in either FASTA or GFA format. Consider using a strain-oblivious assembler such as metaMDBG or metaFlye to generate such input. 
 
 All input files could be provided either uncompressed or gzipped.
 
