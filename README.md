@@ -70,7 +70,9 @@ cd example
 strainberry2 --in-ont reads.fa.gz -r assembly.fa.gz -o output -t 4
 ```
 
-If everything worked as expected, you will find the strain-aware assembly `assembly.fasta` and the corresponding strain-aware assembly graph `assembly.gfa` in the `output` directory. Both files should contain 5 contigs, one for each of the 5 *Escherichia coli* strain sequences present in the input data. 
+If everything worked as expected, you will find the strain-aware assembly `assembly.fasta` and the corresponding strain-aware assembly graph `assembly.gfa` in the `output` directory. Both files should contain 5 contigs. Each one of them corresponds to the 5 *Escherichia coli* strain sequences present in the input data and collapsed in the input single-contig assembly. 
 
+## Citation
 
+A preprint will be available soon.
 
