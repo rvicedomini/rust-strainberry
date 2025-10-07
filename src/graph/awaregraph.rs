@@ -755,6 +755,7 @@ impl AwareGraph {
             if !opts.keep_temp {
                 std::fs::remove_file(&target_path)?;
                 std::fs::remove_file(&read_path)?;
+                std::fs::remove_dir(&tmp_dir)?;
             }
         }
         
