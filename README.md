@@ -60,10 +60,6 @@ To run Strainberry2 with **PacBio HiFi** reads using 8 threads:
 strainberry2 --in-hifi reads.fastq.gz -r assembly.fasta --out-dir output -t 8
 ```
 
-## Output files
-
-The strain-aware output assembly is written in the `assembly.fasta` file in inside the output directory provided with the `--out-dir` parameter. A corresponding assembly graph in GFA format is also available in the `assembly.gfa` file.
-
 ### Other useful parameters
 
 The following is a list of parameters that you might want to tune.
@@ -73,6 +69,10 @@ The full list is available running `strainberry2 --help`, which also shows all d
 - `--min-snv <NUM>`: minimum number of phased SNVs to retain a haplotype
 - `--min-alt-count <NUM>`: minimum number of alternative-allele observations
 - `--min-alt-frac <FLOAT>`: minimum fraction of alternative-allele observations
+
+## Output files
+
+The strain-aware output assembly is written in the `assembly.fasta` file in inside the output directory provided with the `--out-dir` parameter. A corresponding assembly graph in GFA format is also available in the `assembly.gfa` file.
 
 ## Example
 
