@@ -11,19 +11,6 @@ Strainberry has been developed and tested under a Linux environment.
 
 - Rust compiler >= 1.82
 
-### Software dependencies
-
-Strainberry2 requires the following bioinformatics tool to be available in the system:
-- samtools >= 1.15
-- minimap2 >= 2.27
-
-A simple way to install these dependencies would be to create a conda environment `strainberry2` as follows:
-```
-conda create -n strainberry2 -c bioconda 'samtools>=1.15' 'minimap2>=2.27'
-```
-
-Then to run  
-
 ### Build from source
 
 Clone the repository:
@@ -37,6 +24,22 @@ To build and install the `strainberry2` executable in your system:
 ```
 cd rust-strainberry
 cargo install --path .
+```
+
+### Software dependencies
+
+Strainberry2 requires the following bioinformatics tool to be available in the system:
+- samtools >= 1.15
+- minimap2 >= 2.27
+
+A simple way to install these dependencies would be to create a conda environment `strainberry2` as follows:
+```
+conda create -n strainberry2 -c bioconda 'samtools>=1.15' 'minimap2>=2.27'
+```
+
+Then to run strainberry2:
+```
+conda run -n strainberry2 strainberry2 [OPTIONS] --reference <PATH> --out-dir <PATH>
 ```
 
 ## Quick usage
@@ -57,10 +60,8 @@ To run Strainberry2 with **PacBio HiFi** reads using 8 threads:
 strainberry2 --in-hifi reads.fastq.gz -r assembly.fasta --out-dir output -t 8
 ```
 
+### Other useful parameters
 
-## Advanced usage
-
-Coming soon...
 
 ## Output files
 
